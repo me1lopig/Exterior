@@ -1,6 +1,6 @@
 # Exterior
 
-**Aplicaciones web para ingeniería geotécnica** desarrolladas con **Streamlit** y Python. Este repositorio contiene herramientas especializadas para el análisis y diseño de cimentaciones, orientadas a su despliegue en entornos académicos y profesionales.
+**Aplicaciones web para ingeniería geotécnica** desarrolladas con **Streamlit** y Python. Este repositorio contiene herramientas especializadas para el análisis y diseño de cimentaciones, orientadas a su despliegue en entornos académicos y de testeo.
 
 ---
 
