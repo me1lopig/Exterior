@@ -14,6 +14,7 @@ st.set_page_config(page_title="Cálculo de Pilotes - CTE DB-SE-C", layout="wide"
 
 st.title("🏢 Diseño de Pilotes CTE DB-SE-C")
 st.markdown("Cálculo de cimentaciones profundas según el Documento Básico SE-C del Código Técnico de la Edificación.")
+st.markdown("Versión académica sin testear")
 st.markdown("Según directiva ITQ404")
 
 # ══════════════════════════════════════════════════════════════════════════
