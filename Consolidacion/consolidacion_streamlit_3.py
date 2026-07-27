@@ -16,15 +16,15 @@ try:
 except AttributeError:
     warnings.simplefilter('ignore', np.RankWarning)
 
-st.set_page_config(page_title="ConsolidaciÛn 1D", layout="wide")
-st.title("Modelo de ConsolidaciÛn 1D para carga extensa")
+st.set_page_config(page_title="Consolidaci√≥n 1D", layout="wide")
+st.title("Modelo de Consolidaci√≥n 1D para carga extensa")
 
-# --- FunciÛn de Seguridad (Callback) ---
+# --- Funci√≥n de Seguridad (Callback) ---
 def reset_estado():
     st.session_state.calculado = False
     st.session_state.docs_generados = False
 
-# --- Inicializar memoria y par·metros por defecto ---
+# --- Inicializar memoria y par√°metros por defecto ---
 if 'calculado' not in st.session_state:
     st.session_state.calculado = False
 if 'docs_generados' not in st.session_state:
@@ -33,7 +33,7 @@ if 'docs_generados' not in st.session_state:
 default_params = {
     'longitud': 10.0, 'Ti': 100.0, 'c': 0.05, 'mv': 0.0002,
     'h': 1.0, 'k': 1.0, 'max_U_pct': 95.0, 'intervalo_dias_curvas': 10.0,
-    'tipo_calculo': 1, 'metodo_numerico': "ExplÌcito "
+    'tipo_calculo': 1, 'metodo_numerico': "Expl√≠cito "
 }
 
 for key, val in default_params.items():
@@ -41,8 +41,8 @@ for key, val in default_params.items():
         st.session_state[key] = val
 
 # --- PANEL LATERAL ---
-st.sidebar.header("?? GestiÛn de Perfiles")
-uploaded_file = st.sidebar.file_uploader("Cargar ConfiguraciÛn (.json)", type=["json"], on_change=reset_estado)
+st.sidebar.header("?? Gesti√≥n de Perfiles")
+uploaded_file = st.sidebar.file_uploader("Cargar Configuraci√≥n (.json)", type=["json"], on_change=reset_estado)
 if uploaded_file is not None:
     try:
         loaded_params = json.load(uploaded_file)
@@ -54,22 +54,22 @@ if uploaded_file is not None:
     except Exception:
         st.sidebar.error("Error al leer el archivo JSON.")
 
-st.sidebar.header("Par·metros de Entrada")
+st.sidebar.header("Par√°metros de Entrada")
 longitud = st.sidebar.number_input("Espesor del estrato [m]", min_value=0.1, step=0.5, key='longitud', on_change=reset_estado)
 Ti = st.sidebar.number_input("Carga exterior (Ti) [kPa]", min_value=1.0, step=10.0, key='Ti', on_change=reset_estado)
 T0 = 0.0
 TL = 0.0
 
-c = st.sidebar.number_input("Coef. consolidaciÛn (Cv) [m2/dÌa]", min_value=1e-8, format="%.5e", key='c', on_change=reset_estado)
+c = st.sidebar.number_input("Coef. consolidaci√≥n (Cv) [m2/d√≠a]", min_value=1e-8, format="%.5e", key='c', on_change=reset_estado)
 mv = st.sidebar.number_input("Coef. compresibilidad vol. (mv) [m2/kN]", min_value=1e-8, format="%.5e", key='mv', on_change=reset_estado)
 
-st.sidebar.header("Datos del Mallado y VisualizaciÛn")
+st.sidebar.header("Datos del Mallado y Visualizaci√≥n")
 h = st.sidebar.number_input("Incremento de x (h) [m]", min_value=0.01, step=0.1, key='h', on_change=reset_estado)
-k = st.sidebar.number_input("Incremento de t (k) [dÌas]", min_value=0.01, step=0.5, key='k', on_change=reset_estado)
-max_U_pct = st.sidebar.slider("M·ximo grado de consolidaciÛn a calcular [%]",
+k = st.sidebar.number_input("Incremento de t (k) [d√≠as]", min_value=0.01, step=0.5, key='k', on_change=reset_estado)
+max_U_pct = st.sidebar.slider("M√°ximo grado de consolidaci√≥n a calcular [%]",
                               min_value=10.0, max_value=99.9, key='max_U_pct', on_change=reset_estado)
 
-intervalo_dias_curvas = st.sidebar.number_input("Mostrar isÛcronas cada (dÌas):",
+intervalo_dias_curvas = st.sidebar.number_input("Mostrar is√≥cronas cada (d√≠as):",
                                                  min_value=0.1, step=1.0, key='intervalo_dias_curvas', on_change=reset_estado)
 
 tipo_calculo = st.sidebar.selectbox(
@@ -82,34 +82,34 @@ tipo_calculo = st.sidebar.selectbox(
 str_contorno = {1: "Doble Drenaje", 2: "Drenaje Superior", 3: "Drenaje Inferior"}[tipo_calculo]
 
 metodo_numerico = st.sidebar.radio(
-    "Motor NumÈrico",
-    options=["ExplÌcito ", "ImplÌcito"],
+    "Motor Num√©rico",
+    options=["Expl√≠cito ", "Impl√≠cito"],
     key='metodo_numerico', on_change=reset_estado
 )
 
 perfil_actual = {key: st.session_state[key] for key in default_params.keys()}
 st.sidebar.download_button(
-    label="?? Guardar ConfiguraciÛn (.json)",
+    label="?? Guardar Configuraci√≥n (.json)",
     data=json.dumps(perfil_actual, indent=4),
     file_name="perfil_consolidacion.json",
     mime="application/json"
 )
 
-# --- PESTA—AS ---
-tab_simulacion, tab_datos, tab_teoria = st.tabs(["??? SimulaciÛn y Resultados", "?? Datos Tabulados", "?? Fundamento TeÛrico"])
+# --- PESTA√ëAS ---
+tab_simulacion, tab_datos, tab_teoria = st.tabs(["??? Simulaci√≥n y Resultados", "?? Datos Tabulados", "?? Fundamento Te√≥rico"])
 
 # ==========================================
-# PESTA—A 1: SIMULACI”N
+# PESTA√ëA 1: SIMULACI√ìN
 # ==========================================
 with tab_simulacion:
 
-    if st.button("?? Iniciar C·lculo del Modelo", type="primary"):
+    if st.button("?? Iniciar C√°lculo del Modelo", type="primary"):
         s_max = longitud * mv * Ti
         permeabilidad = c * mv * 10
         alfa = c * k / (h**2)
 
-        if metodo_numerico == "ExplÌcito " and alfa > 0.5:
-            st.error(f"Error: El mÈtodo explÌcito no es convergente para alpha={alfa:.3f} (debe ser = 0.5). Reduce el incremento temporal 'k', aumenta 'h', o cambia al MÈtodo ImplÌcito.")
+        if metodo_numerico == "Expl√≠cito " and alfa > 0.5:
+            st.error(f"Error: El m√©todo expl√≠cito no es convergente para alpha={alfa:.3f} (debe ser = 0.5). Reduce el incremento temporal 'k', aumenta 'h', o cambia al M√©todo Impl√≠cito.")
             st.session_state.calculado = False
         else:
             nx = int(np.floor(longitud / h))
@@ -126,7 +126,7 @@ with tab_simulacion:
             t = 0.0
             progreso = st.progress(0)
 
-            if metodo_numerico == "ImplÌcito":
+            if metodo_numerico == "Impl√≠cito":
                 A = np.zeros((nx + 1, nx + 1))
                 for i in range(1, nx):
                     A[i, i-1] = -alfa
@@ -253,8 +253,8 @@ with tab_simulacion:
                         break
 
             progreso.empty()
-            st.success(f"C·lculos completados exitosamente en {t:.1f} dÌas usando el motor {metodo_numerico.split(' ')[0]}.")
-            st.info(f"Para un grado de consolidaciÛn de **{hist_U[-1]:.2f} %**, el asiento es **{hist_S[-1]:.2f} cm**.")
+            st.success(f"C√°lculos completados exitosamente en {t:.1f} d√≠as usando el motor {metodo_numerico.split(' ')[0]}.")
+            st.info(f"Para un grado de consolidaci√≥n de **{hist_U[-1]:.2f} %**, el asiento es **{hist_S[-1]:.2f} cm**.")
 
             historial_isocronas = [(0.0, hist_presiones_completas[0][1])]
             tiempo_objetivo = intervalo_dias_curvas
@@ -290,7 +290,7 @@ with tab_simulacion:
         factor_tiempo = res['hist_t'] * res['c'] / (res['longitud']**2)
 
         st.markdown("---")
-        st.subheader("Gr·ficas Interactivas de Resultados")
+        st.subheader("Gr√°ficas Interactivas de Resultados")
 
         col1, col2 = st.columns(2)
 
@@ -318,8 +318,8 @@ with tab_simulacion:
                     hoverinfo='name+x+y'
                 ))
             fig_iso.update_layout(
-                title=f"PresiÛn de poro (cada {res['intervalo_dias']} dÌas)",
-                xaxis_title="PresiÛn de poro [kPa]",
+                title=f"Presi√≥n de poro (cada {res['intervalo_dias']} d√≠as)",
+                xaxis_title="Presi√≥n de poro [kPa]",
                 yaxis_title="Profundidad [m]",
                 yaxis=dict(autorange="reversed")
             )
@@ -329,7 +329,7 @@ with tab_simulacion:
             fig_S_t.add_trace(go.Scatter(x=res['hist_t'], y=res['hist_S'], mode='lines', line=dict(color='red')))
             fig_S_t.update_layout(
                 title="Asientos vs Tiempo",
-                xaxis_title="Tiempo [dÌas]",
+                xaxis_title="Tiempo [d√≠as]",
                 yaxis_title="Asientos [cm]",
                 yaxis=dict(autorange="reversed")
             )
@@ -338,9 +338,9 @@ with tab_simulacion:
             fig_U_t = go.Figure()
             fig_U_t.add_trace(go.Scatter(x=res['hist_t'], y=res['hist_U'], mode='lines', line=dict(color='brown')))
             fig_U_t.update_layout(
-                title="Grado de ConsolidaciÛn vs Tiempo",
-                xaxis_title="Tiempo [dÌas]",
-                yaxis_title="Grado de ConsolidaciÛn [%]",
+                title="Grado de Consolidaci√≥n vs Tiempo",
+                xaxis_title="Tiempo [d√≠as]",
+                yaxis_title="Grado de Consolidaci√≥n [%]",
                 yaxis=dict(autorange="reversed")
             )
             st.plotly_chart(fig_U_t, use_container_width=True)
@@ -350,16 +350,16 @@ with tab_simulacion:
             fig_Q_t.add_trace(go.Scatter(x=res['hist_t'], y=res['hist_Q'], mode='lines', line=dict(color='green')))
             fig_Q_t.update_layout(
                 title="Caudal vs Tiempo",
-                xaxis_title="Tiempo [dÌas]",
-                yaxis_title="Caudal [m3/dÌa/m2]"
+                xaxis_title="Tiempo [d√≠as]",
+                yaxis_title="Caudal [m3/d√≠a/m2]"
             )
             st.plotly_chart(fig_Q_t, use_container_width=True)
 
             fig_S_U = go.Figure()
             fig_S_U.add_trace(go.Scatter(x=res['hist_U'], y=res['hist_S'], mode='lines', line=dict(color='orange')))
             fig_S_U.update_layout(
-                title="Asientos vs Grado de ConsolidaciÛn",
-                xaxis_title="Grado de ConsolidaciÛn [%]",
+                title="Asientos vs Grado de Consolidaci√≥n",
+                xaxis_title="Grado de Consolidaci√≥n [%]",
                 yaxis_title="Asientos [cm]",
                 yaxis=dict(autorange="reversed")
             )
@@ -368,16 +368,16 @@ with tab_simulacion:
             fig_U_Tv = go.Figure()
             fig_U_Tv.add_trace(go.Scatter(x=factor_tiempo, y=res['hist_U'], mode='lines', line=dict(color='purple')))
             fig_U_Tv.update_layout(
-                title="Grado ConsolidaciÛn vs Factor Tiempo",
+                title="Grado Consolidaci√≥n vs Factor Tiempo",
                 xaxis_title="Factor Tiempo (Tv)",
-                yaxis_title="Grado de ConsolidaciÛn [%]",
+                yaxis_title="Grado de Consolidaci√≥n [%]",
                 xaxis_type="log",
                 yaxis=dict(autorange="reversed")
             )
             st.plotly_chart(fig_U_Tv, use_container_width=True)
 
         st.markdown("---")
-        st.subheader("GeneraciÛn de Documentos")
+        st.subheader("Generaci√≥n de Documentos")
 
         if st.button("?? Generar Informes (Word y Excel)"):
             with st.spinner("Creando documentos..."):
@@ -399,7 +399,7 @@ with tab_simulacion:
                     else:
                         ax.plot(u_iso, res['x'], color=cmap_w(i / max(1, num_iso_w - 1)), alpha=0.7)
                 ax.invert_yaxis()
-                ax.set_title("PresiÛn de poro")
+                ax.set_title("Presi√≥n de poro")
                 save_plt(f_iso)
 
                 f_St, ax = plt.subplots(figsize=(6,4))
@@ -433,7 +433,7 @@ with tab_simulacion:
 
                 excel_buffer = io.BytesIO()
                 df_params = pd.DataFrame({
-                    "Par·metro": ["Espesor", "Carga", "Cv", "mv", "Permeabilidad", "Asiento Max", "Contorno"],
+                    "Par√°metro": ["Espesor", "Carga", "Cv", "mv", "Permeabilidad", "Asiento Max", "Contorno"],
                     "Valor": [res['longitud'], res['Ti'], res['c'], res['mv'], res['permeabilidad'], res['s_max']*100, res['str_contorno']]
                 })
                 df_evolucion = pd.DataFrame({
@@ -447,16 +447,16 @@ with tab_simulacion:
                 df_presiones.insert(0, "Tiempo [dias]", [p[0] for p in res['hist_presiones_completas']])
 
                 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                    df_params.to_excel(writer, sheet_name='1. Par·metros', index=False)
-                    df_evolucion.to_excel(writer, sheet_name='2. EvoluciÛn temporal', index=False)
-                    df_presiones.to_excel(writer, sheet_name='3. Presiones IsÛcronas', index=False)
+                    df_params.to_excel(writer, sheet_name='1. Par√°metros', index=False)
+                    df_evolucion.to_excel(writer, sheet_name='2. Evoluci√≥n temporal', index=False)
+                    df_presiones.to_excel(writer, sheet_name='3. Presiones Is√≥cronas', index=False)
 
                 doc = Document()
-                doc.add_heading('Informe de ConsolidaciÛn 1D', 0)
+                doc.add_heading('Informe de Consolidaci√≥n 1D', 0)
                 doc.add_heading('Datos del Modelo', level=1)
                 for index, row in df_params.iterrows():
-                    doc.add_paragraph(f"ï {row['Par·metro']}: {row['Valor']}")
-                doc.add_heading('Resultados Gr·ficos', level=1)
+                    doc.add_paragraph(f"¬ï {row['Par√°metro']}: {row['Valor']}")
+                doc.add_heading('Resultados Gr√°ficos', level=1)
                 for img_buf in imagenes_buffers:
                     doc.add_picture(img_buf, width=Inches(5.5))
                 word_buffer = io.BytesIO()
@@ -467,7 +467,7 @@ with tab_simulacion:
                 st.session_state.docs_generados = True
 
         if st.session_state.docs_generados:
-            st.success("°Documentos generados! Puedes descargarlos aquÌ.")
+            st.success("¬°Documentos generados! Puedes descargarlos aqu√≠.")
             col_dw1, col_dw2 = st.columns(2)
             with col_dw1:
                 st.download_button(
@@ -486,57 +486,57 @@ with tab_simulacion:
                     type="primary"
                 )
     else:
-        st.info("?? Configura los par·metros en el panel lateral y pulsa **'Iniciar C·lculo del Modelo'** para ver las gr·ficas y generar informes.")
+        st.info("?? Configura los par√°metros en el panel lateral y pulsa **'Iniciar C√°lculo del Modelo'** para ver las gr√°ficas y generar informes.")
 
 # ==========================================
-# PESTA—A 2: DATOS TABULADOS
+# PESTA√ëA 2: DATOS TABULADOS
 # ==========================================
 with tab_datos:
-    st.header("Datos NumÈricos de la SimulaciÛn")
+    st.header("Datos Num√©ricos de la Simulaci√≥n")
     if st.session_state.calculado:
         res = st.session_state.resultados
-        st.subheader("1. EvoluciÛn Temporal")
+        st.subheader("1. Evoluci√≥n Temporal")
         st.dataframe(pd.DataFrame({
-            "Tiempo [dÌas]": res['hist_t'],
-            "Grado ConsolidaciÛn [%]": res['hist_U'],
+            "Tiempo [d√≠as]": res['hist_t'],
+            "Grado Consolidaci√≥n [%]": res['hist_U'],
             "Asientos [cm]": res['hist_S'],
-            "Caudal [m3/dÌa/m2]": res['hist_Q']
+            "Caudal [m3/d√≠a/m2]": res['hist_Q']
         }), use_container_width=True, height=300)
 
-        st.subheader("2. Matriz de Presiones Intersticiales (IsÛcronas)")
+        st.subheader("2. Matriz de Presiones Intersticiales (Is√≥cronas)")
         df_presiones_tab = pd.DataFrame(
             [p[1] for p in res['hist_presiones_completas']],
             columns=[f"z={xi:.2f}m" for xi in res['x']]
         )
-        df_presiones_tab.insert(0, "Tiempo [dÌas]", [p[0] for p in res['hist_presiones_completas']])
+        df_presiones_tab.insert(0, "Tiempo [d√≠as]", [p[0] for p in res['hist_presiones_completas']])
         st.dataframe(df_presiones_tab, use_container_width=True, height=400)
     else:
-        st.info("? Inicia el c·lculo en la pestaÒa de SimulaciÛn para ver los datos tabulados.")
+        st.info("? Inicia el c√°lculo en la pesta√±a de Simulaci√≥n para ver los datos tabulados.")
 
 # ==========================================
-# PESTA—A 3: FUNDAMENTO TE”RICO
+# PESTA√ëA 3: FUNDAMENTO TE√ìRICO
 # ==========================================
 with tab_teoria:
-    st.header("TeorÌa de la ConsolidaciÛn Unidimensional de Terzaghi")
+    st.header("Teor√≠a de la Consolidaci√≥n Unidimensional de Terzaghi")
     st.write("""
-    La teorÌa de la consolidaciÛn unidimensional, formulada por Karl von Terzaghi (1925),
-    describe cÛmo el exceso de presiÛn intersticial del agua generado por una carga externa
-    se disipa a lo largo del tiempo. Este proceso provoca una reducciÛn de volumen en los suelos
-    de grano fino saturados, traduciÈndose en asientos en la superficie.
+    La teor√≠a de la consolidaci√≥n unidimensional, formulada por Karl von Terzaghi (1925),
+    describe c√≥mo el exceso de presi√≥n intersticial del agua generado por una carga externa
+    se disipa a lo largo del tiempo. Este proceso provoca una reducci√≥n de volumen en los suelos
+    de grano fino saturados, traduci√©ndose en asientos en la superficie.
     """)
 
-    st.subheader("1. EcuaciÛn Diferencial del modelo")
+    st.subheader("1. Ecuaci√≥n Diferencial del modelo")
     st.write("""
-    Partiendo de las leyes de flujo continuo de Darcy y la conservaciÛn de masa,
-    Terzaghi dedujo la siguiente ecuaciÛn diferencial en derivadas parciales (EDP) parabÛlica:
+    Partiendo de las leyes de flujo continuo de Darcy y la conservaci√≥n de masa,
+    Terzaghi dedujo la siguiente ecuaci√≥n diferencial en derivadas parciales (EDP) parab√≥lica:
     """)
     st.latex(r" \frac{\partial u}{\partial t} = c_v \frac{\partial^2 u}{\partial x^2} ")
     st.write("""
     **Donde:**
-    - **$u$**: Exceso de presiÛn intersticial de poro [kPa].
-    - **$t$**: Tiempo [dÌas].
-    - **$x$**: Coordenada de profundidad geomÈtrica [m].
-    - **$c_v$**: Coeficiente de consolidaciÛn [m≤/dÌa], definido como:
+    - **$u$**: Exceso de presi√≥n intersticial de poro [kPa].
+    - **$t$**: Tiempo [d√≠as].
+    - **$x$**: Coordenada de profundidad geom√©trica [m].
+    - **$c_v$**: Coeficiente de consolidaci√≥n [m¬≤/d√≠a], definido como:
     """)
     st.latex(r" c_v = \frac{k_{perm}}{\gamma_w \cdot m_v} ")
     st.write("""
@@ -544,39 +544,39 @@ with tab_teoria:
     """)
 
     st.markdown("---")
-    st.subheader("2. AproximaciÛn NumÈrica por Diferencias Finitas")
+    st.subheader("2. Aproximaci√≥n Num√©rica por Diferencias Finitas")
     st.write("""
-    Este software implementa el **MÈtodo de Diferencias Finitas (FDM)** para resolver la EDP.
+    Este software implementa el **M√©todo de Diferencias Finitas (FDM)** para resolver la EDP.
     La derivada espacial de segundo grado se aproxima usando **Diferencias Centrales**:
     """)
     st.latex(r" \frac{\partial^2 u}{\partial x^2} \approx \frac{u_{i-1} - 2u_i + u_{i+1}}{h^2} ")
 
     st.markdown("---")
-    st.subheader("3. Modelos de ResoluciÛn Temporal")
+    st.subheader("3. Modelos de Resoluci√≥n Temporal")
 
-    st.markdown("#### A. MÈtodo ExplÌcito")
+    st.markdown("#### A. M√©todo Expl√≠cito")
     st.write("""
-    Eval˙a la derivada espacial en el tiempo presente ($t$) y la temporal hacia adelante:
+    Eval√∫a la derivada espacial en el tiempo presente ($t$) y la temporal hacia adelante:
     """)
     st.latex(r" u_i^{t+k} = \alpha u_{i+1}^t + (1 - 2\alpha) u_i^t + \alpha u_{i-1}^t ")
     st.write("Donde $\\alpha = \\frac{c_v \\cdot k}{h^2}$.")
-    st.info("?? **CondiciÛn de estabilidad**: $\\alpha \\leq 0.5$. Si no se cumple, el mÈtodo diverge.")
+    st.info("?? **Condici√≥n de estabilidad**: $\\alpha \\leq 0.5$. Si no se cumple, el m√©todo diverge.")
 
-    st.markdown("#### B. MÈtodo ImplÌcito")
+    st.markdown("#### B. M√©todo Impl√≠cito")
     st.write("""
-    Eval˙a la derivada espacial en el instante futuro ($t+k$). Genera un sistema de ecuaciones tridiagonal:
+    Eval√∫a la derivada espacial en el instante futuro ($t+k$). Genera un sistema de ecuaciones tridiagonal:
     """)
     st.latex(r" -\alpha u_{i-1}^{t+k} + (1+2\alpha)u_i^{t+k} - \alpha u_{i+1}^{t+k} = u_i^t ")
     st.success("? **Incondicionalmente estable**: Ideal para simulaciones a largo plazo.")
 
     st.markdown("---")
-    st.subheader("4. C·lculo de Grado de ConsolidaciÛn y Asientos")
+    st.subheader("4. C√°lculo de Grado de Consolidaci√≥n y Asientos")
     st.write("""
-    El grado de consolidaciÛn medio del estrato se calcula como:
+    El grado de consolidaci√≥n medio del estrato se calcula como:
     """)
     st.latex(r" U(t) = 1 - \frac{\int_0^H u(x,t) \, dx}{\int_0^H u(x,0) \, dx} ")
     st.write("""
-    El asiento en un instante de tiempo se obtiene escalando el asiento m·ximo:
+    El asiento en un instante de tiempo se obtiene escalando el asiento m√°ximo:
     """)
     st.latex(r" S_{max} = H \cdot m_v \cdot T_i ")
     st.latex(r" S(t) = S_{max} \cdot U(t) ")
