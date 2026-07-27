@@ -41,7 +41,7 @@ for key, val in default_params.items():
         st.session_state[key] = val
 
 # --- PANEL LATERAL ---
-st.sidebar.header("?? Gestión de Perfiles")
+st.sidebar.header("📁 Gestión de Perfiles")
 uploaded_file = st.sidebar.file_uploader("Cargar Configuración (.json)", type=["json"], on_change=reset_estado)
 if uploaded_file is not None:
     try:
@@ -89,21 +89,21 @@ metodo_numerico = st.sidebar.radio(
 
 perfil_actual = {key: st.session_state[key] for key in default_params.keys()}
 st.sidebar.download_button(
-    label="?? Guardar Configuración (.json)",
+    label="💾 Guardar Configuración (.json)",
     data=json.dumps(perfil_actual, indent=4),
     file_name="perfil_consolidacion.json",
     mime="application/json"
 )
 
 # --- PESTAÑAS ---
-tab_simulacion, tab_datos, tab_teoria = st.tabs(["??? Simulación y Resultados", "?? Datos Tabulados", "?? Fundamento Teórico"])
+tab_simulacion, tab_datos, tab_teoria = st.tabs(["📊 Simulación y Resultados", "📋 Datos Tabulados", "📚 Fundamento Teórico"])
 
 # ==========================================
 # PESTAÑA 1: SIMULACIÓN
 # ==========================================
 with tab_simulacion:
 
-    if st.button("?? Iniciar Cálculo del Modelo", type="primary"):
+    if st.button("🚀 Iniciar Cálculo del Modelo", type="primary"):
         s_max = longitud * mv * Ti
         permeabilidad = c * mv * 10
         alfa = c * k / (h**2)
@@ -379,7 +379,7 @@ with tab_simulacion:
         st.markdown("---")
         st.subheader("Generación de Documentos")
 
-        if st.button("?? Generar Informes (Word y Excel)"):
+        if st.button("📄 Generar Informes (Word y Excel)"):
             with st.spinner("Creando documentos..."):
                 imagenes_buffers = []
                 def save_plt(fig_plt):
@@ -471,7 +471,7 @@ with tab_simulacion:
             col_dw1, col_dw2 = st.columns(2)
             with col_dw1:
                 st.download_button(
-                    label="?? Descargar Excel",
+                    label="📥 Descargar Excel",
                     data=st.session_state.excel_data,
                     file_name=f"Datos_{res['fecha']}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -479,14 +479,14 @@ with tab_simulacion:
                 )
             with col_dw2:
                 st.download_button(
-                    label="?? Descargar Word",
+                    label="📥 Descargar Word",
                     data=st.session_state.word_data,
                     file_name=f"Informe_{res['fecha']}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="primary"
                 )
     else:
-        st.info("?? Configura los parámetros en el panel lateral y pulsa **'Iniciar Cálculo del Modelo'** para ver las gráficas y generar informes.")
+        st.info("⚙️ Configura los parámetros en el panel lateral y pulsa **'Iniciar Cálculo del Modelo'** para ver las gráficas y generar informes.")
 
 # ==========================================
 # PESTAÑA 2: DATOS TABULADOS
@@ -560,7 +560,7 @@ with tab_teoria:
     """)
     st.latex(r" u_i^{t+k} = \alpha u_{i+1}^t + (1 - 2\alpha) u_i^t + \alpha u_{i-1}^t ")
     st.write("Donde $\\alpha = \\frac{c_v \\cdot k}{h^2}$.")
-    st.info("?? **Condición de estabilidad**: $\\alpha \\leq 0.5$. Si no se cumple, el método diverge.")
+    st.info("⚠️ **Condición de estabilidad**: $\alpha \leq 0.5$. Si no se cumple, el método diverge.")
 
     st.markdown("#### B. Método Implícito")
     st.write("""
