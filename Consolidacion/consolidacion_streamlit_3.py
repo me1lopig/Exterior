@@ -18,7 +18,7 @@ except AttributeError:
 
 st.set_page_config(page_title="Consolidación 1D", layout="wide")
 st.title("Modelo de Consolidación 1D para carga extensa")
-st.markdown("Para uso académico o testeo")
+st.markdown("**Para uso académico o testeo**")
 
 # --- Función de Seguridad (Callback) ---
 def reset_estado():
