@@ -209,7 +209,7 @@ def _estratos_truncados(df, z_max):
         h_ef = min(z + h, z_max) - z
         if h_ef <= 1e-9:
             break
-        nu = min(float(row["nu"]), 0.499)          # evita singularidad ν=0.5
+        nu = min(float(row["nu"]), 0.49)          # evita singularidad ν=0.5
         filas.append((str(row["Descripción"]), h_ef, float(row["E (kPa)"]), nu))
         z += h
     return filas
