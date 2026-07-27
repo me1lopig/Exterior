@@ -16,7 +16,7 @@ Exterior/
 │   ├── PilotesCTE_2.py       # Aplicación principal (618 líneas)
 │   └── requirements.txt      # Dependencias específicas
 │
-└── Consolidación/            # Modelo de consolidación 1D para suelos
+└── Consolidacion/            # Modelo de consolidación 1D para suelos
     ├── consolidacion_streamlit_3.py # Aplicación principal (582 líneas)
     └── requirements.txt      # Dependencias específicas
 ```
@@ -73,7 +73,7 @@ Exterior/
 
 ---
 
-### 3️⃣ **Consolidación**
+### 3️⃣ **Consolidacion**
 **Descripción**: Herramienta para el **modelo de consolidación 1D** en suelos bajo cargas extensas, permitiendo analizar el comportamiento de asientos a lo largo del tiempo.
 
 #### 📋 Características principales:
@@ -124,8 +124,8 @@ pip install -r requirements.txt
 cd ../PilotesCTE
 pip install -r requirements.txt
 
-# Para Consolidación
-cd ../Consolidación
+# Para Consolidacion
+cd ../Consolidacion
 pip install -r requirements.txt
 ```
 
@@ -137,7 +137,7 @@ streamlit run app_asientos_FEM_4.py
 # PilotesCTE
 streamlit run PilotesCTE_2.py
 
-# Consolidación
+# Consolidacion
 streamlit run consolidacion_streamlit_3.py
 ```
 
