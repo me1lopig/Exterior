@@ -4,4 +4,4 @@ pandas
 plotly
 python-docx
 matplotlib
-kaleido==0.1.0.post1
+kaleido
