@@ -11,5 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Hacer ping a la aplicación
-        run: curl -s https://appasientosfem4py-hscfwqmwyszn2tmc9cq5rr.streamlit.app > /dev/null
-        run: curl -s https://pilotescte2py-xe6oqkrpdr6mdpcqxucrmx.streamlit.app > /dev/null
+        run: 
+            curl -s https://appasientosfem4py-hscfwqmwyszn2tmc9cq5rr.streamlit.app > /dev/null
+            curl -s https://pilotescte2py-xe6oqkrpdr6mdpcqxucrmx.streamlit.app > /dev/null
