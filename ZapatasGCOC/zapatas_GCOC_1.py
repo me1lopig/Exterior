@@ -19,26 +19,25 @@ def comprobacion_hundimiento(
     gamma_w: float = 9.81, tipo_cimentacion: str = "Rectangular"
 ) -> ResultadosHundimiento:
     """
-    Comprobación analítica de la carga de hundimiento (Brinch-Hansen modificado).
+    Comprobación analítica de la carga de hundimiento (Brinch-Hansen GCOC).
     Admite zapatas Rectangulares, Corridas y Circulares.
     """
     
     # 1. ADAPTACIÓN GEOMÉTRICA Y ÁREA EFECTIVA
     if tipo_cimentacion == "Corrida":
         ratio_forma = 0.0
-        area_efectiva = B_star * 1.0  # Cálculo por metro lineal
+        area_efectiva = B_star * 1.0  
     elif tipo_cimentacion == "Circular":
         ratio_forma = 1.0
-        # Simplificación de área efectiva para círculo excéntrico
         area_efectiva = math.pi * (B_star**2) / 4.0 
-    else: # Rectangular
+    else: 
         ratio_forma = B_star / L_star if L_star > 0 else 1.0
         area_efectiva = B_star * L_star
 
     p_v = V / area_efectiva if area_efectiva > 0 else 0.0
     delta = math.atan(H / V) if V > 0 else 0.0
 
-    # 2. EVALUACIÓN DEL EFECTO DEL NIVEL FREÁTICO
+    # 2. EVALUACIÓN DEL EFECTO DEL NIVEL FREÁTICO (CORREGIDO GCOC)
     gamma_prima = gamma_sat - gamma_w  
     
     if D_w >= D:
@@ -48,11 +47,13 @@ def comprobacion_hundimiento(
         
     q = (gamma_ap * D1) + (gamma_prima * D2)
     
+    # Interpolación estrictamente lineal exigida por norma
     if h_w == 0:
         gamma_calc = gamma_prima
+    elif h_w >= B_star:
+        gamma_calc = gamma_ap
     else:
-        gamma_calc = gamma_prima + 0.6 * (gamma_ap - gamma_prima) * (h_w / B_star)
-        gamma_calc = min(gamma_calc, gamma_ap)  
+        gamma_calc = gamma_prima + (gamma_ap - gamma_prima) * (h_w / B_star)
 
     # 3. CONVERSIÓN DE ÁNGULOS Y DETECCIÓN DE CORTO PLAZO
     phi = math.radians(phi_deg)
@@ -60,7 +61,7 @@ def comprobacion_hundimiento(
     eta = math.radians(eta_deg)
     es_corto_plazo = phi_deg < 0.1  
 
-    # 4. FACTORES DE CAPACIDAD DE CARGA Y CORRECCIÓN
+    # 4. FACTORES DE CAPACIDAD DE CARGA Y CORRECCIÓN (CORREGIDOS GCOC)
     if es_corto_plazo:
         Nq, Nc, Ngamma = 1.0, math.pi + 2, 0.0
     else:
@@ -71,35 +72,44 @@ def comprobacion_hundimiento(
     D_cal = min(D, 2 * B_star)
     
     if es_corto_plazo:
+        # Factores de profundidad
         dq = 1.0
         dc = 1 + 2 * (1 / Nc) * math.atan(D_cal / B_star)
         dgamma = 1.0
         
+        # Factores de inclinación de carga (Corto plazo)
         iq = 1.0
         radicando = 1 - (H / (area_efectiva * max(c, 0.001)))
         ic = 0.5 * (1 + math.sqrt(max(0, radicando)))
         igamma = 0.0
         
+        # Factores de inclinación de base/terreno
         tq = (1 - 0.5 * math.tan(psi))**5
         tc = 1 - 0.4 * psi
         tgamma = 0.0
-        
         rq = 1.0
         rc = 1 - 0.4 * eta
         rgamma = 0.0
     else:
+        # Factores de profundidad (Corregido a la expresión canónica)
         dq = 1 + 2 * math.tan(phi) * (1 - math.sin(phi))**2 * math.atan(D_cal / B_star)
-        dc = 1 + 2 * (Nq / Nc) * (1 - math.sin(phi))**2 * math.atan(D_cal / B_star)
+        dc = dq - (1 - dq) / (Nc * math.tan(phi)) if phi > 0 else 1.0
         dgamma = 1.0
         
-        iq = (1 - 0.7 * math.tan(delta))**3
-        ic = iq - (1 - iq) / (Nc * math.tan(phi)) if phi > 0 else 1.0
-        igamma = (1 - math.tan(delta))**3
+        # Factores de inclinación de carga (Corregido con exponente m)
+        m = (2 + ratio_forma) / (1 + ratio_forma)
+        V_afectado = V + area_efectiva * c / math.tan(phi) if phi > 0 else V
         
+        radicando_i = max(0.0, 1.0 - (H / V_afectado)) if V_afectado > 0 else 0.0
+        
+        iq = radicando_i ** m
+        ic = iq - (1 - iq) / (Nc * math.tan(phi)) if phi > 0 else 1.0
+        igamma = radicando_i ** (m + 1)
+        
+        # Factores de inclinación de base/terreno
         tq = (1 - 0.5 * math.tan(psi))**5
         tc = tq - (1 - tq) / (Nc * math.tan(phi)) if phi > 0 else 1.0
         tgamma = tq
-        
         rq = math.exp(-2 * eta * math.tan(phi))
         rc = rq - (1 - rq) / (Nc * math.tan(phi)) if phi > 0 else 1.0
         rgamma = rq

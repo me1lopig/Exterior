@@ -17,39 +17,59 @@ FS_MAP = {
     "Accidental (FS = 2.00)": 2.00
 }
 
-# --- FUNCIÓN GENERADORA DEL REPORTE WORD ---
-def generar_memoria_word(df_resultados, tipo, situacion, fs_obj):
-    """Genera un documento Word en memoria con los resultados del análisis."""
+# --- FUNCIÓN GENERADORA DEL REPORTE WORD ENRIQUECIDO ---
+def generar_memoria_word(df_resultados, tipo, situacion, fs_obj, param_terr, cargas_est):
+    """Genera un documento Word en memoria con los parámetros y resultados."""
     doc = Document()
     
     titulo = doc.add_heading('Memoria de Cálculo de Cimentación', 0)
     titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
+    # 1. Datos Generales
     doc.add_heading('1. Datos de Partida', level=1)
     doc.add_paragraph(f"Tipo de Cimentación analizada: Zapata {tipo}")
-    doc.add_paragraph(f"Situación de Proyecto: {situacion} (Coeficiente de seguridad exigido: {fs_obj})")
+    doc.add_paragraph(f"Situación de Proyecto: {situacion} (Coeficiente exigido: {fs_obj})")
     
-    doc.add_heading('2. Resultados del Análisis Paramétrico', level=1)
-    doc.add_paragraph(
-        "A continuación se presenta el resumen de las iteraciones calculadas según "
-        "la metodología de Brinch-Hansen modificada para la GCOC."
-    )
+    # 2. Resumen Geotécnico
+    doc.add_heading('2. Parámetros Geotécnicos', level=1)
+    tabla_geo = doc.add_table(rows=1, cols=2)
+    tabla_geo.style = 'Table Grid'
+    hdr = tabla_geo.rows[0].cells
+    hdr[0].text, hdr[1].text = "Parámetro", "Valor"
+    for k, v in param_terr.items():
+        row = tabla_geo.add_row().cells
+        row[0].text, row[1].text = str(k), str(v)
+        
+    # 3. Resumen Estructural (Si aplica)
+    if cargas_est:
+        doc.add_heading('3. Cargas Estructurales', level=1)
+        tabla_est = doc.add_table(rows=1, cols=2)
+        tabla_est.style = 'Table Grid'
+        hdr_e = tabla_est.rows[0].cells
+        hdr_e[0].text, hdr_e[1].text = "Esfuerzo", "Valor"
+        for k, v in cargas_est.items():
+            row = tabla_est.add_row().cells
+            row[0].text, row[1].text = str(k), str(v)
     
-    df_corte = df_resultados.head(30) # Limitamos a 30 combinaciones para no saturar el Word
-    tabla = doc.add_table(rows=1, cols=len(df_corte.columns))
-    tabla.style = 'Table Grid'
+    # 4. Resultados del iterador
+    doc.add_heading('4. Resultados del Análisis Paramétrico', level=1)
+    doc.add_paragraph("Resumen de las iteraciones calculadas según Brinch-Hansen (GCOC):")
     
-    hdr_cells = tabla.rows[0].cells
+    df_corte = df_resultados.head(30)
+    tabla_res = doc.add_table(rows=1, cols=len(df_corte.columns))
+    tabla_res.style = 'Table Grid'
+    
+    hdr_cells = tabla_res.rows[0].cells
     for i, columna in enumerate(df_corte.columns):
         hdr_cells[i].text = str(columna)
         
     for _, fila in df_corte.iterrows():
-        row_cells = tabla.add_row().cells
+        row_cells = tabla_res.add_row().cells
         for i, valor in enumerate(fila):
             row_cells[i].text = str(valor)
             
     if len(df_resultados) > 30:
-        doc.add_paragraph(f"\n*Nota: Se muestran las primeras 30 combinaciones de un total de {len(df_resultados)} evaluadas en el cálculo.*")
+        doc.add_paragraph(f"\n*Nota: Se muestran las primeras 30 combinaciones de un total de {len(df_resultados)} evaluadas.*")
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -76,28 +96,28 @@ with col1:
     with st.expander("🌍 Parámetros del Terreno", expanded=True):
         if drenaje == "Largo Plazo (Drenado)":
             c = st.number_input("Cohesión, c (kPa)", min_value=0.0, value=10.0)
-            phi = st.number_input("Ángulo rozamiento, $\phi$ (°)", min_value=0.0, value=30.0)
+            phi = st.number_input("Ángulo rozamiento, φ (°)", min_value=0.0, value=30.0)
         else:
-            c = st.number_input("Resistencia al corte, $s_u$ (kPa)", min_value=0.0, value=50.0)
+            c = st.number_input("Resistencia al corte, s_u (kPa)", min_value=0.0, value=50.0)
             phi = 0.0
-            st.info("A corto plazo se asume $\phi = 0$")
+            st.info("A corto plazo se asume φ = 0")
             
-        gamma_ap = st.number_input("Peso aparente, $\gamma_{ap}$ (kN/m³)", value=20.0)
-        gamma_sub = st.number_input("Peso sumergido, $\gamma'$ (kN/m³)", value=10.0)
+        gamma_ap = st.number_input("Peso aparente, γ_ap (kN/m³)", value=20.0)
+        gamma_sub = st.number_input("Peso sumergido, γ' (kN/m³)", value=10.0)
         gamma_sat = gamma_sub + 9.81
 
 with col2:
     with st.expander("📏 Geometría Iterativa y NF", expanded=True):
         D = st.number_input("Profundidad apoyo, D (m)", min_value=0.0, value=1.5, step=0.1)
-        hw = st.number_input("Nivel Freático bajo base, $h_w$ (m)", min_value=0.0, value=5.0)
+        hw = st.number_input("Nivel Freático bajo base, h_w (m)", min_value=0.0, value=5.0)
         D_w = D + hw
         
         etiqueta_B = "Diámetro D (m)" if tipo_cimentacion == "Circular" else "Ancho B (m)"
         st.markdown(f"**Rango de {etiqueta_B}:**")
         B_min, B_max, B_inc = st.columns(3)
-        B_min = B_min.number_input(f"Mínimo", min_value=0.5, value=1.0, step=0.5, key="b1")
-        B_max = B_max.number_input(f"Máximo", min_value=1.0, value=4.0, step=0.5, key="b2")
-        B_inc = B_inc.number_input(f"Inc.", min_value=0.1, value=0.1, step=0.1, key="b3")
+        B_min = B_min.number_input("Mínimo", min_value=0.5, value=1.0, step=0.5, key="b1")
+        B_max = B_max.number_input("Máximo", min_value=1.0, value=4.0, step=0.5, key="b2")
+        B_inc = B_inc.number_input("Inc.", min_value=0.1, value=0.1, step=0.1, key="b3")
         
         if tipo_cimentacion == "Rectangular":
             st.markdown("**Rango de Longitud L (m):**")
@@ -114,17 +134,37 @@ with col3:
             if tipo_cimentacion == "Corrida":
                 st.caption("Nota: Cargas expresadas **por metro lineal**.")
             
-            V = st.number_input("Vertical, V", min_value=0.1, value=1000.0)
-            H = st.number_input("Horizontal, H", value=0.0)
-            M_B = st.number_input(f"Momento flector en {etiqueta_B[0]}, $M_B$", value=0.0)
+            V = st.number_input("Vertical, V (kN)", min_value=0.1, value=1000.0)
+            H = st.number_input("Horizontal, H (kN)", value=0.0)
+            M_B = st.number_input(f"Momento flector en {etiqueta_B[0]}, M_B (mkN)", value=0.0)
             
             if tipo_cimentacion == "Rectangular":
-                M_L = st.number_input("Momento flector en L, $M_L$", value=0.0)
+                M_L = st.number_input("Momento flector en L, M_L (mkN)", value=0.0)
             else:
                 M_L = 0.0
         else:
             V, H, M_B, M_L = 1.0, 0.0, 0.0, 0.0
             st.info("Modo A: Generación de la Carta de Tensiones paramétrica sin cargas.")
+
+# Recopilación de diccionarios para el Word
+dict_geotecnia = {
+    "Cohesión (kPa)": c,
+    "Ángulo rozamiento (°)": phi,
+    "Peso aparente (kN/m³)": gamma_ap,
+    "Peso sumergido (kN/m³)": gamma_sub,
+    "Profundidad de apoyo D (m)": D,
+    "Distancia base-Nivel Freático (m)": hw
+}
+
+dict_cargas = None
+if modo_operacion.startswith("B"):
+    dict_cargas = {
+        "Vertical V (kN)": V,
+        "Horizontal H (kN)": H,
+        f"Momento {etiqueta_B[0]} (mkN)": M_B,
+    }
+    if tipo_cimentacion == "Rectangular":
+         dict_cargas["Momento L (mkN)"] = M_L
 
 # --- MOTOR ITERATIVO ---
 resultados = []
@@ -177,7 +217,7 @@ df_res = pd.DataFrame(resultados)
 # --- VISUALIZACIÓN Y REPORTES ---
 st.header("📊 Resultados del Análisis")
 if df_res.empty:
-    st.error("⚠️ Vuelco total de la cimentación para los rangos dados.")
+    st.error("⚠️ Vuelco total de la cimentación para los rangos dados o geometría inválida.")
 else:
     tab_grafica, tab_datos, tab_exportar = st.tabs(["📈 Gráfica Paramétrica", "📋 Tabla de Datos", "📥 Exportar Memoria"])
     
@@ -185,7 +225,18 @@ else:
         if tipo_cimentacion == "Rectangular":
             if modo_operacion.startswith("A"):
                 matriz_z = df_res.pivot(index="L (m)", columns=etiqueta_B, values="p_admisible (kPa)")
-                fig = go.Figure(data=go.Heatmap(z=matriz_z.values, x=matriz_z.columns, y=matriz_z.index, colorscale="Viridis"))
+                text_matrix = np.round(matriz_z.values, 1).astype(str)
+                text_matrix[text_matrix == 'nan'] = ''
+                
+                fig = go.Figure(data=go.Heatmap(
+                    z=matriz_z.values, 
+                    x=matriz_z.columns, 
+                    y=matriz_z.index, 
+                    colorscale="Viridis",
+                    text=text_matrix,
+                    texttemplate="%{text}",
+                    hoverongaps=False
+                ))
                 fig.update_layout(title="Mapa de Calor: Tensión Admisible (kPa)", xaxis_title="B (m)", yaxis_title="L (m)")
                 st.plotly_chart(fig, use_container_width=True)
             else:
@@ -224,7 +275,7 @@ else:
             if st.button("⚙️ Generar Memoria Word"):
                 with st.spinner("Redactando anejo de cálculo..."):
                     buffer_word = generar_memoria_word(
-                        df_res, tipo_cimentacion, situacion, fs_objetivo
+                        df_res, tipo_cimentacion, situacion, fs_objetivo, dict_geotecnia, dict_cargas
                     )
                     st.session_state['archivo_word'] = buffer_word
                 st.success("¡Memoria generada correctamente!")
