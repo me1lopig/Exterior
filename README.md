@@ -16,9 +16,15 @@ Exterior/
 │   ├── PilotesCTE_2.py       # Aplicación principal (618 líneas)
 │   └── requirements.txt      # Dependencias específicas
 │
-└── Consolidacion/            # Modelo de consolidación 1D para suelos
-    ├── consolidacion_streamlit_3.py # Aplicación principal (582 líneas)
-    └── requirements.txt      # Dependencias específicas
+├── Consolidacion/            # Modelo de consolidación 1D para suelos
+│   ├── consolidacion_streamlit_3.py # Aplicación principal (582 líneas)
+│   └── requirements.txt      # Dependencias específicas
+│
+└── ZapatasGCOC/              # Dimensionamiento de zapatas según GCOC (cimentaciones superficiales)
+    ├── app.py                # Aplicación Streamlit principal
+    ├── zapatas_GCOC_1.py     # Motor de cálculo (Brinch-Hansen modificado)
+    ├── requirements.txt      # Dependencias específicas
+    └── README.md             # Documentación detallada
 ```
 
 ---
@@ -100,6 +106,35 @@ Exterior/
 
 ---
 
+### 4️⃣ **ZapatasGCOC**
+**Descripción**: Herramienta para el **diseño y verificación de zapatas** (cimentaciones superficiales) según la **Guía de Cimentaciones en Obras de Carretera (GCOC)**, basada en el método de **Brinch-Hansen modificado**.
+
+#### 📋 Características principales:
+- **Metodología**: Implementa la fórmula de Brinch-Hansen adaptada a normativa GCOC.
+- **Dos modos de operación**:
+  - **Modo A (Pre-dimensionamiento)**: Genera cartas de tensiones admisibles para diferentes geometrías de zapata.
+  - **Modo B (Verificación estructural)**: Analiza zapatas con cargas reales (verticales, horizontales y momentos flectores).
+- **Tipos de zapata soportados**: Rectangular, Corrida y Circular.
+- **Condiciones de terreno**: Largo plazo (drenado) y corto plazo (no drenado).
+- **Cálculo de seguridad**: Factor de seguridad frente a hundimiento según normativa (FS: 3.0 persistente, 2.5 transitoria, 2.0 accidental).
+- **Excentricidad**: Considera momentos flectores para calcular el área efectiva de la zapata.
+- **Nivel freático**: Ajusta el peso específico del terreno según la posición del agua.
+- **Visualización**: 
+  - Mapas de calor de tensiones admisibles (Modo A).
+  - Gráficos interactivos con Plotly (evolución de FS, tensiones).
+- **Exportación**: 
+  - **CSV**: Datos crudos para análisis posterior.
+  - **Word (.docx)**: Informes técnicos con tablas y resultados.
+
+#### 📦 Dependencias:
+- `streamlit` (interfaz web)
+- `numpy` (cálculos numéricos)
+- `pandas` (manipulación de datos tabulares)
+- `plotly` (gráficos interactivos)
+- `python-docx` (generación de informes Word)
+
+---
+
 ## 🚀 ¿Cómo Ejecutar las Aplicaciones?
 
 ### Requisitos previos:
@@ -127,6 +162,10 @@ pip install -r requirements.txt
 # Para Consolidacion
 cd ../Consolidacion
 pip install -r requirements.txt
+
+# Para ZapatasGCOC
+cd ../ZapatasGCOC
+pip install -r requirements.txt
 ```
 
 #### 3. Ejecutar con Streamlit:
@@ -139,6 +178,9 @@ streamlit run PilotesCTE_2.py
 
 # Consolidacion
 streamlit run consolidacion_streamlit_3.py
+
+# ZapatasGCOC
+streamlit run app.py
 ```
 
 #### 4. Acceder a la aplicación:
