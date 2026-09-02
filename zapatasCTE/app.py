@@ -2,10 +2,74 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import io
+from fpdf import FPDF
+from docx import Document
 
 from motor_calculo import Terreno, Cargas, Cimentacion, CalculadoraCapacidad
-from generador_informes import generar_pdf, generar_docx
 
+# --- FUNCIONES DE GENERACIÓN DE INFORMES ---
+def generar_pdf(resultado: dict) -> io.BytesIO:
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    det = resultado['Detalles']
+    
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(200, 10, txt="Memoria Justificativa de Cimentación (CTE-DB-SE-C)", ln=True, align='C')
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(200, 8, txt="1. Geometría y Resultado Final", ln=True)
+    pdf.set_font("Arial", size=10)
+    pdf.cell(200, 6, txt=f"Ancho / Diámetro (B): {resultado['B']} m | Longitud (L): {resultado['L']} m", ln=True)
+    pdf.cell(200, 6, txt=f"Ancho Efectivo (B*): {resultado['B*']:.2f} m | Área Efectiva: {resultado['Área Ef.']:.2f} m2", ln=True)
+    pdf.cell(200, 6, txt=f"Presión de Trabajo: {resultado['q_trabajo']:.2f} kPa", ln=True)
+    pdf.cell(200, 6, txt=f"Presión Admisible: {resultado['q_adm']:.2f} kPa", ln=True)
+    estado = "CUMPLE" if resultado['Cumple'] else "NO CUMPLE"
+    pdf.cell(200, 6, txt=f"Verificación ELU de Hundimiento: {estado}", ln=True)
+    pdf.ln(4)
+    
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(200, 8, txt="2. Coeficientes del Método Analítico", ln=True)
+    pdf.set_font("Arial", size=10)
+    pdf.cell(200, 6, txt=f"Capacidad de Carga: Nq={det['Nq']:.2f}, Nc={det['Nc']:.2f}, Ngamma={det['Ng']:.2f}", ln=True)
+    pdf.cell(200, 6, txt=f"Factores de Forma: sq={det['sq']:.2f}, sc={det['sc']:.2f}, sgamma={det['sg']:.2f}", ln=True)
+    pdf.cell(200, 6, txt=f"Factores de Profundidad: dq={det['dq']:.2f}, dc={det['dc']:.2f}, dgamma={det['dg']:.2f}", ln=True)
+    pdf.cell(200, 6, txt=f"Factores de Inclinación: iq={det['iq']:.2f}, ic={det['ic']:.2f}, igamma={det['ig']:.2f}", ln=True)
+    pdf.cell(200, 6, txt=f"Factores de Talud: tq={det['tq']:.2f}, tc={det['tc']:.2f}, tgamma={det['tg']:.2f}", ln=True)
+    
+    pdf_buffer = io.BytesIO()
+    pdf_buffer.write(pdf.output())
+    pdf_buffer.seek(0)
+    return pdf_buffer
+
+def generar_docx(resultado: dict) -> io.BytesIO:
+    doc = Document()
+    doc.add_heading('Memoria Justificativa de Cimentación (CTE-DB-SE-C)', 0)
+    det = resultado['Detalles']
+    
+    doc.add_heading('1. Geometría y Resultado Final', level=1)
+    doc.add_paragraph(f"Ancho / Diámetro (B): {resultado['B']} m | Longitud (L): {resultado['L']} m")
+    doc.add_paragraph(f"Ancho Efectivo (B*): {resultado['B*']:.2f} m | Área Efectiva: {resultado['Área Ef.']:.2f} m2")
+    doc.add_paragraph(f"Presión de Trabajo: {resultado['q_trabajo']:.2f} kPa")
+    doc.add_paragraph(f"Presión Admisible: {resultado['q_adm']:.2f} kPa")
+    estado = "CUMPLE" if resultado['Cumple'] else "NO CUMPLE"
+    doc.add_paragraph(f"Verificación ELU de Hundimiento: {estado}")
+    
+    doc.add_heading('2. Coeficientes del Método Analítico', level=1)
+    doc.add_paragraph(f"Capacidad de Carga: Nq={det['Nq']:.2f}, Nc={det['Nc']:.2f}, Ngamma={det['Ng']:.2f}")
+    doc.add_paragraph(f"Factores de Forma: sq={det['sq']:.2f}, sc={det['sc']:.2f}, sgamma={det['sg']:.2f}")
+    doc.add_paragraph(f"Factores de Profundidad: dq={det['dq']:.2f}, dc={det['dc']:.2f}, dgamma={det['dg']:.2f}")
+    doc.add_paragraph(f"Factores de Inclinación: iq={det['iq']:.2f}, ic={det['ic']:.2f}, igamma={det['ig']:.2f}")
+    doc.add_paragraph(f"Factores de Talud: tq={det['tq']:.2f}, tc={det['tc']:.2f}, tgamma={det['tg']:.2f}")
+    
+    docx_buffer = io.BytesIO()
+    doc.save(docx_buffer)
+    docx_buffer.seek(0)
+    return docx_buffer
+
+# --- INTERFAZ DE STREAMLIT ---
 st.set_page_config(page_title="CTE DB SE-C: Hundimiento", layout="wide")
 st.title("🏗️ Cálculo Analítico de Hundimiento (CTE DB SE-C)")
 
