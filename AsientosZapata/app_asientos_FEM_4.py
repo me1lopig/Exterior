@@ -487,19 +487,35 @@ if modo == "🧮 Panel de Cálculo":
 
 elif modo == "📐 Asientos Admisibles":
     st.header("📐 Asientos Generales Admisibles")
-    st.markdown("Tabla de referencia para fijar el **asiento admisible** en la barra lateral.")
+    st.markdown("Tabla de referencia para fijar el **asiento admisible** en la barra lateral, según el tipo de "
+                "edificio y la naturaleza del terreno. El valor elegido se emplea en la comprobación ELS y en el informe.")
 
     df_adm = pd.DataFrame({
         "Características del edificio": [
             "Obras de carácter monumental",
             "Edificios con estructura de H.A. de gran rigidez",
-            "Edificios con estructura de H.A. de pequeña rigidez · Estructuras metálicas",
-            "Estructuras metálicas isostáticas · Estructuras de madera",
+            "Edificios con estructura de H.A. de pequeña rigidez · Estructuras metálicas hiperestáticas · Edificios con muros de fábrica",
+            "Estructuras metálicas isostáticas · Estructuras de madera · Estructuras provisionales",
         ],
         "Terreno sin cohesión [mm]": ["12", "35", "50", ">50 (con comprobación)"],
         "Terreno coherente [mm]": ["25", "50", "75", ">75 (con comprobación)"],
     })
     st.dataframe(df_adm, width="stretch", hide_index=True)
+
+    st.info(f"**Asiento admisible fijado actualmente:** {asiento_adm:.0f} mm  "
+            f"(se edita en la barra lateral, apartado «Comprobación de Servicio»).")
+
+    st.markdown("**Notas:**")
+    st.markdown(
+        "- *Sin cohesión* = terrenos granulares (arenas, gravas); *coherentes* = terrenos cohesivos (arcillas, limos). "
+        "Los límites admisibles son mayores en terrenos coherentes.\n"
+        "- La última fila (*«con comprobación»*) no es un límite cerrado: indica que se admiten asientos mayores "
+        "siempre que se justifique que la estructura los tolera.\n"
+        "- En perfiles multicapa mixtos, la elección del tipo de terreno y de edificio es criterio del proyectista: "
+        "la aplicación no lo infiere automáticamente.")
+    st.caption("Fuente: tabla de asientos generales admisibles (Jiménez Salas), de uso habitual en la práctica geotécnica.")
+
+
 
 elif modo == "📋 Modelo Steinbrenner":
     st.header("📋 Detalle Método Steinbrenner")
@@ -588,11 +604,6 @@ elif modo == "📖 Fundamento Teórico":
     st.latex(r"\phi_2 = \frac{m}{\pi}\arctan\frac{n}{m\sqrt{1+m^2+n^2}}")
     st.markdown(r"Con $n = L/B$ y $m = 2z/B$. El asiento de cada estrato:")
     st.latex(r"\Delta s_i = s(z_{techo}) - s(z_{base})")
-
-    st.markdown("---")
-    st.subheader("🔁 Tensiones de Holl (empleadas en profundidad de influencia)")
-    st.markdown("Tensiones bajo esquina (superposición ×4 para el centro según UNE-EN 1997-1):")
-    st.latex(r"\sigma_z = \frac{p}{2\pi}\left[\arctan\frac{BL}{zR_3} + BL\left(\frac{1}{R_1^2}+\frac{1}{R_2^2}\right)\frac{z}{R_3}\right]")
 
     st.markdown("---")
     st.subheader("📐 Criterio de Profundidad de Influencia (EC7)")
