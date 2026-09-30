@@ -498,7 +498,7 @@ elif modo == "📐 Asientos Admisibles":
             "Estructuras metálicas isostáticas · Estructuras de madera · Estructuras provisionales",
         ],
         "Terreno sin cohesión [mm]": ["12", "35", "50", ">50 (con comprobación)"],
-        "Terreno coherente [mm]": ["25", "50", "75", ">75 (con comprobación)"],
+        "Terreno cohesivos [mm]": ["25", "50", "75", ">75 (con comprobación)"],
     })
     st.dataframe(df_adm, width="stretch", hide_index=True)
 
@@ -507,7 +507,7 @@ elif modo == "📐 Asientos Admisibles":
 
     st.markdown("**Notas:**")
     st.markdown(
-        "- *Sin cohesión* = terrenos granulares (arenas, gravas); *coherentes* = terrenos cohesivos (arcillas, limos). "
+        "- *Sin cohesión* = terrenos granulares (arenas, gravas); *cohesivos* = terrenos cohesivos (arcillas, limos). "
         "Los límites admisibles son mayores en terrenos coherentes.\n"
         "- La última fila (*«con comprobación»*) no es un límite cerrado: indica que se admiten asientos mayores "
         "siempre que se justifique que la estructura los tolera.\n"
