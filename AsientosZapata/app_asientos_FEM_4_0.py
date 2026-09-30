@@ -708,6 +708,41 @@ elif modo == "📉 Bulbo de Presiones":
         ax.spines[['top','right']].set_visible(False)
         st.pyplot(fig); plt.close(fig)
 
+
+elif modo == "📐 Asientos Admisibles":
+    st.header("📐 Asientos Generales Admisibles")
+    st.markdown("Tabla de referencia para fijar el **asiento admisible** en la barra lateral, según el tipo de "
+                "edificio y la naturaleza del terreno. El valor elegido se emplea en la comprobación ELS y en el informe.")
+
+    df_adm = pd.DataFrame({
+        "Características del edificio": [
+            "Obras de carácter monumental",
+            "Edificios con estructura de H.A. de gran rigidez",
+            "Edificios con estructura de H.A. de pequeña rigidez · Estructuras metálicas hiperestáticas · Edificios con muros de fábrica",
+            "Estructuras metálicas isostáticas · Estructuras de madera · Estructuras provisionales",
+        ],
+        "Terreno sin cohesión [mm]": ["12", "35", "50", ">50 (con comprobación)"],
+        "Terreno coherente [mm]": ["25", "50", "75", ">75 (con comprobación)"],
+    })
+    st.dataframe(df_adm, width="stretch", hide_index=True)
+
+    st.info(f"**Asiento admisible fijado actualmente:** {asiento_adm:.0f} mm  "
+            f"(se edita en la barra lateral, apartado «Comprobación de Servicio»).")
+
+    st.markdown("**Notas:**")
+    st.markdown(
+        "- *Sin cohesión* = terrenos granulares (arenas, gravas); *coherentes* = terrenos cohesivos (arcillas, limos). "
+        "Los límites admisibles son mayores en terrenos coherentes.\n"
+        "- La última fila (*«con comprobación»*) no es un límite cerrado: indica que se admiten asientos mayores "
+        "siempre que se justifique que la estructura los tolera.\n"
+        "- En perfiles multicapa mixtos, la elección del tipo de terreno y de edificio es criterio del proyectista: "
+        "la aplicación no lo infiere automáticamente.")
+    st.caption("Fuente: tabla de asientos generales admisibles (Jiménez Salas), de uso habitual en la práctica geotécnica.")
+
+
+
+
+
 # ══════════════════════════════════════════════════
 # VISTA 6: FUNDAMENTO TEÓRICO
 # ══════════════════════════════════════════════════
