@@ -65,6 +65,7 @@ def s_z(p, B, E, nu, z, L):
     return (p*B/E)*corchete
 
 def calcular_steinbrenner(p, B, L, df, z_max):
+    df = df.dropna(subset=["Espesor (m)", "E (kPa)", "nu"])
     total = 0.0
     resultados = []
     z_actual = 0.0
@@ -110,6 +111,7 @@ def calcular_steinbrenner(p, B, L, df, z_max):
 # MÉTODO 2 — INTEGRACIÓN ELÁSTICA (Vectorizada con NumPy)
 # ══════════════════════════════════════════════════════════════════════════
 def calcular_ec68(p, B, L, df, z_max, dz_sub=0.25):
+    df = df.dropna(subset=["Espesor (m)", "E (kPa)", "nu"])
     total = 0.0
     resultados = []
     z_actual = 0.0
@@ -186,6 +188,7 @@ def _tributarias_1d_3d(coords, borde_cargado):
     return trib
 
 def _estratos_truncados(df, z_max):
+    df = df.dropna(subset=["Espesor (m)", "E (kPa)", "nu"])
     filas = []; z = 0.0
     for _, row in df.iterrows():
         if z >= z_max - 1e-9: break
@@ -198,6 +201,7 @@ def _estratos_truncados(df, z_max):
     return filas
 
 def _estratos_extendidos_mef(df, z_max, factor_prof):
+    df = df.dropna(subset=["Espesor (m)", "E (kPa)", "nu"])
     filas = []; z = 0.0
     z_max_mef = z_max * factor_prof
     last_E, last_nu, last_desc = None, None, None
@@ -301,12 +305,16 @@ def calcular_opensees_3d(p, B, L, df, z_max, tamaño_malla=0.5, factor_dominio=5
              for idx, (nombre, _, _, _) in enumerate(estratos_reporte)]
     return float(s_interp[0]) / 1000.0, pd.DataFrame(filas)
 
+
 # ══════════════════════════════════════════════════════════════════════════
-# TENSIÓN EFECTIVA Y ZONA DE INFLUENCIA
+# TENSIÓN EFECTIVA Y ZONA DE INFLUENCIA (Actualizado para UI dinámica)
 # ══════════════════════════════════════════════════════════════════════════
 def sigma_v0(z, df, NF):
+    # 🛡️ FILTRO BACKEND: Ignoramos las filas añadidas en la UI que aún están vacías (None/NaN)
+    df_clean = df.dropna(subset=["Espesor (m)", "Peso Esp. (kN/m³)", "Peso Esp. Sat (kN/m³)"])
+    
     sv = 0.0; z_act = 0.0
-    for _, row in df.iterrows():
+    for _, row in df_clean.iterrows():
         h  = float(row["Espesor (m)"])
         g  = float(row["Peso Esp. (kN/m³)"])
         gs = float(row["Peso Esp. Sat (kN/m³)"])
@@ -321,11 +329,14 @@ def sigma_v0(z, df, NF):
     return sv
 
 def z_influencia_ec7(p, B, L, df, NF):
-    et = float(pd.to_numeric(df["Espesor (m)"]).sum())
+    # 🛡️ FILTRO BACKEND: Purgamos estratos sin definir antes del sumatorio
+    df_clean = df.dropna(subset=["Espesor (m)"])
+    et = float(pd.to_numeric(df_clean["Espesor (m)"]).sum())
+    
     z = 0.05
     while z <= et:
         dsz, _, _ = holl_centro(p, B, L, z)
-        sv = sigma_v0(z, df, NF)
+        sv = sigma_v0(z, df_clean, NF)
         if sv > 0 and dsz <= 0.20*sv:
             return z
         z += 0.05
