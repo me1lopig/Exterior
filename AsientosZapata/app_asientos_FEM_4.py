@@ -312,7 +312,7 @@ if 'word_buf' not in st.session_state:
 
 if 'df_terreno' not in st.session_state:
     st.session_state.df_terreno = pd.DataFrame({
-        "Descripción":           ["Arcilla 1",  "Arcilla 2",  "Grava"],
+        "Descripción":           ["Arcilla 1",  "Arcilla 2",  "Arcilla 3"],
         "Espesor (m)":           [1.5,         3.0,        5.0],
         "E (kPa)":               [10000.0,     15000.0,     40000.0],
         "nu":                    [0.30,         0.45,       0.25],
