@@ -53,7 +53,7 @@ def phi1(m, n):
 
 def phi2(m, n):
     if m == 0: return 0.0
-    return (m/np.pi)*np.arctan(n/(m*np.sqrt(1+m**2+n**2)))
+    return (m/(2*np.pi))*np.arctan(n/(m*np.sqrt(1+m**2+n**2)))
 
 def s_z(p, B, E, nu, z, L):
     """Asiento teórico acumulado desde superficie hasta z (Steinbrenner)."""
