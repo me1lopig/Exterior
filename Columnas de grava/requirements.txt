@@ -1,8 +1,0 @@
-streamlit
-numpy
-pandas
-plotly
-python-docx
-xlsxwriter
-openpyxl
-kaleido
