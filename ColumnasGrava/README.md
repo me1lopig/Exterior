@@ -1,145 +1,217 @@
-# Diseño de Columnas de Grava
+# 🏗️ ColumnasGrava — Sistema de Cálculo de Mejora de Terrenos
 
-## Descripción general
+> Herramienta profesional de ingeniería geotécnica para el análisis y diseño de soluciones con columnas de grava
 
-Esta carpeta contiene una aplicación desarrollada en Python con Streamlit para evaluar la mejora del terreno mediante columnas de grava, siguiendo los principios del método de homogeneización propuesto por Priebe (1995). La herramienta permite analizar cómo varían los parámetros equivalentes del suelo tratado en función del diámetro de la columna, el tipo de malla y las propiedades del material granular y del terreno original.
+---
 
-El proyecto está orientado a aplicaciones de ingeniería geotécnica, especialmente en la predimensionamiento y estudio de mejora de terrenos mediante inclusiones granulares, con salida de resultados tabulados y reportes descargables en Excel y Word.
+## 📌 Descripción general
 
-## Objetivo del proyecto
+**ColumnasGrava** es una aplicación desarrollada en Python con **Streamlit** para evaluar la mejora del comportamiento del terreno mediante columnas de grava, siguiendo los principios del método de homogeneización propuesto por **Priebe (1995)**. La herramienta automatiza cálculos geotécnicos complejos y genera resultados técnicos listos para su uso en documentos de proyecto.
 
-El objetivo principal es automatizar el cálculo de:
+El sistema permite:
 
-- geometría de la columna y el área tributaria,
-- tasa de sustitución o relación Ac/A,
-- parámetros intermedios del método de Priebe,
-- parámetros equivalentes del terreno mejorado,
-- evolución de la cohesión, ángulo de fricción y módulo de elasticidad,
-- generación de informes técnicos listos para exportar.
+- Analizar la mejora del terreno según la geometría de la columna
+- Evaluar la influencia del tipo de malla y el espaciado
+- Determinar parámetros equivalentes del terreno tratado
+- Generar informes técnicos en **Excel** y **Word** de forma automática
 
-## Estructura del código
+---
 
-### 1) `app.py`
-Archivo principal de la interfaz gráfica.
+## 🎯 Objetivo del proyecto
 
-Responsabilidades:
+El objetivo principal es automatizar el cálculo y la documentación de la mejora de suelos mediante columnas de grava, cubriendo las siguientes necesidades:
 
-- Configuración de la aplicación Streamlit.
-- Definición de la interfaz de usuario con parámetros de entrada.
-- Generación de gráficos comparativos mediante Plotly.
-- Presentación de tablas de resultados.
-- Carga de la lógica de cálculo y generación de informes.
-- Descarga de archivos Excel y Word desde la propia aplicación.
+- Estimación de la geometría de la inclusión y del área tributaria
+- Cálculo de la relación de sustitución Ac/A
+- Evaluación de parámetros intermedios del método de Priebe
+- Determinación de parámetros equivalentes del terreno mejorado
+- Seguimiento de la evolución de fricción, cohesión y módulo elástico
+- Generación de informes profesionales para uso técnico y administrativo
 
-Incluye:
+---
 
-- sidebar con parámetros del terreno y de la grava,
-- cálculo automático de una serie de diámetros de columnas,
-- visualización de resultados en pestañas,
-- botones de descarga para matrices de cálculo y memoria técnica.
+## 🧩 Arquitectura del proyecto
 
-### 2) `funciones_grava.py`
-Módulo de cálculo matemático y estructuración de datos.
+```text
+ColumnasGrava/
+├── app.py
+├── funciones_grava.py
+├── informes.py
+├── requirements.txt
+├── README.md
+└── __pycache__/
+```
 
-Responsabilidades:
+### 1) `app.py` — Interfaz principal
 
-- Cálculo del área de la columna de grava.
-- Determinación del área tributaria para malla cuadrícula y tresbolillo.
-- Cálculo de la relación Ac/A.
-- Evaluación de variables intermedias del método de Priebe.
-- Estimación del coeficiente de mejora y de los parámetros equivalentes del suelo tratado.
+Archivo central de la aplicación con interfaz gráfica desarrollada en **Streamlit**.
 
-La función central `calcular_mejora_excel(...)` devuelve cuatro DataFrames:
+**Responsabilidades principales:**
+- Configuración de la página principal
+- Entrada de parámetros del terreno y de la grava
+- Visualización de tablas y gráficas
+- Descarga de resultados en Excel y Word
+- Presentación de formulaciones del método Priebe
 
-- `df_geo`: geometría y relaciones de sustitución,
-- `df_int1`: cálculos intermedios de la formulación,
-- `df_int2`: coeficientes y factor de mejora,
-- `df_params`: parámetros finales equivalentes.
+**Pestañas principales:**
+- 📋 **Tablas de datos**
+- 📈 **Gráficas**
+- 📥 **Descargas**
+- 🧮 **Formulaciones usadas**
 
-### 3) `informes.py`
-Módulo de exportación de resultados.
+### 2) `funciones_grava.py` — Motor de cálculo
 
-Responsabilidades:
+Módulo matemático encargado de realizar los cálculos de homogeneización del terreno.
 
-- Generación de un libro Excel con varias hojas de cálculo.
-- Generación de un documento Word con memoria técnica.
-- Inclusión de tablas y gráficos en reportes descargables.
+**Función principal:**
+- `calcular_mejora_excel(...)`
 
-Funciones principales:
+**Proceso interno:**
+- Cálculo del área de la columna de grava
+- Determinación de áreas tributarias para malla cuadrícula y tresbolillo
+- Cálculo de la relación Ac/A
+- Evaluación de factores intermedios y coeficientes del método de Priebe
+- Generación de la tabla final con parámetros equivalentes
 
-- `generar_excel_memoria(...)`: crea un archivo Excel en memoria en formato listo para descarga.
-- `generar_word_memoria(...)`: crea un documento Word con título, parámetros de diseño y gráficos.
+### 3) `informes.py` — Generación de informes
 
-### 4) `requirements.txt`
-Archivo de dependencias del proyecto.
+Módulo encargado de exportar la información en formatos técnicos estándar.
 
-Contiene las librerías necesarias para:
+**Funciones relevantes:**
+- `generar_excel_memoria(...)`
+- `generar_word_memoria(...)`
 
-- ejecución de la aplicación web,
-- procesamiento numérico,
-- manipulación de datos tabulares,
-- generación de gráficos,
-- exportación a Excel y Word,
-- renderizado de imágenes para Word.
+**Salida generada:**
+- 📊 Libro Excel con varias hojas de resultados
+- 📄 Documento Word con memoria de cálculo y gráficos
 
-## Metodología aplicada
+### 4) `requirements.txt` — Dependencias
 
-El software implementa la lógica del método de Priebe (1995), que permite estimar la mejora del comportamiento del terreno al incorporar columnas de grava. El análisis considera:
+Archivo con las librerías necesarias para ejecutar la aplicación:
+- Streamlit
+- NumPy
+- Pandas
+- Plotly
+- python-docx
+- xlsxwriter
+- openpyxl
+- kaleido
 
-- propiedades del material granular (ángulo de fricción y módulo elástico),
-- propiedades del suelo original (cohesión, fricción, módulo elástico y coeficiente de Poisson),
-- geometría de la malla de columnas,
-- distribución de la carga y el grado de mejora del suelo tratado.
+---
 
-A partir de estas variables se obtienen parámetros equivalentes que representan el comportamiento homogéneo del terreno mejorado.
+## 📐 Metodología aplicada
 
-## Casos de uso
+La herramienta implementa la lógica del **Método de Priebe (1995)** para estimar la mejora del comportamiento del terreno tras la introducción de columnas de grava.
 
-La aplicación es útil para:
+### Consideraciones del modelo
 
-- análisis preliminares de mejora de suelos,
-- evaluación de soluciones con columnas de grava,
-- comparación de distintos diámetros de columna,
-- estudio de sensibilidad del sistema ante cambios geométricos y mecánicos,
-- generación de documentación técnica para proyectos de ingeniería.
+El análisis considera:
+- Propiedades del suelo original
+- Propiedades del material granular
+- Geometría de la malla
+- Coeficiente de Poisson del terreno
+- Relación entre el área de columna y el área tributaria
 
-## Requisitos para ejecutar
+### Fórmulas principales
 
-Se requiere Python 3.9 o superior y las dependencias indicadas en `requirements.txt`.
+**Área de la columna**
+
+```text
+Ac = π · D² / 4
+```
+
+**Área tributaria para malla cuadrícula**
+
+```text
+A = s²
+```
+
+**Área tributaria para malla tresbolillo**
+
+```text
+A = (√3 / 2) · s²
+```
+
+**Tasa de sustitución**
+
+```text
+r = Ac / A
+```
+
+**Parámetros equivalentes**
+
+```text
+φ_eq = arctan[m · tan(φc) + (1 - m) · tan(φs)]
+c_eq = c_s · (1 - m)
+E_eq = E_s · (1 - m) + E_c · m
+```
+
+Con este conjunto de ecuaciones, la aplicación estima la mejora del suelo tratado y presenta la evolución de sus parámetros frente a la situación inicial.
+
+---
+
+## 🚀 Requisitos para ejecutar
+
+### Requisitos mínimos
+- Python 3.9 o superior
+- Entorno virtual recomendado
+- Dependencias listadas en `requirements.txt`
 
 ### Instalación
 
 ```bash
-pip install -r "ColumnasGrava/requirements.txt"
+pip install -r requirements.txt
 ```
 
 ### Ejecución
 
 ```bash
-streamlit run "ColumnasGrava/app.py"
+streamlit run app.py
 ```
-
-## Resultados esperados
-
-La aplicación genera:
-
-- tablas con geometría y relaciones de sustitución,
-- valores intermedios de cálculo,
-- resultados equivalentes de fricción, cohesión y módulo de elasticidad,
-- gráficos comparativos para cada parámetro,
-- archivos Excel y Word exportables.
-
-## Notas técnicas
-
-- El proyecto está desarrollado de forma modular para facilitar mantenimiento y ampliación.
-- La lógica de cálculo se mantiene separada de la capa visual.
-- La gestión de informes se centraliza en un módulo independiente para simplificar futuras extensiones.
-- La aplicación está preparada para usarse como herramienta de cálculo y presentación en entornos de ingeniería geotécnica.
-
-## Conclusión
-
-El contenido de esta carpeta constituye una herramienta de cálculo y análisis técnico para la mejora de terrenos mediante columnas de grava. Combina metodología geotécnica, automatización de cálculo, visualización de resultados y generación de documentos técnicos, convirtiéndola en un recurso útil para la fase de diseño y estudio comparativo de alternativas constructivas.
 
 ---
 
-Este README está pensado como una guía técnica de referencia para comprender la finalidad y funcionamiento de la aplicación dentro de la carpeta `ColumnasGrava`.
+## 📊 Resultados esperados
+
+La aplicación genera:
+
+- Tablas con geometría y relaciones de sustitución
+- Cálculos intermedios del método Priebe
+- Parámetros equivalentes de fricción, cohesión y módulo elástico
+- Gráficos comparativos por diámetro de columna
+- Archivos Excel y Word para documentación técnica
+
+---
+
+## 🧠 Casos de uso
+
+Este proyecto es útil para:
+
+- Análisis preliminares de mejora de suelos
+- Diseño de columnas de grava en obras geotécnicas
+- Estudio de sensibilidad vinculada al diámetro y espaciado
+- Comparación de diferentes alternativas de diseño
+- Generación de memoria de cálculo y documentación técnica
+
+---
+
+## 🏁 Conclusión
+
+**ColumnasGrava** reúne la lógica geotécnica del método de Priebe, la potencia del análisis numérico en Python y la facilidad de uso de Streamlit para convertir un cálculo técnico complejo en una herramienta accesible, visual y exportable.
+
+La carpeta está organizada para servir como base de cálculo, análisis y documentación técnica para proyectos de mejora de suelo mediante columnas de grava.
+
+---
+
+## 🔗 Información general
+
+- Proyecto: **Exterior / ColumnasGrava**
+- Lenguaje principal: **Python**
+- Interfaz: **Streamlit**
+- Objetivo: **Diseño y análisis de columnas de grava**
+
+---
+
+## 📝 Nota
+
+Este README está orientado a un uso profesional, técnico y de presentación para repositorios de ingeniería y proyectos de análisis geotécnico.
