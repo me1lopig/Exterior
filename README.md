@@ -1,197 +1,128 @@
-# Exterior
+# 🏗️ Exterior — Herramientas geotécnicas con Python y Streamlit
 
-**Aplicaciones web para ingeniería geotécnica** desarrolladas con **Streamlit** y Python. Este repositorio contiene herramientas académicas y de testeo para el aprendizaje del análisis y diseño de cimentaciones, consolidación de suelos y otros cálculos geotécnicos, orientadas a su despliegue en entornos académicos y de testeo.
+> Colección de aplicaciones para análisis, diseño y verificación geotécnica en cimentaciones y mejora del terreno.
 
 ---
 
-## 📁 Estructura del Repositorio
+## 📌 Descripción general
 
-```
+El repositorio **Exterior** reúne una serie de herramientas de cálculo y análisis geotécnico desarrolladas en **Python** con **Streamlit**, orientadas a la resolución de problemas reales de cimentaciones, asentamientos, consolidación, estructura del terreno y soluciones de mejora.
+
+Cada módulo está pensado para ser una herramienta técnica autónoma, con interfaz visual, cálculos parametrizados y exportación de resultados para uso profesional.
+
+---
+
+## 🧩 Estructura del repositorio
+
+```text
 Exterior/
-├── AsientosZapata/           # Análisis de asientos en zapatas (cimentaciones superficiales)
-│   ├── app_asientos_FEM_4.py # Aplicación principal (1079 líneas)
-│   └── requirements.txt      # Dependencias específicas
-│
-├── PilotesCTE/               # Diseño de pilotes según CTE DB-SE-C (cimentaciones profundas)
-│   ├── PilotesCTE_2.py       # Aplicación principal (618 líneas)
-│   └── requirements.txt      # Dependencias específicas
-│
-├── Consolidacion/            # Modelo de consolidación 1D para suelos
-│   ├── consolidacion_streamlit_3.py # Aplicación principal (582 líneas)
-│   └── requirements.txt      # Dependencias específicas
-│
-└── ZapatasGCOC/              # Dimensionamiento de zapatas según GCOC (cimentaciones superficiales)
-    ├── app.py                # Aplicación Streamlit principal
-    ├── zapatas_GCOC_1.py     # Motor de cálculo (Brinch-Hansen modificado)
-    ├── requirements.txt      # Dependencias específicas
-    └── README.md             # Documentación detallada
+├── .github/                  # Configuración y automatización de GitHub
+├── AsientosZapata/           # Asientos en zapatas y análisis de carga
+├── ColumnasGrava/            # Mejora de suelos con columnas de grava
+├── Consolidacion/            # Consolidación unidimensional
+├── PilotesCTE/               # Diseño de pilotes según CTE DB-SE-C
+├── ZapatasGCOC/              # Dimensionamiento de zapatas según GCOC
+├── expansividad/             # Evaluación de suelos expansivos
+├── parametrizacion/          # Parametrización geotécnica
+├── spt/                      # Análisis de ensayos SPT
+├── zapatasCTE/               # Cálculo de hundimiento según CTE
+├── LICENSE                   # Licencia del repositorio
+├── README.md                 # Documentación principal
+└── ...
 ```
 
 ---
 
-## 🏗️ Aplicaciones Disponibles
+## 🏗️ Módulos disponibles
 
-### 1️⃣ **AsientosZapata**
-**Descripción**: Herramienta para el cálculo de **asientos en zapatas** (cimentaciones superficiales) mediante métodos teóricos y análisis por **Elementos Finitos (FEM)**.
-
-#### 📋 Características principales:
-- **Métodos teóricos implementados**:
-  - **Holl**: Cálculo de tensiones bajo esquinas y centros de cargas rectangulares.
-  - **Steinbrenner**: Asientos en suelos estratificados con módulos de elasticidad y coeficientes de Poisson.
-  - **Método elástico**: Análisis basado en propiedades elásticas del suelo.
-- **Análisis FEM (opcional)**: Simulación 3D de zapatas y suelos usando **OpenSeesPy** (si está instalado).
-- **Visualización**: Gráficos de distribución de tensiones y asientos por capa (`matplotlib`).
-- **Exportación**: Generación de informes detallados en formato **Word (.docx)** con tablas, gráficos y cálculos.
-
-#### 📦 Dependencias:
-- `streamlit` (interfaz web)
-- `numpy` (cálculos numéricos)
-- `pandas` (manipulación de datos tabulares)
-- `matplotlib` (gráficos estáticos)
-- `openseespy` (opcional, para análisis FEM)
-- `python-docx` (generación de informes Word)
+| Módulo | Enfoque principal | Tecnologías | Estado |
+|---|---|---|---|
+| **AsientosZapata** | Asientos en cimentaciones superficiales | Streamlit, NumPy, Pandas, Matplotlib | ✅ Activo |
+| **ColumnasGrava** | Mejora de suelo con columnas de grava | Streamlit, NumPy, Pandas, Plotly | ✅ Activo |
+| **Consolidacion** | Consolidación 1D y asientos temporales | Streamlit, NumPy, Pandas, Plotly | ✅ Activo |
+| **PilotesCTE** | Diseño de pilotes según CTE | Streamlit, NumPy, Pandas, Plotly | ✅ Activo |
+| **ZapatasGCOC** | Dimensionamiento de zapatas según GCOC | Streamlit, NumPy, Pandas, Plotly | ✅ Activo |
+| **expansividad** | Evaluación de suelos expansivos | Python, análisis geotécnico | ✅ Base |
+| **parametrizacion** | Parametrización geotécnica | Python, Pandas, NumPy | ✅ Base |
+| **spt** | Interpretación de ensayos SPT | Python, análisis de suelos | ✅ Base |
+| **zapatasCTE** | Hundimiento de zapatas según CTE | Streamlit, NumPy, Pandas | ✅ Activo |
 
 ---
 
-### 2️⃣ **PilotesCTE**
-**Descripción**: Herramienta para el **diseño de pilotes** (cimentaciones profundas) según el **Código Técnico de la Edificación (CTE DB-SE-C)** de España.
+## 🎯 Áreas de aplicación
 
-#### 📋 Características principales:
-- **Configuración según normativa CTE DB-SE-C**:
-  - Métodos de ejecución: **Perforados** (entubados, lodos, en seco, con/sin control de parámetros) y **Hincados** (hormigón armado, pretensado, metálicos, madera).
-  - Tope estructural automático según tipo de pilote y material (Tabla 5.1 del CTE).
-  - Coeficientes parciales de seguridad (`γ_R`, `γ_M`).
-- **Cálculos geotécnicos**:
-  - Capacidad de carga por **punta** (según tipo de suelo: arcillas, arenas, rocas).
-  - Capacidad de carga por **fuste** (rozamiento lateral).
-  - Asientos estimados mediante métodos empíricos.
-  - Combinación de cargas: axial, cortante, momento flector.
-- **Visualización**: Gráficos interactivos con **Plotly** (capacidad vs. profundidad, distribución de esfuerzos).
-- **Exportación**: Informes en **Word (.docx)** con resultados, gráficos y verificación normativa.
-
-#### 📦 Dependencias:
-- `streamlit` (interfaz web)
-- `numpy` (cálculos numéricos)
-- `pandas` (manipulación de datos tabulares)
-- `plotly` (gráficos interactivos)
-- `matplotlib` (gráficos adicionales)
-- `python-docx` (generación de informes Word)
+- Cimentaciones superficiales
+- Cimentaciones profundas
+- Asientos y deformaciones del terreno
+- Consolidación y drenaje
+- Mejoras del terreno
+- Suelos expansivos y problemáticos
+- Verificación de estructuras apoyadas en suelo
 
 ---
 
-### 3️⃣ **Consolidacion**
-**Descripción**: Herramienta para el **modelo de consolidación 1D** en suelos bajo cargas extensas, permitiendo analizar el comportamiento de asientos a lo largo del tiempo.
+## 🚀 Cómo empezar
 
-#### 📋 Características principales:
-- **Análisis de consolidación 1D** para suelos saturados.
-- **Métodos numéricos**: Solución explícita e implícita para la ecuación de consolidación de Terzaghi.
-- **Parámetros configurables**:
-  - Longitud de la capa de suelo.
-  - Tensión inicial y coeficiente de consolidación.
-  - Módulo de compresibilidad volumétrica (`m_v`).
-  - Permeabilidad y espesor de las capas.
-- **Visualización**:
-  - Gráficos de **grado de consolidación vs. tiempo** (`matplotlib` y `plotly`).
-  - Curvas de asientos en función del tiempo.
-- **Exportación**: Generación de informes en **Word (.docx)** con resultados y gráficos.
+### Requisitos previos
 
-#### 📦 Dependencias:
-- `streamlit` (interfaz web)
-- `numpy` (cálculos numéricos)
-- `matplotlib` (gráficos estáticos)
-- `pandas` (manipulación de datos tabulares)
-- `plotly` (gráficos interactivos)
-- `python-docx` (generación de informes Word)
-- `openpyxl` (manipulación de archivos Excel)
+- Python 3.8 o superior
+- Entorno virtual recomendado
+- Dependencias específicas por módulo
 
----
+### Instalación general
 
-### 4️⃣ **ZapatasGCOC**
-**Descripción**: Herramienta para el **diseño y verificación de zapatas** (cimentaciones superficiales) según la **Guía de Cimentaciones en Obras de Carretera (GCOC)**, basada en el método de **Brinch-Hansen modificado**.
-
-#### 📋 Características principales:
-- **Metodología**: Implementa la fórmula de Brinch-Hansen adaptada a normativa GCOC.
-- **Dos modos de operación**:
-  - **Modo A (Pre-dimensionamiento)**: Genera cartas de tensiones admisibles para diferentes geometrías de zapata.
-  - **Modo B (Verificación estructural)**: Analiza zapatas con cargas reales (verticales, horizontales y momentos flectores).
-- **Tipos de zapata soportados**: Rectangular, Corrida y Circular.
-- **Condiciones de terreno**: Largo plazo (drenado) y corto plazo (no drenado).
-- **Cálculo de seguridad**: Factor de seguridad frente a hundimiento según normativa (FS: 3.0 persistente, 2.5 transitoria, 2.0 accidental).
-- **Excentricidad**: Considera momentos flectores para calcular el área efectiva de la zapata.
-- **Nivel freático**: Ajusta el peso específico del terreno según la posición del agua.
-- **Visualización**: 
-  - Mapas de calor de tensiones admisibles (Modo A).
-  - Gráficos interactivos con Plotly (evolución de FS, tensiones).
-- **Exportación**: 
-  - **CSV**: Datos crudos para análisis posterior.
-  - **Word (.docx)**: Informes técnicos con tablas y resultados.
-
-#### 📦 Dependencias:
-- `streamlit` (interfaz web)
-- `numpy` (cálculos numéricos)
-- `pandas` (manipulación de datos tabulares)
-- `plotly` (gráficos interactivos)
-- `python-docx` (generación de informes Word)
-
----
-
-## 🚀 ¿Cómo Ejecutar las Aplicaciones?
-
-### Requisitos previos:
-- Python 3.8 o superior.
-- Instalar las dependencias de cada aplicación.
-
-### Pasos para ejecutar:
-
-#### 1. Clonar el repositorio:
 ```bash
 git clone https://github.com/me1lopig/Exterior.git
 cd Exterior
 ```
 
-#### 2. Instalar dependencias:
+Luego, entra en la carpeta de cada aplicación y ejecuta su `requirements.txt`:
+
 ```bash
-# Para AsientosZapata
 cd AsientosZapata
-pip install -r requirements.txt
-
-# Para PilotesCTE
-cd ../PilotesCTE
-pip install -r requirements.txt
-
-# Para Consolidacion
-cd ../Consolidacion
-pip install -r requirements.txt
-
-# Para ZapatasGCOC
-cd ../ZapatasGCOC
 pip install -r requirements.txt
 ```
 
-#### 3. Ejecutar con Streamlit:
+Y para arrancar la app:
+
 ```bash
-# AsientosZapata
-streamlit run app_asientos_FEM_4.py
-
-# PilotesCTE
-streamlit run PilotesCTE_2.py
-
-# Consolidacion
-streamlit run consolidacion_streamlit_3.py
-
-# ZapatasGCOC
 streamlit run app.py
 ```
 
-#### 4. Acceder a la aplicación:
-Abrir el navegador en `http://localhost:8501`.
+> En cada módulo la interfaz principal puede llamarse distinto (`app.py`, `app_asientos_FEM_4.py`, `PilotesCTE_2.py`, etc.).
+
+---
+
+## 📚 Principales metodologías incluidas
+
+- Método de Brinch-Hansen adaptado a GCOC
+- Cálculo de capacidad portante de zapatas
+- Análisis de asentamientos por métodos elásticos y numéricos
+- Consolidación unidimensional de Terzaghi
+- Diseño de pilotes según normativas españolas
+- Homogeneización de terrenos mediante columnas de grava
+- Evaluación de suelos expansivos y parámetros de terreno
+
+---
+
+## 🧠 Objetivo del repositorio
+
+Este repositorio sirve como entorno de aprendizaje, prototipado y validación técnica para aplicaciones geotécnicas en Python. Su finalidad es facilitar la automatización de cálculos, la visualización de resultados y la generación de documentación técnica para proyectos reales.
 
 ---
 
 ## 📜 Licencia
-Este proyecto está licenciado bajo **GNU General Public License v3.0** (consultar el archivo [LICENSE](LICENSE) para más detalles).
+
+Este repositorio se distribuye bajo la licencia **GNU GPL v3.0**. Consulta el archivo [LICENSE](LICENSE) para más detalles.
 
 ---
 
-## 📧 Contacto
-Para consultas o colaboraciones, contactar con el mantenedor del repositorio.
+## 🤝 Contacto
+
+Si quieres colaborar, reportar un problema o proponer mejoras, puedes contactar con el mantenedor del repositorio desde GitHub.
+
+---
+
+## 🏁 Resumen
+
+**Exterior** es una colección técnica y académica de herramientas geotécnicas para análisis, verificación y diseño de cimentaciones y mejora del terreno, desarrolladas con enfoque profesional, visualización clara y exportación de resultados útiles para ingeniería.
