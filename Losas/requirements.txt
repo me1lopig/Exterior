@@ -1,1 +1,8 @@
 
+streamlit
+openseespy
+numpy
+scipy
+shapely
+plotly
+python-docx
