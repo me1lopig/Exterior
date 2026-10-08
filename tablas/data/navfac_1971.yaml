@@ -1,0 +1,42 @@
+meta: {id: 3, fuente_id: navfac_1971, nombre: Suelos compactados — NAVFAC 1971, cita: 'Propiedades de
+    suelos compactados, NAVFAC (1971). Vía Manual de Taludes del IGME.', nota: Clasificación por símbolo
+    USCS. Cohesión en t/m² (corregida de t/m³ del original).}
+columnas:
+- {campo: simbolo, etiqueta: Símbolo USCS, unidad: null, tipo: text, grupo: null}
+- {campo: tipo_suelo, etiqueta: Clase de suelo, unidad: null, tipo: text, grupo: null}
+- {campo: c_comp, etiqueta: Cohesión (compactado), unidad: t/m², tipo: num, grupo: null}
+- {campo: c_sat, etiqueta: Cohesión (saturado), unidad: t/m², tipo: num, grupo: null}
+- {campo: phi, etiqueta: φ', unidad: °, tipo: text, grupo: null}
+- {campo: tan_phi, etiqueta: tan φ, unidad: null, tipo: num, grupo: null}
+filas:
+- {simbolo: GW, tipo_suelo: 'Gravas bien graduadas, mezcla de gravas y de arena', c_comp: 0, c_sat: 0,
+  phi: '>38', tan_phi: 0.781}
+- {simbolo: GP, tipo_suelo: 'Gravas mal graduadas, mezcla de grava y de arena', c_comp: 0, c_sat: 0, phi: '>37',
+  tan_phi: 0.754}
+- {simbolo: GM, tipo_suelo: 'Gravas limosas, mezcla de grava-arena mal graduada', c_comp: 0, c_sat: 0,
+  phi: '>34', tan_phi: 0.675}
+- {simbolo: GC, tipo_suelo: 'Gravas limosas, mezcla de grava-arena-arcilla mal graduada', c_comp: 0, c_sat: 0,
+  phi: '>31', tan_phi: 0.601}
+- {simbolo: SW, tipo_suelo: 'Arenas bien graduadas, arenas con grava', c_comp: 0, c_sat: 0, phi: '38',
+  tan_phi: 0.781}
+- {simbolo: SP, tipo_suelo: 'Arenas mal graduadas, arenas con grava', c_comp: 0, c_sat: 0, phi: '37',
+  tan_phi: 0.754}
+- {simbolo: SM, tipo_suelo: 'Arenas limosas, mezcla de arena-limo mal graduada', c_comp: 5.13, c_sat: 2.05,
+  phi: '34', tan_phi: 0.675}
+- {simbolo: SM-SC, tipo_suelo: Mezcla de arena-limo-arcilla con pocos finos plásticos, c_comp: 5.13, c_sat: 1.46,
+  phi: '33', tan_phi: 0.649}
+- {simbolo: SC, tipo_suelo: 'Arenas arcillosas, mezcla de arena-arcilla', c_comp: 7.57, c_sat: 1.12, phi: '31',
+  tan_phi: 0.601}
+- {simbolo: ML, tipo_suelo: Limos inorgánicos y limos arcillosos, c_comp: 6.83, c_sat: 0.93, phi: '32',
+  tan_phi: 0.625}
+- {simbolo: ML-CL, tipo_suelo: Mezcla de limo inorgánico y arcilla, c_comp: 6.59, c_sat: 2.24, phi: '32',
+  tan_phi: 0.625}
+- {simbolo: CL, tipo_suelo: Arcillas inorgánicas poco plásticas o de plasticidad mediana, c_comp: 8.79,
+  c_sat: 1.32, phi: '28', tan_phi: 0.532}
+- {simbolo: OL, tipo_suelo: Limos orgánicos y arcillas limosas orgánicas poco plásticas, c_comp: 0, c_sat: 0,
+  phi: '0', tan_phi: 0.0}
+- {simbolo: MH, tipo_suelo: 'Limos arcillosos inorgánicos, suelos limosos', c_comp: 7.32, c_sat: 2.05,
+  phi: '25', tan_phi: 0.466}
+- {simbolo: CH, tipo_suelo: Arcillas inorgánicas muy plásticas, c_comp: 10.5, c_sat: 1.12, phi: '19',
+  tan_phi: 0.344}
+- {simbolo: OH, tipo_suelo: Arcillas orgánicas y arcillas limosas, c_comp: 0, c_sat: 0, phi: '0', tan_phi: 0.0}

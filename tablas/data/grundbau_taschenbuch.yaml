@@ -1,0 +1,42 @@
+meta:
+  id: 1
+  fuente_id: grundbau_taschenbuch
+  nombre: Grundbau-Taschenbuch
+  cita: Grundbau-Taschenbuch, 3ª edición, 1ª parte (1980). Reproducida en el Curso de Cimentaciones de Rodríguez Ortiz.
+  nota: Los pares se muestran como «línea superior / línea inferior», exactamente en el orden de la tabla fuente. Deformabilidad según Es = E₀·(σ/σat)^α. Valores orientativos.
+columnas:
+- {campo: tipo_suelo, etiqueta: Tipo de suelo, unidad: null, tipo: text, grupo: null}
+- {campo: gran_006, etiqueta: '< 0,06 mm', unidad: '%', tipo: par, grupo: Granulometría}
+- {campo: gran_2, etiqueta: '< 2,0 mm', unidad: '%', tipo: par, grupo: Granulometría}
+- {campo: ll, etiqueta: wL, unidad: '%', tipo: par, grupo: Límites de Atterberg}
+- {campo: lp, etiqueta: wP, unidad: '%', tipo: par, grupo: Límites de Atterberg}
+- {campo: ip, etiqueta: IP, unidad: '%', tipo: par, grupo: Límites de Atterberg}
+- {campo: gamma_ap, etiqueta: γ, unidad: t/m³, tipo: par_2dec, grupo: Peso específico}
+- {campo: gamma_sum, etiqueta: γsum, unidad: t/m³, tipo: par_2dec, grupo: Peso específico}
+- {campo: humedad, etiqueta: Humedad natural w, unidad: '%', tipo: par, grupo: Humedad natural}
+- {campo: densidad_seca, etiqueta: D. seca, unidad: t/m³, tipo: par_2dec, grupo: Proctor normal}
+- {campo: w_pn, etiqueta: wPN, unidad: '%', tipo: par, grupo: Proctor normal}
+- {campo: e0, etiqueta: E₀, unidad: kp/cm², tipo: par, grupo: Deformabilidad}
+- {campo: alpha, etiqueta: α, unidad: null, tipo: par_2dec, grupo: Deformabilidad}
+- {campo: phi, etiqueta: φ', unidad: °, tipo: par, grupo: Resistencia al corte}
+- {campo: c, etiqueta: c', unidad: t/m², tipo: par, grupo: Resistencia al corte}
+- {campo: phi_r, etiqueta: φ'r, unidad: °, tipo: par, grupo: Resistencia al corte}
+- {campo: k, etiqueta: Permeabilidad K, unidad: m/s, tipo: par_perm, grupo: Permeabilidad}
+filas:
+- {tipo_suelo: Grava, gran_006: '<5', gran_2: '<60', ll: null, lp: null, ip: null, gamma_ap: [1.60, 1.90], gamma_sum: [0.95, 1.05], humedad: [5, 2], densidad_seca: [1.70, 1.90], w_pn: [8, 5], e0: [400, 900], alpha: [0.60, 0.40], phi: [34, 42], c: null, phi_r: [32, 35], k: [2.0e-1, 1.0e-2]}
+- {tipo_suelo: Grava arenosa con pocos finos, gran_006: '<5', gran_2: '<60', ll: null, lp: null, ip: null, gamma_ap: [2.10, 2.30], gamma_sum: [1.15, 1.35], humedad: [7, 3], densidad_seca: [2.00, 2.25], w_pn: [7, 4], e0: [400, 1100], alpha: [0.70, 0.50], phi: [35, 45], c: null, phi_r: [32, 35], k: [1.0e-2, 1.0e-6]}
+- {tipo_suelo: Grava arenosa con finos limosos o arcillosos que no alteran la estructura granular, gran_006: [8, 15], gran_2: '<60', ll: [20, 45], lp: [16, 25], ip: [4, 25], gamma_ap: [2.10, 2.40], gamma_sum: [1.15, 1.45], humedad: [9, 3], densidad_seca: [2.10, 2.35], w_pn: [7, 3], e0: [400, 1200], alpha: [0.70, 0.50], phi: [35, 43], c: [1, 0], phi_r: [32, 35], k: [1.0e-5, 1.0e-8]}
+- {tipo_suelo: Mezcla de gravas y arenas envueltas por finos, gran_006: [20, 40], gran_2: '<60', ll: [20, 50], lp: [16, 25], ip: [4, 30], gamma_ap: [2.00, 2.25], gamma_sum: [1.05, 1.30], humedad: [13, 5], densidad_seca: [1.90, 2.20], w_pn: [10, 5], e0: [150, 400], alpha: [0.90, 0.70], phi: [28, 35], c: [3, 0.5], phi_r: [22, 30], k: [1.0e-8, 1.0e-11]}
+- {tipo_suelo: Arena uniforme · a) Fina, gran_006: '<5', gran_2: 100, ll: null, lp: null, ip: null, gamma_ap: [1.60, 1.90], gamma_sum: [0.95, 1.10], humedad: [22, 8], densidad_seca: [1.60, 1.75], w_pn: [15, 10], e0: [150, 300], alpha: [0.75, 0.60], phi: [32, 40], c: null, phi_r: [30, 32], k: [2.0e-4, 1.0e-5]}
+- {tipo_suelo: Arena uniforme · b) Gruesa, gran_006: '<5', gran_2: 100, ll: null, lp: null, ip: null, gamma_ap: [1.60, 1.90], gamma_sum: [0.95, 1.10], humedad: [16, 6], densidad_seca: [1.60, 1.75], w_pn: [13, 8], e0: [250, 700], alpha: [0.70, 0.55], phi: [34, 42], c: null, phi_r: [30, 34], k: [5.0e-3, 2.0e-4]}
+- {tipo_suelo: Arena bien graduada y arena con grava, gran_006: '<5', gran_2: 60, ll: null, lp: null, ip: null, gamma_ap: [1.80, 2.10], gamma_sum: [1.00, 1.20], humedad: [11, 5], densidad_seca: [1.90, 2.15], w_pn: [10, 6], e0: [200, 600], alpha: [0.70, 0.55], phi: [33, 41], c: null, phi_r: [32, 34], k: [5.0e-4, 2.0e-5]}
+- {tipo_suelo: Arena con finos que no alteran la estructura granular, gran_006: [8, 15], gran_2: '>60', ll: [20, 45], lp: [16, 25], ip: [4, 25], gamma_ap: [1.90, 2.25], gamma_sum: [1.05, 1.30], humedad: [15, 4], densidad_seca: [2.00, 2.20], w_pn: [13, 7], e0: [150, 500], alpha: [0.80, 0.65], phi: [32, 40], c: [1, 0], phi_r: [30, 32], k: [1.0e-5, 1.0e-7]}
+- {tipo_suelo: Arena con finos que alteran la estructura granular, gran_006: [20, 40], gran_2: '>60', ll: [20, 50], lp: [16, 30], ip: [4, 30], gamma_ap: [1.80, 2.15], gamma_sum: [0.90, 1.10], humedad: [20, 8], densidad_seca: [1.70, 2.00], w_pn: [18, 12], e0: [50, 250], alpha: [0.90, 0.75], phi: [25, 32], c: [5, 1], phi_r: [22, 30], k: [1.0e-7, 1.0e-10]}
+- {tipo_suelo: Limo poco plástico, gran_006: '>50', gran_2: '>80', ll: [25, 35], lp: [20, 28], ip: [4, 11], gamma_ap: [1.75, 2.10], gamma_sum: [0.95, 1.10], humedad: [28, 15], densidad_seca: [1.60, 1.80], w_pn: [22, 15], e0: [40, 110], alpha: [0.80, 0.60], phi: [28, 35], c: [2, 0.5], phi_r: [25, 30], k: [1.0e-5, 1.0e-8]}
+- {tipo_suelo: Limo de plasticidad media a alta, gran_006: '>80', gran_2: '>100', ll: [35, 50], lp: [22, 25], ip: [7, 20], gamma_ap: [1.70, 2.00], gamma_sum: [0.85, 1.05], humedad: [35, 20], densidad_seca: [1.55, 1.75], w_pn: [23, 16], e0: [30, 70], alpha: [0.90, 0.70], phi: [25, 33], c: [3, 1], phi_r: [22, 29], k: [2.0e-6, 1.0e-9]}
+- {tipo_suelo: Arcilla de baja plasticidad, gran_006: '>80', gran_2: 100, ll: [25, 35], lp: [15, 22], ip: [7, 16], gamma_ap: [1.90, 2.20], gamma_sum: [0.95, 1.20], humedad: [28, 14], densidad_seca: [1.65, 1.85], w_pn: [20, 14], e0: [20, 50], alpha: [1.00, 0.90], phi: [24, 32], c: [6, 1.5], phi_r: [20, 28], k: [1.0e-7, 2.0e-9]}
+- {tipo_suelo: Arcilla de plasticidad media, gran_006: '>90', gran_2: 100, ll: [40, 50], lp: [18, 25], ip: [16, 28], gamma_ap: [1.80, 2.10], gamma_sum: [0.85, 1.10], humedad: [38, 18], densidad_seca: [1.55, 1.75], w_pn: [23, 17], e0: [10, 30], alpha: [1.00, 0.95], phi: [20, 30], c: [8, 2], phi_r: [10, 20], k: [5.0e-8, 1.0e-10]}
+- {tipo_suelo: Arcilla de alta plasticidad, gran_006: 100, gran_2: 100, ll: [60, 85], lp: [20, 35], ip: [33, 55], gamma_ap: [1.65, 2.00], gamma_sum: [0.70, 1.00], humedad: [55, 20], densidad_seca: [1.45, 1.65], w_pn: [27, 20], e0: [6, 20], alpha: [1.00, 1.00], phi: [17, 27], c: [10, 3], phi_r: [6, 15], k: [1.0e-9, 1.0e-11]}
+- {tipo_suelo: Limo o arcilla orgánicos, gran_006: '>80', gran_2: 100, ll: [45, 70], lp: [30, 45], ip: [10, 30], gamma_ap: [1.55, 1.90], gamma_sum: [0.55, 0.90], humedad: [60, 30], densidad_seca: [1.45, 1.70], w_pn: [27, 18], e0: [5, 20], alpha: [1.00, 0.85], phi: [20, 26], c: [7, 2], phi_r: [15, 22], k: [1.0e-9, 1.0e-11]}
+- {tipo_suelo: Turba, gran_006: null, gran_2: null, ll: null, lp: null, ip: null, gamma_ap: [1.04, 1.30], gamma_sum: [0.04, 0.30], humedad: [800, 100], densidad_seca: null, w_pn: null, e0: [3, 8], alpha: [1.00, 1.00], phi: [25, 30], c: [1.5, 0.5], phi_r: null, k: [1.0e-5, 1.0e-8]}
+- {tipo_suelo: Fango, gran_006: null, gran_2: null, ll: [100, 250], lp: [30, 80], ip: [50, 170], gamma_ap: [1.25, 1.60], gamma_sum: [0.25, 0.60], humedad: [200, 50], densidad_seca: null, w_pn: null, e0: [4, 15], alpha: [1.00, 0.90], phi: [22, 28], c: [2, 0.5], phi_r: null, k: [1.0e-7, 1.0e-9]}

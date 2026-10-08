@@ -1,0 +1,29 @@
+fuentes:
+- id: 1
+  fuente_id: grundbau_taschenbuch
+  nombre: Grundbau-Taschenbuch
+  n_filas: 17
+- id: 2
+  fuente_id: eau_1970
+  nombre: EAU 1970
+  n_filas: 16
+- id: 3
+  fuente_id: navfac_1971
+  nombre: Suelos compactados — NAVFAC 1971
+  n_filas: 16
+- id: 4
+  fuente_id: metrosur_1999
+  nombre: MetroSur 1999
+  n_filas: 16
+- id: 5
+  fuente_id: cte_densidades
+  nombre: CTE DB-SE-C — Densidades (D.26)
+  n_filas: 4
+- id: 6
+  fuente_id: cte_prop_basicas
+  nombre: CTE DB-SE-C — Propiedades básicas (D.27)
+  n_filas: 7
+- id: 7
+  fuente_id: cte_permeabilidad
+  nombre: CTE DB-SE-C — Permeabilidad (D.28)
+  n_filas: 4

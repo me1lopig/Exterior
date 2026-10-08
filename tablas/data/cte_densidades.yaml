@@ -1,0 +1,20 @@
+meta: {id: 5, fuente_id: cte_densidades, nombre: CTE DB-SE-C — Densidades (D.26), cita: 'CTE DB-SE-C,
+    tabla D.26. Valores orientativos de densidades.', nota: Unidades corregidas a kN/m³ (el original rotulaba
+    kN/m² en las columnas 'sup').}
+columnas:
+- {campo: tipo_suelo, etiqueta: Tipo de suelo, unidad: null, tipo: text, grupo: null}
+- {campo: peso_sat, etiqueta: Peso específico saturado, unidad: kN/m³, tipo: rango, grupo: null}
+- {campo: peso_seco, etiqueta: Peso específico seco, unidad: kN/m³, tipo: rango, grupo: null}
+filas:
+- tipo_suelo: Grava
+  peso_sat: [20, 22]
+  peso_seco: [15, 17]
+- tipo_suelo: Arena
+  peso_sat: [18, 20]
+  peso_seco: [13, 16]
+- tipo_suelo: Limo
+  peso_sat: [18, 20]
+  peso_seco: [14, 18]
+- tipo_suelo: Arcilla
+  peso_sat: [16, 22]
+  peso_seco: [14, 21]

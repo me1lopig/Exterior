@@ -1,0 +1,27 @@
+meta: {id: 6, fuente_id: cte_prop_basicas, nombre: CTE DB-SE-C — Propiedades básicas (D.27), cita: 'CTE
+    DB-SE-C, tabla D.27. Propiedades básicas de los suelos.', nota: Valores orientativos.}
+columnas:
+- {campo: grupo, etiqueta: Grupo, unidad: null, tipo: text, grupo: null}
+- {campo: tipo_suelo, etiqueta: Tipo de suelo, unidad: null, tipo: text, grupo: null}
+- {campo: gamma_ap, etiqueta: γ aparente, unidad: kN/m³, tipo: rango, grupo: null}
+- {campo: phi, etiqueta: Ángulo de rozamiento φ, unidad: °, tipo: rango, grupo: null}
+filas:
+- grupo: Terreno natural
+  tipo_suelo: Grava
+  gamma_ap: [19, 22]
+  phi: [34, 45]
+- grupo: Terreno natural
+  tipo_suelo: Arena
+  gamma_ap: [17, 20]
+  phi: [30, 36]
+- grupo: Terreno natural
+  tipo_suelo: Limo
+  gamma_ap: [17, 20]
+  phi: [25, 32]
+- grupo: Terreno natural
+  tipo_suelo: Arcilla
+  gamma_ap: [15, 22]
+  phi: [16, 28]
+- {grupo: Rellenos, tipo_suelo: Tierra vegetal, gamma_ap: 17, phi: 25}
+- {grupo: Rellenos, tipo_suelo: Terraplén, gamma_ap: 17, phi: 30}
+- {grupo: Rellenos, tipo_suelo: Pedraplén, gamma_ap: 18, phi: 40}
