@@ -1,53 +1,64 @@
-# ⚙️ parametrizacion — Herramienta de parametrización geotécnica
+# Correlaciones geotecnicas
 
-> Módulo para organización, análisis y ajuste de parámetros geotécnicos del terreno.
+Aplicacion Streamlit para estimaciones preliminares de parametros geotecnicos. La revision corrige errores de formulacion del prototipo, hace explicita la base del SPT y separa interfaz, calculo y modelos.
 
----
+## Alcance
 
-## 📌 Descripción general
+- Correccion de `N` a `N60` y `(N1)60` con factores visibles.
+- Estimacion de `su` con Skempton, Bjerrum-Simons y Mesri, conservando sus diferentes significados.
+- Correlaciones de `phi'` para arenas basadas en `(N1)60`.
+- Calculo de CALIP con `IP = LL - LP` y estimacion de `phi_R` residual secante mediante una regresion publicada de la curva de Collotta.
+- Modulo de arenas del procedimiento historico NAVFAC DM 7.1.
+- Banda digitalizada de modulo vertical drenado `E'v` de Stroud-Butler para materiales sobreconsolidados.
+- Modulo no drenado, tablas orientativas y balasto del CTE DB-SE-C.
+- Interpolacion lineal por tramos de `qu` y `E` dentro de la tabla D.23, con `N` de rechazo explicito.
+- Pestaña de referencias y formulaciones con enlaces a las fuentes.
 
-**parametrizacion** se enfoca en la gestión y análisis de parámetros geotécnicos utilizados en modelos de suelo, cimentaciones y estabilidad. Su objetivo es estructurar la información geotécnica para permitir la comparación, ajuste y explotación de valores en cálculos y herramientas del repositorio.
+Los resultados son correlaciones empiricas. No constituyen por si solos valores caracteristicos, de calculo ni admisibles.
 
----
-
-## 🧩 Funcionalidades principales
-
-- Organización de propiedades del suelo
-- Evaluación de parámetros relevantes para diseño geotécnico
-- Base para cálculos de cimentación y deformación
-- Estructuración de datos para uso en otras aplicaciones del repositorio
-
----
-
-## 📁 Estructura del módulo
+## Estructura
 
 ```text
-parametrizacion/
-├── README.md
-└── ...
+parametrizacion_corregida/
+|-- app.py
+|-- calculations/
+|   |-- correlations.py
+|   `-- spt.py
+|-- models/
+|   |-- catalog.py
+|   `-- domain.py
+|-- tests/
+|-- requirements.txt
+`-- README.md
 ```
 
----
+## Instalacion y ejecucion
 
-## 🚀 Uso recomendado
+```bash
+python -m venv .venv
+# Linux/macOS: source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+streamlit run app.py
+```
 
-Se usa como soporte para:
+## Pruebas
 
-- Revisión de parámetros geotécnicos
-- Calibración de modelos de suelo
-- Estudios de sensibilidad
-- Preparación de datos para módulos de cálculo del repositorio
+Desde la raiz del proyecto:
 
----
+```bash
+python -m unittest discover -s tests -v
+```
 
-## 📊 Resultados esperados
+Las pruebas cubren las correcciones principales: Skempton lineal, CALIP con indice de plasticidad, normalizacion SPT, dominios de `phi'`, bandas CTE F.2 y geometria del modulo de balasto.
 
-- Dataset estructurado de propiedades del terreno
-- Parámetros normalizados para cálculo geotécnico
-- Base para análisis comparativos y estudios de diseño
+## Decisiones tecnicas de la revision
 
----
+- La tabla D.23 del CTE se conserva como intervalos y la herramienta aplica una interpolacion lineal adoptada. Se usa el origen para el primer tramo y un `N` equivalente al rechazo definido por el usuario para cerrar el ultimo tramo; estas dos condiciones no son valores prescritos por el CTE.
+- Se separa `sigma'v0` de `sigma'p`: Mesri (1975) requiere la presion efectiva de preconsolidacion.
+- Hatanaka-Uchida y la modificacion de Mayne et al. se presentan como formulaciones distintas, tal como las sintetiza NCHRP 651.
+- Los polinomios de Stroud se identifican como una digitalizacion posterior de la Figura 6 de Stroud y Butler (1975), no como ecuaciones originales. Estiman `E'v` drenado, usan la base SPT historica y se limitan a `0 <= IP <= 60 %`.
+- CALIP se transforma en `phi_R` mediante la ecuacion B4 de Tzampoglou et al. (2026): `phi_R = 21.2/exp(0.008*CALIP^1.5) + 7.7`. Es un ajuste de datos de corte anular de Collotta et al. (1989), no una ecuacion del articulo original.
+- Las correlaciones con autoria, unidades o base SPT no verificables se han retirado del motor activo. Esto evita presentar precision numerica sin trazabilidad.
 
-## 📜 Licencia
-
-Este módulo forma parte del repositorio principal **Exterior** y sigue la licencia del proyecto.
+La bibliografia completa y los enlaces se muestran dentro de la propia aplicacion.
