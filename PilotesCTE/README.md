@@ -191,10 +191,4 @@ Este proyecto se entrega con fines de análisis, cálculo y documentación técn
 - Carpeta: PilotesCTE
 - Aplicación principal: PilotesCTE_2.py
 
-Si necesitas, puedo ayudarte a personalizar este README con:
 
-- estilo corporate más premium
-- versión en inglés
-- versión con logo institucional
-- versión más técnica para ingeniería
-- versión resumida para GitHub y otra para usuarios internos
