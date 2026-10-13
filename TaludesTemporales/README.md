@@ -149,6 +149,3 @@ Para un estudio de diseño final, se recomienda complementar con criterios espec
 
 Proyecto orientado a ingeniería geotécnica y análisis de estabilidad de taludes. Se recomienda mantener la documentación y pruebas sincronizadas con cada cambio funcional del núcleo de cálculo.
 
----
-
-Si deseas, también puedo dejarte una versión más visual con badges de GitHub, una sección de “Screenshots” o una alternativa en inglés para publicación pública.
