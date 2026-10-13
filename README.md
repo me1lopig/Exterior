@@ -1,128 +1,45 @@
-# 🏗️ Exterior — Herramientas geotécnicas con Python y Streamlit
+# GeoSlope - estabilidad de taludes temporales
 
-> Colección de aplicaciones para análisis, diseño y verificación geotécnica en cimentaciones y mejora del terreno.
+Aplicacion Streamlit para analisis preliminar de taludes simples mediante equilibrio limite con superficies circulares. Incluye Fellenius, Bishop simplificado, perfil multicapa Mohr-Coulomb, nivel freatico horizontal, barridos parametricos e informe DOCX.
 
----
-
-## 📌 Descripción general
-
-El repositorio **Exterior** reúne una serie de herramientas de cálculo y análisis geotécnico desarrolladas en **Python** con **Streamlit**, orientadas a la resolución de problemas reales de cimentaciones, asentamientos, consolidación, estructura del terreno y soluciones de mejora.
-
-Cada módulo está pensado para ser una herramienta técnica autónoma, con interfaz visual, cálculos parametrizados y exportación de resultados para uso profesional.
-
----
-
-## 🧩 Estructura del repositorio
-
-```text
-Exterior/
-├── .github/                  # Configuración y automatización de GitHub
-├── AsientosZapata/           # Asientos en zapatas y análisis de carga
-├── ColumnasGrava/            # Mejora de suelos con columnas de grava
-├── Consolidacion/            # Consolidación unidimensional
-├── PilotesCTE/               # Diseño de pilotes según CTE DB-SE-C
-├── ZapatasGCOC/              # Dimensionamiento de zapatas según GCOC
-├── expansividad/             # Evaluación de suelos expansivos
-├── parametrizacion/          # Parametrización geotécnica
-├── spt/                      # Análisis de ensayos SPT
-├── zapatasCTE/               # Cálculo de hundimiento según CTE
-├── LICENSE                   # Licencia del repositorio
-├── README.md                 # Documentación principal
-└── ...
-```
-
----
-
-## 🏗️ Módulos disponibles
-
-| Módulo | Enfoque principal | Tecnologías | Estado |
-|---|---|---|---|
-| **AsientosZapata** | Asientos en cimentaciones superficiales | Streamlit, NumPy, Pandas, Matplotlib | ✅ Activo |
-| **ColumnasGrava** | Mejora de suelo con columnas de grava | Streamlit, NumPy, Pandas, Plotly | ✅ Activo |
-| **Consolidacion** | Consolidación 1D y asientos temporales | Streamlit, NumPy, Pandas, Plotly | ✅ Activo |
-| **PilotesCTE** | Diseño de pilotes según CTE | Streamlit, NumPy, Pandas, Plotly | ✅ Activo |
-| **ZapatasGCOC** | Dimensionamiento de zapatas según GCOC | Streamlit, NumPy, Pandas, Plotly | ✅ Activo |
-| **expansividad** | Evaluación de suelos expansivos | Python, análisis geotécnico | ✅ Base |
-| **parametrizacion** | Parametrización geotécnica | Python, Pandas, NumPy | ✅ Base |
-| **spt** | Interpretación de ensayos SPT | Python, análisis de suelos | ✅ Base |
-| **zapatasCTE** | Hundimiento de zapatas según CTE | Streamlit, NumPy, Pandas | ✅ Activo |
-
----
-
-## 🎯 Áreas de aplicación
-
-- Cimentaciones superficiales
-- Cimentaciones profundas
-- Asientos y deformaciones del terreno
-- Consolidación y drenaje
-- Mejoras del terreno
-- Suelos expansivos y problemáticos
-- Verificación de estructuras apoyadas en suelo
-
----
-
-## 🚀 Cómo empezar
-
-### Requisitos previos
-
-- Python 3.8 o superior
-- Entorno virtual recomendado
-- Dependencias específicas por módulo
-
-### Instalación general
+## Instalacion y ejecucion
 
 ```bash
-git clone https://github.com/me1lopig/Exterior.git
-cd Exterior
-```
-
-Luego, entra en la carpeta de cada aplicación y ejecuta su `requirements.txt`:
-
-```bash
-cd AsientosZapata
+python -m venv .venv
+# Linux/macOS: source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
-
-Y para arrancar la app:
-
-```bash
 streamlit run app.py
 ```
 
-> En cada módulo la interfaz principal puede llamarse distinto (`app.py`, `app_asientos_FEM_4.py`, `PilotesCTE_2.py`, etc.).
+La aplicacion se abre habitualmente en `http://localhost:8501`.
 
----
+## Organizacion de la interfaz
 
-## 📚 Principales metodologías incluidas
+- Una unica barra de pestañas separa proyecto y geometria, tabla multicapa de suelos, calculo, sensibilidad, resultados, visualizacion y dovelas.
+- El panel lateral concentra las acciones de calculo, el estado de validacion y las descargas.
+- Las pestañas de geometria y visualizacion muestran el perfil del talud; tras calcular se incorporan la superficie critica y las dovelas.
 
-- Método de Brinch-Hansen adaptado a GCOC
-- Cálculo de capacidad portante de zapatas
-- Análisis de asentamientos por métodos elásticos y numéricos
-- Consolidación unidimensional de Terzaghi
-- Diseño de pilotes según normativas españolas
-- Homogeneización de terrenos mediante columnas de grava
-- Evaluación de suelos expansivos y parámetros de terreno
+## Convenciones y alcance
 
----
+- Seccion 2D por metro perpendicular al plano.
+- Longitudes en m, pesos unitarios en kN/m3, tensiones y cohesion en kPa.
+- Pendiente medida respecto a la horizontal.
+- Las cotas internas se refieren al pie (`z=0`), pero el usuario introduce profundidades desde coronacion, positivas hacia abajo.
+- El nivel freatico se introduce como profundidad desde coronacion: `dNF=0` en coronacion, `dNF=H` en el pie y `dNF>H` bajo el pie.
+- La profundidad del modelo define el limite inferior de la estratigrafia y de las superficies circulares admisibles; debe ser mayor o igual que `H`.
+- La tabla de suelos admite cualquier numero de capas horizontales, ordenadas desde coronacion, con espesor, pesos unitarios, `c'` y `phi'`.
+- La interfaz exige espesores positivos y una suma de espesores mayor o igual que la profundidad del modelo.
+- Parametros resistentes efectivos `c'` y `phi'`; no se transforma automaticamente un caso no drenado.
+- Presion de poros hidrostatica bajo un nivel horizontal, recortado contra el terreno.
+- Busqueda discreta de circulos con entrada en coronacion y salida en la cara o berma inferior.
 
-## 🧠 Objetivo del repositorio
+No se incluyen sobrecargas, sismo, refuerzos, agua exterior, succion, filtracion no hidrostatica, etapas de excavacion ni mecanismos no circulares. El factor objetivo lo define el usuario y no representa por si solo una comprobacion normativa.
 
-Este repositorio sirve como entorno de aprendizaje, prototipado y validación técnica para aplicaciones geotécnicas en Python. Su finalidad es facilitar la automatización de cálculos, la visualización de resultados y la generación de documentación técnica para proyectos reales.
+## Verificacion
 
----
+```bash
+pytest -q
+```
 
-## 📜 Licencia
-
-Este repositorio se distribuye bajo la licencia **GNU GPL v3.0**. Consulta el archivo [LICENSE](LICENSE) para más detalles.
-
----
-
-## 🤝 Contacto
-
-Si quieres colaborar, reportar un problema o proponer mejoras, puedes contactar con el mantenedor del repositorio desde GitHub.
-
----
-
-## 🏁 Resumen
-
-**Exterior** es una colección técnica y académica de herramientas geotécnicas para análisis, verificación y diseño de cimentaciones y mejora del terreno, desarrolladas con enfoque profesional, visualización clara y exportación de resultados útiles para ingeniería.
+Las pruebas cubren geometria, calculo de dovelas, convergencia de Bishop, nivel freatico bajo el pie, perfiles multicapa, barrido parametrico y entradas adversariales (espesores, cobertura, `NaN`, infinitos y rangos incoherentes).
