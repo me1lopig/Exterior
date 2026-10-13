@@ -36,77 +36,53 @@ def audit_case_inputs(
     geometry: SlopeGeometry,
     profile: SoilProfile,
     config: AnalysisConfig,
-    upper_thickness: float,
-    lower_thickness: float,
 ) -> list[ValidationIssue]:
     """Devuelve errores bloqueantes y avisos tecnicos sin lanzar excepciones."""
     issues: list[ValidationIssue] = []
     issues.extend(_model_error("geometry", geometry.validate))
-    issues.extend(_model_error("upper_soil", profile.upper.validate))
-    if profile.lower is not None:
-        issues.extend(_model_error("lower_soil", profile.lower.validate))
-    issues.extend(_model_error("profile", lambda: profile.validate(geometry.height)))
+    for index, layer in enumerate(profile.layers, start=1):
+        issues.extend(_model_error(f"layer_{index}", layer.validate))
+
+    thicknesses = tuple(layer.thickness for layer in profile.layers)
+    finite_thicknesses = bool(thicknesses) and all(_is_finite_number(value) for value in thicknesses)
+    if not profile.layers:
+        issues.append(ValidationIssue("error", "empty_profile", "Debe definir al menos una capa de suelo."))
+    elif not finite_thicknesses:
+        issues.append(ValidationIssue("error", "thickness_finite", "Todos los espesores deben ser numeros finitos."))
+    elif _is_finite_number(geometry.model_depth):
+        missing = geometry.model_depth - profile.total_thickness
+        tolerance = max(1e-6 * geometry.model_depth, 1e-6)
+        if missing > tolerance:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "profile_coverage",
+                    f"La suma de espesores es {profile.total_thickness:.3f} m y no cubre la profundidad "
+                    f"del modelo ({geometry.model_depth:.3f} m); faltan {missing:.3f} m.",
+                )
+            )
+        thin_limit = 0.03 * geometry.height
+        if any(0 < value < thin_limit for value in thicknesses):
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "thin_layer",
+                    "Hay una capa con espesor inferior al 3 % de H; aumente las dovelas y compruebe la discretizacion.",
+                )
+            )
+
+    issues.extend(_model_error("profile", lambda: profile.validate(geometry.model_depth)))
     issues.extend(_model_error("analysis", config.validate))
 
     if not isinstance(project.name, str) or not project.name.strip():
         issues.append(ValidationIssue("warning", "project_name", "El proyecto no tiene nombre; el informe usara una denominacion generica."))
 
-    if profile.has_two_soils:
-        thicknesses = (upper_thickness, lower_thickness)
-        try:
-            finite_thicknesses = all(isfinite(value) for value in thicknesses)
-        except TypeError:
-            finite_thicknesses = False
-        if not finite_thicknesses:
-            issues.append(ValidationIssue("error", "thickness_finite", "Los espesores deben ser numeros finitos."))
-        elif not _is_finite_number(geometry.height):
-            pass
-        else:
-            if upper_thickness <= 0:
-                issues.append(ValidationIssue("error", "upper_thickness", "El espesor del suelo superior debe ser mayor que cero."))
-            if lower_thickness <= 0:
-                issues.append(ValidationIssue("error", "lower_thickness", "El espesor del suelo inferior dentro de H debe ser mayor que cero."))
-            total = upper_thickness + lower_thickness
-            tolerance = max(1e-6 * geometry.height, 1e-6)
-            difference = geometry.height - total
-            if difference > tolerance:
-                issues.append(
-                    ValidationIssue(
-                        "error",
-                        "thickness_gap",
-                        f"La suma de espesores es {total:.3f} m y no cubre H={geometry.height:.3f} m; faltan {difference:.3f} m.",
-                    )
-                )
-            elif difference < -tolerance:
-                issues.append(
-                    ValidationIssue(
-                        "error",
-                        "thickness_overlap",
-                        f"La suma de espesores es {total:.3f} m y supera H={geometry.height:.3f} m en {-difference:.3f} m.",
-                    )
-                )
-            expected_interface = geometry.height - upper_thickness
-            if _is_finite_number(profile.interface_elevation) and abs(profile.interface_elevation - expected_interface) > tolerance:
-                issues.append(ValidationIssue("error", "interface_consistency", "La cota del contacto no es coherente con el espesor superior."))
-            thin_limit = 0.03 * geometry.height
-            if 0 < upper_thickness < thin_limit or 0 < lower_thickness < thin_limit:
-                issues.append(
-                    ValidationIssue(
-                        "warning",
-                        "thin_layer",
-                        "Hay un estrato con espesor inferior al 3 % de H; aumente las dovelas y compruebe la sensibilidad de la discretizacion.",
-                    )
-                )
-            if (
-                isinstance(profile.upper.name, str)
-                and isinstance(profile.lower.name, str)
-                and profile.upper.name.strip().casefold() == profile.lower.name.strip().casefold()
-            ):
-                issues.append(ValidationIssue("warning", "duplicate_names", "Los dos estratos tienen el mismo nombre; revise que sus propiedades sean las previstas."))
+    names = [layer.soil.name.strip().casefold() for layer in profile.layers if isinstance(layer.soil.name, str)]
+    if len(names) != len(set(names)):
+        issues.append(ValidationIssue("warning", "duplicate_names", "Hay capas con el mismo nombre; revise su identificacion y propiedades."))
 
-    for soil in (profile.upper, profile.lower):
-        if soil is None:
-            continue
+    for layer in profile.layers:
+        soil = layer.soil
         if _is_finite_number(soil.cohesion) and _is_finite_number(soil.friction_deg) and soil.cohesion == 0 and soil.friction_deg == 0:
             issues.append(ValidationIssue("warning", "zero_strength", f"{soil.name} tiene c'=0 y phi'=0: no aporta resistencia cortante."))
         if _is_finite_number(soil.cohesion) and soil.cohesion > 100:
@@ -114,15 +90,15 @@ def audit_case_inputs(
         if _is_finite_number(soil.friction_deg) and soil.friction_deg > 45:
             issues.append(ValidationIssue("warning", "high_friction", f"El rozamiento de {soil.name} supera 45 grados; confirme el valor adoptado."))
 
-    if _is_finite_number(geometry.water_elevation) and _is_finite_number(geometry.height) and geometry.water_elevation == geometry.height:
+    if _is_finite_number(geometry.water_depth) and geometry.water_depth == 0:
         issues.append(ValidationIssue("warning", "water_at_crest", "El nivel freatico esta en coronacion: compruebe si existe agua exterior o filtracion no hidrostatica no modelada."))
     if isinstance(config.slices, int) and not isinstance(config.slices, bool) and config.slices < 20:
         issues.append(ValidationIssue("warning", "few_slices", "Menos de 20 dovelas puede ser insuficiente; compruebe convergencia aumentando la discretizacion."))
     return _deduplicate(issues)
 
 
-def audit_sweep_inputs(sweep: SweepConfig, height: float) -> list[ValidationIssue]:
-    issues = _model_error("sweep", lambda: sweep.validate(height))
+def audit_sweep_inputs(sweep: SweepConfig, model_depth: float) -> list[ValidationIssue]:
+    issues = _model_error("sweep", lambda: sweep.validate(model_depth))
     valid_angle_steps = isinstance(sweep.angle_steps, int) and not isinstance(sweep.angle_steps, bool)
     valid_water_steps = isinstance(sweep.water_steps, int) and not isinstance(sweep.water_steps, bool)
     cases = (sweep.angle_steps if sweep.vary_angle and valid_angle_steps else 1) * (

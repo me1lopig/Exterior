@@ -8,17 +8,17 @@ La auditoria comprueba las rutas de entrada del caso base y del barrido parametr
 
 | Grupo | Condicion controlada | Respuesta |
 |---|---|---|
-| Geometria | `H <= 0`, pendiente fuera de 10-85 grados, NF fuera de 0-H | Error bloqueante |
+| Geometria | `H <= 0`, pendiente fuera de 10-85 grados o profundidad del modelo menor que H | Error bloqueante |
+| Agua | Profundidad del NF negativa o mayor que la profundidad del modelo | Error bloqueante |
 | Numeros | `NaN` o infinito en geometria, suelos, calculo, espesores o barridos | Error bloqueante |
-| Estratigrafia | Espesor superior o inferior no positivo | Error bloqueante |
-| Estratigrafia | Suma de espesores menor que `H` | Error con cuantificacion del hueco |
-| Estratigrafia | Suma de espesores mayor que `H` | Error con cuantificacion del solape |
-| Estratigrafia | Contacto incoherente con el espesor superior | Error bloqueante |
+| Estratigrafia | Tabla sin capas o espesor de cualquier capa no positivo | Error bloqueante |
+| Estratigrafia | Suma de espesores menor que la profundidad del modelo | Error con cuantificacion de la cobertura restante |
+| Estratigrafia | Suma de espesores igual o mayor que la profundidad del modelo | Entrada valida |
 | Estratigrafia | Capa menor que el 3 % de `H` | Aviso de sensibilidad a dovelas |
 | Suelos | Nombre vacio, peso no positivo, `gamma_sat < gamma_seco`, `c' < 0`, `phi'` fuera de 0-50 grados | Error bloqueante |
 | Suelos | `c'=0` y `phi'=0`, `c' > 100 kPa` o `phi' > 45 grados` | Aviso tecnico |
 | Calculo | Dovelas, tolerancia, iteraciones, profundidad minima o FS objetivo fuera de dominio | Error bloqueante |
-| Agua | NF en coronacion | Aviso sobre agua exterior/filtracion no modelada |
+| Agua | Profundidad NF igual a cero, es decir, NF en coronacion | Aviso sobre agua exterior/filtracion no modelada |
 | Sensibilidad | Ninguna variable activa, limites iguales/invertidos o fuera de dominio | Error bloqueante |
 | Sensibilidad | Mas de 100 combinaciones | Aviso de coste computacional |
 
@@ -36,8 +36,9 @@ La auditoria comprueba las rutas de entrada del caso base y del barrido parametr
 - La aplicacion no determina si corresponde un analisis drenado o no drenado.
 - Una entrada numericamente valida puede seguir siendo geotecnicamente no representativa.
 - La busqueda discreta no garantiza el minimo global y debe comprobarse con densidad y numero de dovelas.
+- Las capas se consideran horizontales y la propiedad resistente de la base se toma en el punto medio de cada dovela.
 - No se modelan agua exterior, filtracion no hidrostatica, sismo, sobrecargas, refuerzos ni fases constructivas.
 
 ## Regresion
 
-La bateria incluida cubre calculo manual de Fellenius, convergencia de Bishop, efecto del agua, segundo estrato, geometria, sensibilidad, generacion DOCX y entradas adversariales.
+La bateria incluida cubre calculo manual de Fellenius, convergencia de Bishop, efecto del agua, NF bajo el pie, perfiles multicapa, cobertura del dominio, geometria, sensibilidad, generacion DOCX y entradas adversariales.

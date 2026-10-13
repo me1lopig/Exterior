@@ -46,45 +46,73 @@ class Soil:
 
 
 @dataclass(frozen=True)
+class SoilLayer:
+    soil: Soil
+    thickness: float
+
+    def validate(self) -> None:
+        self.soil.validate()
+        if not _all_finite((self.thickness,)):
+            raise ValueError(f"El espesor de {self.soil.name} debe ser un numero finito.")
+        if self.thickness <= 0:
+            raise ValueError(f"El espesor de {self.soil.name} debe ser mayor que cero.")
+
+
+@dataclass(frozen=True)
 class SoilProfile:
-    upper: Soil
-    lower: Soil | None = None
-    interface_elevation: float = 0.0
+    layers: tuple[SoilLayer, ...]
+
+    def validate(self, model_depth: float) -> None:
+        if not _all_finite((model_depth,)) or model_depth <= 0:
+            raise ValueError("La profundidad del modelo debe ser positiva y finita.")
+        if not self.layers:
+            raise ValueError("Debe definir al menos una capa de suelo.")
+        for layer in self.layers:
+            layer.validate()
+        if self.total_thickness + 1e-9 < model_depth:
+            missing = model_depth - self.total_thickness
+            raise ValueError(
+                f"La suma de espesores ({self.total_thickness:.3f} m) no cubre la profundidad "
+                f"del modelo ({model_depth:.3f} m); faltan {missing:.3f} m."
+            )
 
     @property
-    def has_two_soils(self) -> bool:
-        return self.lower is not None
+    def total_thickness(self) -> float:
+        return float(sum(layer.thickness for layer in self.layers))
 
-    def validate(self, height: float) -> None:
-        if not _all_finite((height,)) or height <= 0:
-            raise ValueError("La altura usada para validar el perfil debe ser positiva y finita.")
-        self.upper.validate()
-        if self.lower is not None:
-            self.lower.validate()
-            if not _all_finite((self.interface_elevation,)):
-                raise ValueError("La cota del contacto debe ser un numero finito.")
-            if not 0 < self.interface_elevation < height:
-                raise ValueError("La cota del contacto debe estar entre el pie y la coronacion.")
+    def soil_at(self, elevation: float, crest_elevation: float) -> Soil:
+        """Devuelve el suelo a una cota, usando espesores desde coronacion."""
+        depth = crest_elevation - elevation
+        if depth <= 0:
+            return self.layers[0].soil
+        cumulative = 0.0
+        for layer in self.layers:
+            cumulative += layer.thickness
+            if depth < cumulative - 1e-10:
+                return layer.soil
+        if depth <= self.total_thickness + 1e-8:
+            return self.layers[-1].soil
+        raise ValueError(
+            f"La cota z={elevation:.3f} m queda fuera del perfil estratigrafico definido."
+        )
 
-    def soil_at(self, elevation: float) -> Soil:
-        if self.lower is not None and elevation < self.interface_elevation:
-            return self.lower
-        return self.upper
-
-    def upper_thickness(self, height: float) -> float:
-        """Espesor vertical del estrato superior medido desde coronacion."""
-        return height if self.lower is None else height - self.interface_elevation
-
-    def lower_thickness_within_slope(self, height: float) -> float:
-        """Espesor del estrato inferior entre el contacto y la cota del pie."""
-        return 0.0 if self.lower is None else height - self.upper_thickness(height)
+    def interface_elevations(self, crest_elevation: float, model_depth: float) -> tuple[float, ...]:
+        """Cotas de contactos interiores comprendidos dentro del dominio de calculo."""
+        elevations: list[float] = []
+        cumulative = 0.0
+        for layer in self.layers[:-1]:
+            cumulative += layer.thickness
+            if cumulative < model_depth - 1e-9:
+                elevations.append(crest_elevation - cumulative)
+        return tuple(elevations)
 
 
 @dataclass(frozen=True)
 class SlopeGeometry:
     height: float
     angle_deg: float
-    water_elevation: float
+    water_depth: float
+    model_depth: float
     crest_length_factor: float = 1.2
     toe_length_factor: float = 1.0
 
@@ -92,7 +120,8 @@ class SlopeGeometry:
         values = (
             self.height,
             self.angle_deg,
-            self.water_elevation,
+            self.water_depth,
+            self.model_depth,
             self.crest_length_factor,
             self.toe_length_factor,
         )
@@ -102,10 +131,21 @@ class SlopeGeometry:
             raise ValueError("La altura debe ser positiva.")
         if not 10 <= self.angle_deg <= 85:
             raise ValueError("La pendiente debe estar entre 10 y 85 grados respecto a la horizontal.")
-        if not 0 <= self.water_elevation <= self.height:
-            raise ValueError("La cota del nivel freatico debe estar entre 0 y H.")
+        if self.model_depth < self.height:
+            raise ValueError("La profundidad del modelo debe ser mayor o igual que H.")
+        if not 0 <= self.water_depth <= self.model_depth:
+            raise ValueError("La profundidad del nivel freatico debe estar entre 0 y la profundidad del modelo.")
         if self.crest_length_factor <= 0 or self.toe_length_factor <= 0:
             raise ValueError("Las extensiones de coronacion y pie deben ser positivas.")
+
+    @property
+    def water_elevation(self) -> float:
+        """Cota interna del nivel freatico referida al pie z=0."""
+        return self.height - self.water_depth
+
+    @property
+    def model_base_elevation(self) -> float:
+        return self.height - self.model_depth
 
     @property
     def run(self) -> float:
@@ -166,19 +206,19 @@ class SweepConfig:
     angle_max: float
     angle_steps: int
     vary_water: bool
-    water_min: float
-    water_max: float
+    water_depth_min: float
+    water_depth_max: float
     water_steps: int
 
-    def validate(self, height: float) -> None:
+    def validate(self, model_depth: float) -> None:
         values = (
             self.angle_min,
             self.angle_max,
             self.angle_steps,
-            self.water_min,
-            self.water_max,
+            self.water_depth_min,
+            self.water_depth_max,
             self.water_steps,
-            height,
+            model_depth,
         )
         if not _all_finite(values):
             raise ValueError("Los limites del barrido deben ser numeros finitos.")
@@ -196,9 +236,9 @@ class SweepConfig:
             if not 2 <= self.angle_steps <= 15:
                 raise ValueError("Use entre 2 y 15 pasos de pendiente.")
         if self.vary_water:
-            if not 0 <= self.water_min <= self.water_max <= height:
-                raise ValueError("Los limites del nivel freatico deben estar entre 0 y H.")
-            if self.water_min == self.water_max:
-                raise ValueError("Para variar el nivel freatico, sus limites minimo y maximo deben ser distintos.")
+            if not 0 <= self.water_depth_min <= self.water_depth_max <= model_depth:
+                raise ValueError("Los limites de profundidad del nivel freatico deben estar dentro del modelo.")
+            if self.water_depth_min == self.water_depth_max:
+                raise ValueError("Para variar el nivel freatico, sus profundidades minima y maxima deben ser distintas.")
             if not 2 <= self.water_steps <= 15:
                 raise ValueError("Use entre 2 y 15 pasos de nivel freatico.")

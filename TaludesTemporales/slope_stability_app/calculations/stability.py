@@ -59,8 +59,8 @@ def _slice_weight(
     base = circle.base_elevation(x)
     top = ground_elevation(x, geometry)
     boundaries = [base]
-    if profile.has_two_soils:
-        boundaries.append(np.full_like(x, profile.interface_elevation))
+    for elevation in profile.interface_elevations(geometry.height, geometry.model_depth):
+        boundaries.append(np.full_like(x, elevation))
     boundaries.append(np.full_like(x, geometry.water_elevation))
     boundaries.append(top)
     levels = np.sort(np.vstack(boundaries), axis=0)
@@ -72,7 +72,7 @@ def _slice_weight(
         for j in range(x.size):
             if dz[j] <= 0:
                 continue
-            soil = profile.soil_at(float(mid[j]))
+            soil = profile.soil_at(float(mid[j]), geometry.height)
             gamma = soil.gamma_sat if mid[j] <= geometry.water_elevation else soil.gamma_dry
             weights[j] += dz[j] * gamma
     return float(0.5 * (x_right - x_left) * np.dot(wq, weights))
@@ -98,7 +98,7 @@ def build_slices(
         if cos_alpha <= 1e-8:
             raise ValueError("Se ha generado una dovela con base casi vertical.")
         base_length = width / cos_alpha
-        soil = profile.soil_at(base)
+        soil = profile.soil_at(base, geometry.height)
         phreatic_head = max(min(geometry.water_elevation, top) - base, 0.0)
         pore_pressure = config.gamma_water * phreatic_head
         weight = _slice_weight(x_left, x_right, circle, geometry, profile)
@@ -180,4 +180,3 @@ def evaluate_surface(
         total_weight=sum(item.weight for item in slices),
         max_pore_pressure=max((item.pore_pressure for item in slices), default=0.0),
     )
-

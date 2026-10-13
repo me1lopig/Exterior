@@ -68,5 +68,8 @@ def is_admissible(circle: Circle, geometry: SlopeGeometry, min_depth_ratio: floa
         return False
     if np.max(thickness) < min_depth_ratio * geometry.height:
         return False
+    lowest_x = float(np.clip(circle.center_x, circle.entry_x, circle.exit_x))
+    lowest_base = float(circle.base_elevation(np.array([lowest_x]))[0])
+    if lowest_base < geometry.model_base_elevation - 1e-7:
+        return False
     return bool(np.all(np.isfinite(base)))
-

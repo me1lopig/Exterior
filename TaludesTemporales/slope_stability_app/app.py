@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from slope_stability_app.calculations import run_sensitivity, search_critical_surfaces
-from slope_stability_app.models import AnalysisConfig, ProjectData, SlopeGeometry, Soil, SoilProfile, SweepConfig
+from slope_stability_app.models import AnalysisConfig, ProjectData, SlopeGeometry, Soil, SoilLayer, SoilProfile, SweepConfig
 from slope_stability_app.services import audit_case_inputs, audit_sweep_inputs, build_report
 from slope_stability_app.utils.tables import slices_dataframe
 from slope_stability_app.visualization import section_figure, sensitivity_figure
@@ -70,16 +70,42 @@ def _page_style() -> None:
     )
 
 
-def _soil_inputs(prefix: str, title: str, defaults: tuple[float, float, float, float]) -> Soil:
-    st.markdown(f"#### {title}")
-    name = st.text_input("Nombre", value=title, key=f"{prefix}_name")
-    c1, c2 = st.columns(2)
-    gamma_dry = c1.number_input("Peso unitario seco (kN/m3)", 10.0, 30.0, defaults[0], 0.1, key=f"{prefix}_gd")
-    gamma_sat = c2.number_input("Peso unitario saturado (kN/m3)", 10.0, 30.0, defaults[1], 0.1, key=f"{prefix}_gs")
-    c3, c4 = st.columns(2)
-    cohesion = c3.number_input("Cohesion efectiva c' (kPa)", 0.0, 200.0, defaults[2], 0.5, key=f"{prefix}_c")
-    friction = c4.number_input("Rozamiento efectivo phi' (deg)", 0.0, 49.0, defaults[3], 0.5, key=f"{prefix}_phi")
-    return Soil(name, gamma_dry, gamma_sat, cohesion, friction)
+def _default_soil_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Suelo": "Suelo 1",
+                "Espesor (m)": 16.0,
+                "gamma seco (kN/m3)": 18.0,
+                "gamma sat. (kN/m3)": 20.0,
+                "c' (kPa)": 5.0,
+                "phi' (deg)": 28.0,
+            }
+        ]
+    )
+
+
+def _as_float(value) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _profile_from_table(data: pd.DataFrame) -> SoilProfile:
+    layers: list[SoilLayer] = []
+    for _, row in data.iterrows():
+        name_value = row.get("Suelo", "")
+        name = "" if pd.isna(name_value) else str(name_value).strip()
+        soil = Soil(
+            name=name,
+            gamma_dry=_as_float(row.get("gamma seco (kN/m3)")),
+            gamma_sat=_as_float(row.get("gamma sat. (kN/m3)")),
+            cohesion=_as_float(row.get("c' (kPa)")),
+            friction_deg=_as_float(row.get("phi' (deg)")),
+        )
+        layers.append(SoilLayer(soil=soil, thickness=_as_float(row.get("Espesor (m)"))))
+    return SoilProfile(tuple(layers))
 
 
 def _status(fs: float, target: float) -> tuple[str, str]:
@@ -96,7 +122,7 @@ def main() -> None:
     st.markdown('<div class="app-kicker">GeoSlope · Equilibrio limite 2D</div>', unsafe_allow_html=True)
     st.title("Estabilidad de taludes temporales")
     st.markdown(
-        '<div class="app-subtitle">Fellenius y Bishop simplificado para geometria altura-pendiente, uno o dos suelos y nivel freatico horizontal.</div>',
+        '<div class="app-subtitle">Fellenius y Bishop simplificado para geometria altura-pendiente, perfil multicapa y nivel freatico horizontal.</div>',
         unsafe_allow_html=True,
     )
 
@@ -133,14 +159,19 @@ def main() -> None:
                 help="Angulo de la cara respecto a la horizontal.",
             )
             c3, c4 = st.columns(2)
-            water = c3.number_input(
-                "Cota del nivel freatico (m)",
-                0.0,
-                float(height),
-                min(3.0, float(height)),
-                0.25,
+            model_depth = c3.number_input(
+                "Profundidad del modelo desde coronacion (m)",
+                value=2.0 * float(height),
+                step=0.5,
+                help="Debe ser al menos igual a H. Define la base inferior del dominio estratigrafico y de busqueda.",
             )
-            target_factor = c4.number_input(
+            water_depth = c4.number_input(
+                "Profundidad del nivel freatico (m)",
+                value=0.625 * float(height),
+                step=0.25,
+                help="Medida vertical desde coronacion: 0 en coronacion, H en el pie y valores mayores que H bajo el pie.",
+            )
+            target_factor = st.number_input(
                 "FS objetivo",
                 0.50,
                 3.00,
@@ -148,57 +179,35 @@ def main() -> None:
                 0.05,
                 help="Criterio definido por el usuario; no se asigna automaticamente a una norma.",
             )
-            st.caption(f"Desarrollo horizontal de la cara: {height / max(tan(radians(angle)), 1e-9):.2f} m")
+            st.caption(
+                f"Desarrollo horizontal: {height / max(tan(radians(angle)), 1e-9):.2f} m · "
+                f"cota interna del NF: z={float(height) - float(water_depth):.2f} m respecto al pie"
+            )
 
     with tabs[1]:
         st.markdown('<div class="workspace-title">Modelo estratigrafico</div>', unsafe_allow_html=True)
-        st.markdown('<div class="workspace-copy">Introduzca parametros efectivos de Mohr-Coulomb y espesores verticales medidos desde coronacion.</div>', unsafe_allow_html=True)
-        two_soils = st.toggle("Activar segundo suelo", value=False)
-        s1, s2 = st.columns(2, gap="large")
-        with s1:
-            upper_soil = _soil_inputs("upper", "Suelo superior", (18.0, 20.0, 5.0, 28.0))
-        with s2:
-            if two_soils:
-                lower_soil = _soil_inputs("lower", "Suelo inferior", (19.0, 21.0, 12.0, 32.0))
-                default_upper_thickness = min(3.0, float(height) / 2)
-                tc1, tc2 = st.columns(2)
-                upper_thickness = tc1.number_input(
-                    "Espesor superior desde coronacion (m)",
-                    value=default_upper_thickness,
-                    step=0.1,
-                    help="Espesor vertical medido hacia abajo desde z=H.",
-                    key="upper_thickness",
-                )
-                lower_thickness = tc2.number_input(
-                    "Espesor inferior dentro de H (m)",
-                    value=float(height) - default_upper_thickness,
-                    step=0.1,
-                    help="Espesor entre el contacto y el pie; el estrato continua bajo z=0.",
-                    key="lower_thickness",
-                )
-                interface = float(height) - float(upper_thickness)
-                total_thickness = float(upper_thickness) + float(lower_thickness)
-                thickness_difference = float(height) - total_thickness
-                if upper_thickness <= 0 or lower_thickness <= 0:
-                    st.error("Los espesores de ambos suelos deben ser mayores que cero.")
-                elif abs(thickness_difference) > max(1e-6 * float(height), 1e-6):
-                    if thickness_difference > 0:
-                        st.error(f"La estratigrafia no cubre H: faltan {thickness_difference:.2f} m.")
-                    else:
-                        st.error(f"La estratigrafia supera H: existe un exceso de {-thickness_difference:.2f} m.")
-                else:
-                    st.success(f"Espesores comprobados: {total_thickness:.2f} m = H.")
-                st.caption(f"Contacto horizontal en z={interface:.2f} m. El suelo inferior continua bajo el pie.")
-            else:
-                st.markdown("#### Perfil homogeneo")
-                st.markdown(
-                    f'<p class="technical-note">El suelo ocupa toda la altura ({float(height):.2f} m) y continua bajo el pie.</p>',
-                    unsafe_allow_html=True,
-                )
-                lower_soil = None
-                interface = 0.0
-                upper_thickness = float(height)
-                lower_thickness = 0.0
+        st.markdown('<div class="workspace-copy">Cada fila representa una capa horizontal. El orden es descendente desde la coronacion.</div>', unsafe_allow_html=True)
+        soil_table = st.data_editor(
+            _default_soil_table(),
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            key="soil_layers_editor",
+            column_config={
+                "Suelo": st.column_config.TextColumn("Suelo", width="medium", required=True),
+                "Espesor (m)": st.column_config.NumberColumn("Espesor (m)", format="%.2f", required=True),
+                "gamma seco (kN/m3)": st.column_config.NumberColumn("gamma seco (kN/m3)", format="%.2f", required=True),
+                "gamma sat. (kN/m3)": st.column_config.NumberColumn("gamma sat. (kN/m3)", format="%.2f", required=True),
+                "c' (kPa)": st.column_config.NumberColumn("c' (kPa)", format="%.2f", required=True),
+                "phi' (deg)": st.column_config.NumberColumn("phi' (deg)", format="%.2f", required=True),
+            },
+        )
+        table_profile = _profile_from_table(soil_table)
+        t1, t2, t3 = st.columns(3)
+        t1.metric("Capas", len(table_profile.layers))
+        t2.metric("Espesor acumulado", f"{table_profile.total_thickness:.2f} m")
+        t3.metric("Profundidad requerida", f"{float(model_depth):.2f} m")
+        st.caption("Añada o elimine filas con los controles de la tabla. La suma de espesores debe cubrir toda la profundidad del modelo.")
 
     with tabs[2]:
         st.markdown('<div class="workspace-title">Control del analisis</div>', unsafe_allow_html=True)
@@ -227,16 +236,28 @@ def main() -> None:
         with v2:
             vary_water = st.checkbox("Variar nivel freatico", value=True)
             wc1, wc2, wc3 = st.columns(3)
-            water_min = wc1.number_input("Min. (m)", 0.0, float(height), 0.0, 0.25, disabled=not vary_water)
-            water_max = wc2.number_input("Max. (m)", 0.0, float(height), float(height), 0.25, disabled=not vary_water)
+            water_depth_min = wc1.number_input(
+                "Prof. min. (m)",
+                value=0.0,
+                step=0.25,
+                disabled=not vary_water,
+                help="Profundidad medida desde coronacion.",
+            )
+            water_depth_max = wc2.number_input(
+                "Prof. max. (m)",
+                value=float(model_depth),
+                step=0.25,
+                disabled=not vary_water,
+                help="Puede superar H para estudiar niveles bajo el pie.",
+            )
             water_steps = wc3.number_input("Pasos", 2, 15, 5, 1, disabled=not vary_water, key="water_steps")
         sensitivity_level = st.selectbox("Densidad de busqueda del barrido", ["Rapida", "Equilibrada", "Detallada"], index=0)
         cases = (int(angle_steps) if vary_angle else 1) * (int(water_steps) if vary_water else 1)
         st.caption(f"Combinaciones previstas: {cases}. Cada combinacion busca su propia superficie critica.")
 
     project = ProjectData(project_name, location, author, notes)
-    geometry = SlopeGeometry(float(height), float(angle), float(water))
-    profile = SoilProfile(upper_soil, lower_soil, float(interface))
+    geometry = SlopeGeometry(float(height), float(angle), float(water_depth), float(model_depth))
+    profile = table_profile
     config = AnalysisConfig(
         slices=int(slices),
         search_level=search_level,
@@ -252,19 +273,12 @@ def main() -> None:
         float(angle_max),
         int(angle_steps),
         vary_water,
-        float(water_min),
-        float(water_max),
+        float(water_depth_min),
+        float(water_depth_max),
         int(water_steps),
     )
-    case_issues = audit_case_inputs(
-        project,
-        geometry,
-        profile,
-        config,
-        float(upper_thickness),
-        float(lower_thickness),
-    )
-    sweep_issues = audit_sweep_inputs(sweep, geometry.height)
+    case_issues = audit_case_inputs(project, geometry, profile, config)
+    sweep_issues = audit_sweep_inputs(sweep, geometry.model_depth)
     case_errors = [issue for issue in case_issues if issue.level == "error"]
     sweep_errors = [issue for issue in sweep_issues if issue.level == "error"]
     all_issues = case_issues + sweep_issues
@@ -334,7 +348,10 @@ def main() -> None:
                         st.error(issue.message)
                     else:
                         st.warning(issue.message)
-        st.caption(f"H={geometry.height:.2f} m · beta={geometry.angle_deg:.1f} deg · NF={geometry.water_elevation:.2f} m")
+        st.caption(
+            f"H={geometry.height:.2f} m · beta={geometry.angle_deg:.1f} deg · "
+            f"prof. NF={geometry.water_depth:.2f} m · modelo={geometry.model_depth:.2f} m"
+        )
         st.divider()
         st.markdown("## Informe y datos")
         if result is not None and stored_inputs is not None:
@@ -367,34 +384,34 @@ def main() -> None:
     with tabs[0]:
         st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
         st.markdown("### Vista previa")
-        st.plotly_chart(
-            section_figure(geometry, profile),
-            use_container_width=True,
-            config={"displaylogo": False},
-            key="geometry_preview_chart",
-        )
+        if case_errors:
+            st.warning("Corrija los errores de geometria o estratigrafia para mostrar una vista previa valida.")
+        else:
+            st.plotly_chart(
+                section_figure(geometry, profile),
+                use_container_width=True,
+                config={"displaylogo": False},
+                key="geometry_preview_chart",
+            )
 
     with tabs[1]:
         st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
-        profile_rows = [
-            {
-                "Suelo": profile.upper.name,
-                "Espesor en H (m)": profile.upper_thickness(geometry.height),
-                "gamma seco (kN/m3)": profile.upper.gamma_dry,
-                "gamma sat. (kN/m3)": profile.upper.gamma_sat,
-                "c' (kPa)": profile.upper.cohesion,
-                "phi' (deg)": profile.upper.friction_deg,
-            }
-        ]
-        if profile.lower is not None:
+        profile_rows = []
+        cumulative = 0.0
+        for index, layer in enumerate(profile.layers, start=1):
+            top_depth = cumulative
+            cumulative += layer.thickness
             profile_rows.append(
                 {
-                    "Suelo": profile.lower.name,
-                    "Espesor en H (m)": profile.lower_thickness_within_slope(geometry.height),
-                    "gamma seco (kN/m3)": profile.lower.gamma_dry,
-                    "gamma sat. (kN/m3)": profile.lower.gamma_sat,
-                    "c' (kPa)": profile.lower.cohesion,
-                    "phi' (deg)": profile.lower.friction_deg,
+                    "Capa": index,
+                    "Suelo": layer.soil.name,
+                    "Espesor (m)": layer.thickness,
+                    "Prof. inicial (m)": top_depth,
+                    "Prof. final (m)": cumulative,
+                    "gamma seco (kN/m3)": layer.soil.gamma_dry,
+                    "gamma sat. (kN/m3)": layer.soil.gamma_sat,
+                    "c' (kPa)": layer.soil.cohesion,
+                    "phi' (deg)": layer.soil.friction_deg,
                 }
             )
         st.dataframe(pd.DataFrame(profile_rows).style.format(precision=2), use_container_width=True, hide_index=True)
@@ -442,7 +459,7 @@ def main() -> None:
                 sensitivity.style.format(
                     {
                         "Pendiente (deg)": "{:.2f}",
-                        "Nivel freatico (m)": "{:.2f}",
+                        "Profundidad NF (m)": "{:.2f}",
                         "FS Fellenius": "{:.3f}",
                         "FS Bishop": "{:.3f}",
                     }
@@ -492,13 +509,16 @@ def main() -> None:
         st.markdown('<div class="workspace-title">Seccion del talud</div>', unsafe_allow_html=True)
         st.markdown('<div class="workspace-copy">Estratigrafia, nivel freatico y superficie critica a escala geometrica 1:1.</div>', unsafe_allow_html=True)
         if result is None or stored_inputs is None:
-            st.plotly_chart(
-                section_figure(geometry, profile),
-                use_container_width=True,
-                config={"displaylogo": False},
-                key="slope_visualization_preview_chart",
-            )
-            st.info("La superficie critica y las dovelas apareceran despues de calcular el caso base.")
+            if case_errors:
+                st.warning("Corrija los errores de entrada para representar el modelo.")
+            else:
+                st.plotly_chart(
+                    section_figure(geometry, profile),
+                    use_container_width=True,
+                    config={"displaylogo": False},
+                    key="slope_visualization_preview_chart",
+                )
+                st.info("La superficie critica y las dovelas apareceran despues de calcular el caso base.")
         else:
             method = st.segmented_control(
                 "Superficie mostrada",

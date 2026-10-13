@@ -25,6 +25,7 @@ NAVY = "263746"
 PALE = "EAF0F4"
 GRID = "D9D9D9"
 AMBER = "D97706"
+SOIL_COLORS = ("#E0D2B4", "#B8CABA", "#C7BED3", "#DABEAE", "#B1C6D3", "#D3C9A9")
 
 
 def _shade(cell, fill: str) -> None:
@@ -90,20 +91,34 @@ def _section_image(geometry: SlopeGeometry, profile: SoilProfile, result: Search
     x = np.linspace(geometry.x_min, geometry.x_max, 500)
     ground = ground_elevation(x, geometry)
     fig, ax = plt.subplots(figsize=(8.1, 4.0), dpi=180)
-    bottom = -0.9 * geometry.height
-    if profile.has_two_soils:
-        interface = profile.interface_elevation
-        ax.fill_between(x, bottom, np.minimum(ground, interface), color="#CFC1AA", alpha=0.72)
-        upper_mask = ground >= interface
+    bottom = geometry.model_base_elevation
+    cumulative = 0.0
+    for index, layer in enumerate(profile.layers):
+        layer_top = geometry.height - cumulative
+        cumulative += layer.thickness
+        layer_bottom = max(geometry.height - cumulative, bottom)
+        if layer_top <= bottom + 1e-9:
+            break
+        layer_mask = ground >= layer_bottom - 1e-9
         ax.fill_between(
-            x[upper_mask],
-            interface,
-            ground[upper_mask],
-            color="#E6DDD0",
-            alpha=0.90,
+            x[layer_mask],
+            layer_bottom,
+            np.minimum(ground[layer_mask], layer_top),
+            color=SOIL_COLORS[index % len(SOIL_COLORS)],
+            alpha=0.78,
+            label=f"Capa {index + 1}: {layer.soil.name}",
         )
-    else:
-        ax.fill_between(x, bottom, ground, color="#E6DDD0", alpha=0.85)
+        if cumulative < geometry.model_depth - 1e-9:
+            contact = geometry.height - cumulative
+            contact_mask = ground >= contact - 1e-9
+            ax.plot(
+                x[contact_mask],
+                np.full(np.count_nonzero(contact_mask), contact),
+                color="#7A6652",
+                lw=1.1,
+                ls=":",
+                label="Contactos" if index == 0 else None,
+            )
     ax.plot(x, ground, color="#17202A", lw=1.8, label="Terreno")
     water_mask = ground >= geometry.water_elevation - 1e-9
     ax.plot(
@@ -112,18 +127,9 @@ def _section_image(geometry: SlopeGeometry, profile: SoilProfile, result: Search
         color="#2878B5",
         lw=1.6,
         ls="--",
-        label="Nivel freatico",
+        label=f"NF d={geometry.water_depth:.2f} m",
     )
-    if profile.has_two_soils:
-        contact_mask = ground >= profile.interface_elevation
-        ax.plot(
-            x[contact_mask],
-            np.full(np.count_nonzero(contact_mask), profile.interface_elevation),
-            color="#8B5E3C",
-            lw=1.4,
-            ls=":",
-            label="Contacto",
-        )
+    ax.axhline(bottom, color="#667085", lw=0.8, ls="--", label="Limite del modelo")
     xs = np.linspace(circle.entry_x, circle.exit_x, 350)
     ax.plot(xs, circle.base_elevation(xs), color="#D97706", lw=2.2, label=f"Bishop FS={critical.factor_of_safety:.3f}")
     for item in critical.evaluation.slices:
@@ -133,7 +139,7 @@ def _section_image(geometry: SlopeGeometry, profile: SoilProfile, result: Search
     ax.set_ylabel("Cota z (m)")
     ax.set_aspect("equal", adjustable="datalim")
     ax.grid(color="#E7E9ED", lw=0.6)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.17), ncol=4, frameon=False, fontsize=8)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.20), ncol=4, frameon=False, fontsize=7)
     fig.tight_layout()
     buffer = BytesIO()
     fig.savefig(buffer, format="png", bbox_inches="tight")
@@ -145,17 +151,17 @@ def _section_image(geometry: SlopeGeometry, profile: SoilProfile, result: Search
 def _sensitivity_image(data: pd.DataFrame) -> BytesIO:
     fig, ax = plt.subplots(figsize=(8.1, 3.8), dpi=180)
     angles = data["Pendiente (deg)"].nunique()
-    waters = data["Nivel freatico (m)"].nunique()
+    waters = data["Profundidad NF (m)"].nunique()
     if angles > 1 and waters > 1:
-        pivot = data.pivot(index="Nivel freatico (m)", columns="Pendiente (deg)", values="FS Bishop")
+        pivot = data.pivot(index="Profundidad NF (m)", columns="Pendiente (deg)", values="FS Bishop")
         image = ax.imshow(pivot.values, origin="upper", aspect="auto", cmap="RdYlGn")
         ax.set_xticks(range(len(pivot.columns)), [f"{v:.1f}" for v in pivot.columns])
         ax.set_yticks(range(len(pivot.index)), [f"{v:.2f}" for v in pivot.index])
         ax.set_xlabel("Pendiente (deg)")
-        ax.set_ylabel("Cota NF (m)")
+        ax.set_ylabel("Profundidad NF desde coronacion (m)")
         fig.colorbar(image, ax=ax, label="FS Bishop")
     else:
-        variable = "Pendiente (deg)" if angles > 1 else "Nivel freatico (m)"
+        variable = "Pendiente (deg)" if angles > 1 else "Profundidad NF (m)"
         ax.plot(data[variable], data["FS Fellenius"], "o-", label="Fellenius")
         ax.plot(data[variable], data["FS Bishop"], "o-", color="#D97706", label="Bishop simplificado")
         ax.set_xlabel(variable)
@@ -250,7 +256,9 @@ def build_report(
             ["Altura H", f"{geometry.height:.2f}", "m"],
             ["Angulo del talud", f"{geometry.angle_deg:.2f}", "grados respecto a horizontal"],
             ["Desarrollo horizontal", f"{geometry.run:.2f}", "m"],
-            ["Cota del nivel freatico", f"{geometry.water_elevation:.2f}", "m sobre el pie"],
+            ["Profundidad del nivel freatico", f"{geometry.water_depth:.2f}", "m desde coronacion"],
+            ["Cota interna del nivel freatico", f"{geometry.water_elevation:.2f}", "m respecto al pie"],
+            ["Profundidad del modelo", f"{geometry.model_depth:.2f}", "m desde coronacion"],
             ["Numero de dovelas", str(config.slices), "-"],
             ["Busqueda", config.search_level, "malla determinista"],
             ["Peso unitario del agua", f"{config.gamma_water:.2f}", "kN/m3"],
@@ -258,37 +266,53 @@ def build_report(
         ],
     )
     soil_rows = []
-    for position, soil in (("Superior", profile.upper), ("Inferior", profile.lower)):
-        if soil is None:
-            continue
-        soil_rows.append([position, soil.name, f"{soil.gamma_dry:.2f}", f"{soil.gamma_sat:.2f}", f"{soil.cohesion:.2f}", f"{soil.friction_deg:.2f}"])
-    _add_table(document, ["Estrato", "Suelo", "gamma seco", "gamma sat.", "c' (kPa)", "phi' (deg)"], soil_rows)
-    if profile.has_two_soils:
-        document.add_paragraph(
-            f"El estrato superior tiene un espesor vertical de {profile.upper_thickness(geometry.height):.2f} m medido desde la coronacion. "
-            f"El contacto horizontal se situa en z = {profile.interface_elevation:.2f} m sobre el pie; entre el contacto y el pie hay "
-            f"{profile.lower_thickness_within_slope(geometry.height):.2f} m del estrato inferior, que se considera prolongado bajo z=0."
+    cumulative = 0.0
+    for index, layer in enumerate(profile.layers, start=1):
+        start_depth = cumulative
+        cumulative += layer.thickness
+        soil = layer.soil
+        soil_rows.append(
+            [
+                str(index),
+                soil.name,
+                f"{layer.thickness:.2f}",
+                f"{start_depth:.2f}-{cumulative:.2f}",
+                f"{soil.gamma_dry:.2f}",
+                f"{soil.gamma_sat:.2f}",
+                f"{soil.cohesion:.2f}",
+                f"{soil.friction_deg:.2f}",
+            ]
         )
+    _add_table(
+        document,
+        ["Capa", "Suelo", "Espesor", "Prof. desde coronacion", "gamma seco", "gamma sat.", "c'", "phi'"],
+        soil_rows,
+    )
+    document.add_paragraph(
+        f"El perfil contiene {len(profile.layers)} capas con un espesor acumulado de {profile.total_thickness:.2f} m. "
+        f"El dominio de calculo alcanza {geometry.model_depth:.2f} m desde coronacion."
+    )
 
     document.add_heading("3. Metodo e hipotesis", level=1)
     assumptions = [
         "Analisis bidimensional por metro de ancho, deformacion plana y mecanismo de rotura circular.",
         "Resistencia drenada Mohr-Coulomb con c' y phi' constantes dentro de cada estrato.",
         "Fellenius desprecia las fuerzas entre dovelas; Bishop simplificado satisface el equilibrio de momentos e itera el factor de seguridad.",
-        "La presion intersticial es hidrostatica bajo el nivel freatico horizontal y nula sobre el mismo. El nivel se recorta contra el terreno, sin modelar agua exterior ni fuerzas de filtracion adicionales.",
+        "La profundidad del nivel freatico se mide desde coronacion. La presion intersticial es hidrostatica bajo el nivel horizontal y nula sobre este, sin modelar agua exterior ni fuerzas de filtracion adicionales.",
         "Los pesos se integran por estrato y condicion seca/saturada. La resistencia de la base de cada dovela corresponde al suelo atravesado por su punto medio.",
         "La superficie critica es el minimo dentro de la familia discreta explorada; una busqueda mas densa o una geometria real pueden producir un minimo inferior.",
     ]
     for item in assumptions:
         document.add_paragraph(item, style="List Bullet")
 
-    if sensitivity is not None and not sensitivity.empty:
+    has_sensitivity = sensitivity is not None and not sensitivity.empty
+    if has_sensitivity:
         document.add_section(WD_SECTION_START.NEW_PAGE)
         document.add_heading("4. Sensibilidad parametrica", level=1)
         minimum_row = sensitivity.loc[sensitivity["FS Bishop"].idxmin()]
         maximum_row = sensitivity.loc[sensitivity["FS Bishop"].idxmax()]
         document.add_paragraph(
-            f"Se analizaron {len(sensitivity)} combinaciones. Bishop varia entre {minimum_row['FS Bishop']:.3f} y {maximum_row['FS Bishop']:.3f}. El minimo corresponde a pendiente {minimum_row['Pendiente (deg)']:.1f} grados y nivel freatico z={minimum_row['Nivel freatico (m)']:.2f} m."
+            f"Se analizaron {len(sensitivity)} combinaciones. Bishop varia entre {minimum_row['FS Bishop']:.3f} y {maximum_row['FS Bishop']:.3f}. El minimo corresponde a pendiente {minimum_row['Pendiente (deg)']:.1f} grados y profundidad del nivel freatico d={minimum_row['Profundidad NF (m)']:.2f} m desde coronacion."
         )
         document.add_picture(_sensitivity_image(sensitivity), width=Inches(6.7))
         display = sensitivity.copy()
@@ -296,17 +320,18 @@ def build_report(
             display = display.sort_values("FS Bishop").head(15)
             document.add_paragraph("La tabla muestra las 15 combinaciones mas desfavorables; el CSV descargable conserva todos los casos.")
         rows = [
-            [f"{row['Pendiente (deg)']:.2f}", f"{row['Nivel freatico (m)']:.2f}", f"{row['FS Fellenius']:.3f}", f"{row['FS Bishop']:.3f}"]
+            [f"{row['Pendiente (deg)']:.2f}", f"{row['Profundidad NF (m)']:.2f}", f"{row['FS Fellenius']:.3f}", f"{row['FS Bishop']:.3f}"]
             for _, row in display.iterrows()
         ]
-        _add_table(document, ["Pendiente (deg)", "NF (m)", "FS Fellenius", "FS Bishop"], rows)
+        _add_table(document, ["Pendiente (deg)", "Prof. NF (m)", "FS Fellenius", "FS Bishop"], rows)
 
-    document.add_heading("5. Limitaciones y recomendaciones", level=1)
+    limitations_number = 5 if has_sensitivity else 4
+    document.add_heading(f"{limitations_number}. Limitaciones y recomendaciones", level=1)
     document.add_paragraph(
         "Antes de adoptar el resultado deben contrastarse la estratigrafia, el regimen piezometrico, la representatividad de c' y phi', la posible respuesta no drenada, las sobrecargas, las excavaciones por fases y los mecanismos no circulares. El factor objetivo debe fijarse expresamente segun normativa, duracion de la situacion temporal, fiabilidad de la investigacion y consecuencias de fallo."
     )
     if project.notes:
-        document.add_heading("6. Observaciones del proyecto", level=1)
+        document.add_heading(f"{limitations_number + 1}. Observaciones del proyecto", level=1)
         document.add_paragraph(project.notes)
     output = BytesIO()
     document.save(output)

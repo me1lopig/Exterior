@@ -17,26 +17,26 @@ def run_sensitivity(
     config: AnalysisConfig,
     sweep: SweepConfig,
 ) -> pd.DataFrame:
-    sweep.validate(base_geometry.height)
+    sweep.validate(base_geometry.model_depth)
     angles = (
         np.linspace(sweep.angle_min, sweep.angle_max, sweep.angle_steps)
         if sweep.vary_angle
         else np.array([base_geometry.angle_deg])
     )
-    waters = (
-        np.linspace(sweep.water_min, sweep.water_max, sweep.water_steps)
+    water_depths = (
+        np.linspace(sweep.water_depth_min, sweep.water_depth_max, sweep.water_steps)
         if sweep.vary_water
-        else np.array([base_geometry.water_elevation])
+        else np.array([base_geometry.water_depth])
     )
     records: list[dict[str, float | int]] = []
     for angle in angles:
-        for water in waters:
-            geometry = replace(base_geometry, angle_deg=float(angle), water_elevation=float(water))
+        for water_depth in water_depths:
+            geometry = replace(base_geometry, angle_deg=float(angle), water_depth=float(water_depth))
             result = search_critical_surfaces(geometry, profile, config)
             records.append(
                 {
                     "Pendiente (deg)": float(angle),
-                    "Nivel freatico (m)": float(water),
+                    "Profundidad NF (m)": float(water_depth),
                     "FS Fellenius": result.fellenius.factor_of_safety,
                     "FS Bishop": result.bishop.factor_of_safety,
                     "Superficies validas": result.valid_surfaces,

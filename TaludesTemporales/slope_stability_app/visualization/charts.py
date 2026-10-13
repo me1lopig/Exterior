@@ -16,8 +16,14 @@ MUTED = "#667085"
 ACCENT = "#D97706"
 WATER = "#2878B5"
 GRID = "#E7E9ED"
-UPPER_SOIL = "rgba(209, 190, 158, 0.52)"
-LOWER_SOIL = "rgba(174, 155, 124, 0.42)"
+SOIL_COLORS = (
+    "rgba(224, 210, 180, 0.72)",
+    "rgba(184, 202, 186, 0.66)",
+    "rgba(199, 190, 211, 0.64)",
+    "rgba(218, 190, 174, 0.64)",
+    "rgba(177, 198, 211, 0.64)",
+    "rgba(211, 201, 169, 0.64)",
+)
 
 
 def _filled_band(
@@ -64,47 +70,38 @@ def section_figure(
 ) -> go.Figure:
     x = np.linspace(geometry.x_min, geometry.x_max, 500)
     ground = ground_elevation(x, geometry)
-    bottom = -0.8 * geometry.height
+    bottom = geometry.model_base_elevation
     fig = go.Figure()
 
-    if profile.has_two_soils:
-        interface = profile.interface_elevation
-        lower_top = np.minimum(ground, interface)
+    cumulative = 0.0
+    for index, layer in enumerate(profile.layers):
+        layer_top = geometry.height - cumulative
+        cumulative += layer.thickness
+        layer_bottom = max(geometry.height - cumulative, bottom)
+        if layer_top <= bottom + 1e-9:
+            break
+        layer_mask = ground >= layer_bottom - 1e-9
         _filled_band(
             fig,
-            x,
-            lower_top,
-            np.full_like(x, bottom),
-            profile.lower.name,
-            LOWER_SOIL,
+            x[layer_mask],
+            np.minimum(ground[layer_mask], layer_top),
+            np.full(np.count_nonzero(layer_mask), layer_bottom),
+            f"Capa {index + 1}: {layer.soil.name}",
+            SOIL_COLORS[index % len(SOIL_COLORS)],
         )
-        upper_mask = ground >= interface
-        _filled_band(
-            fig,
-            x[upper_mask],
-            ground[upper_mask],
-            np.full(np.count_nonzero(upper_mask), interface),
-            profile.upper.name,
-            UPPER_SOIL,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=x[upper_mask],
-                y=np.full(np.count_nonzero(upper_mask), interface),
-                line=dict(color="#8B5E3C", width=2, dash="dot"),
-                name=f"Contacto z={interface:.2f} m",
-                hovertemplate="Contacto z=%{y:.2f} m<extra></extra>",
+        if cumulative < geometry.model_depth - 1e-9:
+            contact = geometry.height - cumulative
+            contact_mask = ground >= contact - 1e-9
+            fig.add_trace(
+                go.Scatter(
+                    x=x[contact_mask],
+                    y=np.full(np.count_nonzero(contact_mask), contact),
+                    line=dict(color="#7A6652", width=1.5, dash="dot"),
+                    name="Contactos entre capas",
+                    showlegend=index == 0,
+                    hovertemplate=f"Contacto {index + 1}<br>z=%{{y:.2f}} m<extra></extra>",
+                )
             )
-        )
-    else:
-        _filled_band(
-            fig,
-            x,
-            ground,
-            np.full_like(x, bottom),
-            profile.upper.name,
-            UPPER_SOIL,
-        )
 
     fig.add_trace(
         go.Scatter(
@@ -123,8 +120,17 @@ def section_figure(
             x=x[water_mask],
             y=np.full(np.count_nonzero(water_mask), geometry.water_elevation),
             line=dict(color=WATER, width=2, dash="dash"),
-            name=f"Nivel freatico z={geometry.water_elevation:.2f} m",
+            name=f"NF d={geometry.water_depth:.2f} m",
             hovertemplate="NF z=%{y:.2f} m<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[geometry.x_min, geometry.x_max],
+            y=[bottom, bottom],
+            line=dict(color=MUTED, width=1, dash="dash"),
+            name=f"Limite del modelo d={geometry.model_depth:.2f} m",
+            hovertemplate="Limite inferior z=%{y:.2f} m<extra></extra>",
         )
     )
     if critical is not None:
@@ -167,9 +173,9 @@ def section_figure(
 
 def sensitivity_figure(data: pd.DataFrame) -> go.Figure:
     n_angles = data["Pendiente (deg)"].nunique()
-    n_waters = data["Nivel freatico (m)"].nunique()
+    n_waters = data["Profundidad NF (m)"].nunique()
     if n_angles > 1 and n_waters > 1:
-        pivot = data.pivot(index="Nivel freatico (m)", columns="Pendiente (deg)", values="FS Bishop")
+        pivot = data.pivot(index="Profundidad NF (m)", columns="Pendiente (deg)", values="FS Bishop")
         fig = go.Figure(
             go.Heatmap(
                 x=pivot.columns,
@@ -177,13 +183,13 @@ def sensitivity_figure(data: pd.DataFrame) -> go.Figure:
                 z=pivot.values,
                 colorscale=[[0, "#B42318"], [0.45, "#F6C453"], [1, "#287271"]],
                 colorbar=dict(title="FS Bishop"),
-                hovertemplate="Pendiente=%{x:.1f} deg<br>NF=%{y:.2f} m<br>FS=%{z:.3f}<extra></extra>",
+                hovertemplate="Pendiente=%{x:.1f} deg<br>Prof. NF=%{y:.2f} m<br>FS=%{z:.3f}<extra></extra>",
             )
         )
         fig.update_xaxes(title="Pendiente (deg)")
-        fig.update_yaxes(title="Cota del nivel freatico (m)", autorange="reversed")
+        fig.update_yaxes(title="Profundidad NF desde coronacion (m)", autorange="reversed")
     else:
-        variable = "Pendiente (deg)" if n_angles > 1 else "Nivel freatico (m)"
+        variable = "Pendiente (deg)" if n_angles > 1 else "Profundidad NF (m)"
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=data[variable], y=data["FS Fellenius"], mode="lines+markers", name="Fellenius"))
         fig.add_trace(go.Scatter(x=data[variable], y=data["FS Bishop"], mode="lines+markers", name="Bishop simplificado", line=dict(color=ACCENT)))

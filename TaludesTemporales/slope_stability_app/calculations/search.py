@@ -54,7 +54,7 @@ def search_critical_surfaces(
     config: AnalysisConfig,
 ) -> SearchResult:
     geometry.validate()
-    profile.validate(geometry.height)
+    profile.validate(geometry.model_depth)
     config.validate()
     best_f: SurfaceEvaluation | None = None
     best_b: SurfaceEvaluation | None = None
@@ -85,4 +85,3 @@ def search_critical_surfaces(
         evaluated_surfaces=evaluated,
         valid_surfaces=valid,
     )
-
