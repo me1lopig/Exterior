@@ -367,7 +367,12 @@ def main() -> None:
     with tabs[0]:
         st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
         st.markdown("### Vista previa")
-        st.plotly_chart(section_figure(geometry, profile), use_container_width=True, config={"displaylogo": False})
+        st.plotly_chart(
+            section_figure(geometry, profile),
+            use_container_width=True,
+            config={"displaylogo": False},
+            key="geometry_preview_chart",
+        )
 
     with tabs[1]:
         st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
@@ -421,7 +426,12 @@ def main() -> None:
         if sensitivity is None:
             st.info("Configure el barrido y pulse 'Ejecutar sensibilidad' en el panel lateral.")
         else:
-            st.plotly_chart(sensitivity_figure(sensitivity), use_container_width=True, config={"displaylogo": False})
+            st.plotly_chart(
+                sensitivity_figure(sensitivity),
+                use_container_width=True,
+                config={"displaylogo": False},
+                key="sensitivity_chart",
+            )
             min_row = sensitivity.loc[sensitivity["FS Bishop"].idxmin()]
             max_row = sensitivity.loc[sensitivity["FS Bishop"].idxmax()]
             s1, s2, s3 = st.columns(3)
@@ -482,7 +492,12 @@ def main() -> None:
         st.markdown('<div class="workspace-title">Seccion del talud</div>', unsafe_allow_html=True)
         st.markdown('<div class="workspace-copy">Estratigrafia, nivel freatico y superficie critica a escala geometrica 1:1.</div>', unsafe_allow_html=True)
         if result is None or stored_inputs is None:
-            st.plotly_chart(section_figure(geometry, profile), use_container_width=True, config={"displaylogo": False})
+            st.plotly_chart(
+                section_figure(geometry, profile),
+                use_container_width=True,
+                config={"displaylogo": False},
+                key="slope_visualization_preview_chart",
+            )
             st.info("La superficie critica y las dovelas apareceran despues de calcular el caso base.")
         else:
             method = st.segmented_control(
@@ -496,6 +511,7 @@ def main() -> None:
                 section_figure(stored_inputs[1], stored_inputs[2], selected),
                 use_container_width=True,
                 config={"displaylogo": False, "scrollZoom": True},
+                key="critical_section_chart",
             )
             circle = selected.evaluation.circle
             c1, c2, c3, c4 = st.columns(4)
