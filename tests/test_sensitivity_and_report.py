@@ -1,4 +1,6 @@
 from docx import Document
+from docx.oxml.ns import qn
+from docx.shared import Cm
 
 from slope_stability_app.calculations import run_sensitivity, search_critical_surfaces
 from slope_stability_app.models import AnalysisConfig, ProjectData, SlopeGeometry, Soil, SoilLayer, SoilProfile, SweepConfig
@@ -39,4 +41,17 @@ def test_report_is_valid_docx(tmp_path):
     assert "Estabilidad de talud temporal" in text
     assert "Resumen de resultados" in text
     assert "Profundidad del nivel freatico" in table_text
+    assert abs(document.sections[0].page_width - Cm(21.0009)) < Cm(0.01)
+    assert abs(document.sections[0].page_height - Cm(29.7004)) < Cm(0.01)
+    assert abs(document.sections[0].left_margin - Cm(3.0004)) < Cm(0.01)
+    assert document.styles["GEO normal"].font.name == "Open Sans"
+    assert document.styles["GEO pie de figura"].font.color.rgb == document.styles["Heading 1"].font.color.rgb
+    headings = [paragraph for paragraph in document.paragraphs if paragraph.style.name == "Heading 1"]
+    assert headings
+    assert all(paragraph._p.pPr.numPr is not None for paragraph in headings)
+    instructions = " ".join(
+        node.text or "" for node in document.element.body.iter(qn("w:instrText"))
+    )
+    assert "SEQ Tabla" in instructions
+    assert "SEQ Figura" in instructions
     assert len(report) > 20_000
