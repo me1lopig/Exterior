@@ -9,20 +9,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from docx import Document
-from docx.enum.section import WD_SECTION_START
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Cm, Inches, Pt, RGBColor
 
 from slope_stability_app.calculations.geometry import ground_elevation
 from slope_stability_app.calculations.search import SearchResult
 from slope_stability_app.models import AnalysisConfig, ProjectData, SlopeGeometry, SoilProfile
 
 
-NAVY = "263746"
-PALE = "EAF0F4"
+GEO_BLUE = "2164AF"
+PALE = "F2F6FB"
 GRID = "D9D9D9"
 AMBER = "D97706"
 SOIL_COLORS = ("#E0D2B4", "#B8CABA", "#C7BED3", "#DABEAE", "#B1C6D3", "#D3C9A9")
@@ -35,6 +35,19 @@ def _shade(cell, fill: str) -> None:
     tc_pr.append(shading)
 
 
+def _set_cell_margins(cell, top: int = 80, start: int = 70, bottom: int = 80, end: int = 70) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    margins = tc_pr.first_child_found_in("w:tcMar")
+    if margins is None:
+        margins = OxmlElement("w:tcMar")
+        tc_pr.append(margins)
+    for side, value in (("top", top), ("start", start), ("bottom", bottom), ("end", end)):
+        element = OxmlElement(f"w:{side}")
+        element.set(qn("w:w"), str(value))
+        element.set(qn("w:type"), "dxa")
+        margins.append(element)
+
+
 def _borders(table) -> None:
     tbl_pr = table._tbl.tblPr
     borders = tbl_pr.first_child_found_in("w:tblBorders")
@@ -44,12 +57,46 @@ def _borders(table) -> None:
     for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
         node = OxmlElement(f"w:{edge}")
         node.set(qn("w:val"), "single")
-        node.set(qn("w:sz"), "4")
-        node.set(qn("w:color"), GRID)
+        node.set(qn("w:sz"), "6" if edge in ("top", "bottom") else "3")
+        node.set(qn("w:color"), GEO_BLUE if edge in ("top", "bottom") else GRID)
         borders.append(node)
 
 
-def _add_table(document: Document, headers: list[str], rows: list[list[str]], widths: list[float] | None = None):
+def _append_seq_field(paragraph, sequence: str, number: int) -> None:
+    run = paragraph.add_run()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    instruction = OxmlElement("w:instrText")
+    instruction.set(qn("xml:space"), "preserve")
+    instruction.text = f" SEQ {sequence} \\* ARABIC "
+    separate = OxmlElement("w:fldChar")
+    separate.set(qn("w:fldCharType"), "separate")
+    cached = OxmlElement("w:t")
+    cached.text = str(number)
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    run._r.extend((begin, instruction, separate, cached, end))
+
+
+def _add_caption(document: Document, kind: str, number: int, text: str):
+    style = "GEO pie de figura" if kind == "Figura" else "GEO tabla titulo"
+    paragraph = document.add_paragraph(style=style)
+    paragraph.add_run("Figura N. " if kind == "Figura" else "Tabla ")
+    _append_seq_field(paragraph, kind, number)
+    paragraph.add_run(".- " if kind == "Figura" else ". ")
+    paragraph.add_run(text)
+    return paragraph
+
+
+def _add_table(
+    document: Document,
+    headers: list[str],
+    rows: list[list[str]],
+    title: str,
+    number: int,
+    widths: list[float] | None = None,
+):
+    _add_caption(document, "Tabla", number, title)
     table = document.add_table(rows=1, cols=len(headers))
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = False
@@ -57,11 +104,14 @@ def _add_table(document: Document, headers: list[str], rows: list[list[str]], wi
     for index, heading in enumerate(headers):
         cell = table.rows[0].cells[index]
         cell.text = heading
-        _shade(cell, NAVY)
+        _shade(cell, PALE)
+        _set_cell_margins(cell)
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         for run in cell.paragraphs[0].runs:
             run.font.bold = True
-            run.font.color.rgb = RGBColor(255, 255, 255)
+            run.font.name = "Open Sans"
+            run.font.color.rgb = RGBColor.from_string(GEO_BLUE)
             run.font.size = Pt(9)
     header_properties = table.rows[0]._tr.get_or_add_trPr()
     repeat = OxmlElement("w:tblHeader")
@@ -72,11 +122,16 @@ def _add_table(document: Document, headers: list[str], rows: list[list[str]], wi
         for col_index, value in enumerate(values):
             cells[col_index].text = str(value)
             cells[col_index].vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+            _set_cell_margins(cells[col_index])
             if row_index % 2:
-                _shade(cells[col_index], "F6F8FA")
+                _shade(cells[col_index], PALE)
             for paragraph in cells[col_index].paragraphs:
+                paragraph.style = document.styles["GEO tabla contenido"]
+                paragraph.paragraph_format.space_before = Pt(2)
                 paragraph.paragraph_format.space_after = Pt(2)
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT if col_index == 0 else WD_ALIGN_PARAGRAPH.CENTER
                 for run in paragraph.runs:
+                    run.font.name = "Arial"
                     run.font.size = Pt(8.5)
         if widths:
             for cell, width in zip(cells, widths):
@@ -176,25 +231,145 @@ def _sensitivity_image(data: pd.DataFrame) -> BytesIO:
     return buffer
 
 
-def _configure_document(document: Document) -> None:
+def _set_style_font(style, name: str, size: float, color: str = "000000", bold: bool = False, italic: bool = False) -> None:
+    style.font.name = name
+    style.font.size = Pt(size)
+    style.font.color.rgb = RGBColor.from_string(color)
+    style.font.bold = bold
+    style.font.italic = italic
+    style._element.rPr.rFonts.set(qn("w:ascii"), name)
+    style._element.rPr.rFonts.set(qn("w:hAnsi"), name)
+
+
+def _set_paragraph_border(style, color: str, size: int = 6, space: int = 1) -> None:
+    p_pr = style._element.get_or_add_pPr()
+    borders = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:color"), color)
+    bottom.set(qn("w:sz"), str(size))
+    bottom.set(qn("w:space"), str(space))
+    borders.append(bottom)
+    p_pr.append(borders)
+
+
+def _clear_paragraph_borders(style) -> None:
+    p_pr = style._element.get_or_add_pPr()
+    borders = p_pr.find(qn("w:pBdr"))
+    if borders is not None:
+        p_pr.remove(borders)
+
+
+def _add_style(document: Document, name: str, style_id: str):
+    style = document.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    style._element.set(qn("w:styleId"), style_id)
+    return style
+
+
+def _add_heading_numbering(document: Document) -> int:
+    numbering = document.part.numbering_part.element
+    abstract_ids = [int(item.get(qn("w:abstractNumId"))) for item in numbering.findall(qn("w:abstractNum"))]
+    num_ids = [int(item.get(qn("w:numId"))) for item in numbering.findall(qn("w:num"))]
+    abstract_id = max(abstract_ids, default=0) + 1
+    num_id = max(num_ids, default=0) + 1
+    abstract = OxmlElement("w:abstractNum")
+    abstract.set(qn("w:abstractNumId"), str(abstract_id))
+    multi = OxmlElement("w:multiLevelType")
+    multi.set(qn("w:val"), "multilevel")
+    abstract.append(multi)
+    for level in range(4):
+        lvl = OxmlElement("w:lvl")
+        lvl.set(qn("w:ilvl"), str(level))
+        start = OxmlElement("w:start")
+        start.set(qn("w:val"), "1")
+        num_fmt = OxmlElement("w:numFmt")
+        num_fmt.set(qn("w:val"), "decimal")
+        lvl_text = OxmlElement("w:lvlText")
+        lvl_text.set(qn("w:val"), ".".join(f"%{index}" for index in range(1, level + 2)) + ".")
+        suffix = OxmlElement("w:suff")
+        suffix.set(qn("w:val"), "space")
+        lvl.extend((start, num_fmt, lvl_text, suffix))
+        abstract.append(lvl)
+    numbering.append(abstract)
+    num = OxmlElement("w:num")
+    num.set(qn("w:numId"), str(num_id))
+    abstract_ref = OxmlElement("w:abstractNumId")
+    abstract_ref.set(qn("w:val"), str(abstract_id))
+    num.append(abstract_ref)
+    numbering.append(num)
+    return num_id
+
+
+def _add_numbered_heading(document: Document, text: str, num_id: int, level: int = 1):
+    paragraph = document.add_heading(text, level=level)
+    num_pr = OxmlElement("w:numPr")
+    ilvl = OxmlElement("w:ilvl")
+    ilvl.set(qn("w:val"), str(level - 1))
+    number = OxmlElement("w:numId")
+    number.set(qn("w:val"), str(num_id))
+    num_pr.extend((ilvl, number))
+    paragraph._p.get_or_add_pPr().insert(0, num_pr)
+    return paragraph
+
+
+def _configure_document(document: Document) -> int:
     section = document.sections[0]
-    section.top_margin = Inches(0.72)
-    section.bottom_margin = Inches(0.72)
-    section.left_margin = Inches(0.78)
-    section.right_margin = Inches(0.78)
+    section.page_width = Cm(21.0009)
+    section.page_height = Cm(29.7004)
+    section.top_margin = Cm(2.5012)
+    section.bottom_margin = Cm(2.5012)
+    section.left_margin = Cm(3.0004)
+    section.right_margin = Cm(3.0004)
+    section.header_distance = Cm(1.2506)
+    section.footer_distance = Cm(1.2506)
     styles = document.styles
-    styles["Normal"].font.name = "Aptos"
-    styles["Normal"].font.size = Pt(10.5)
-    styles["Normal"].font.color.rgb = RGBColor(0, 0, 0)
-    for name, size in (("Title", 23), ("Heading 1", 15), ("Heading 2", 12)):
+    normal = styles["Normal"]
+    _set_style_font(normal, "Open Sans", 9)
+    normal.paragraph_format.space_after = Pt(8)
+    normal.paragraph_format.line_spacing = 1.07917
+    geo_normal = _add_style(document, "GEO normal", "GEOnormal")
+    _set_style_font(geo_normal, "Open Sans", 10)
+    geo_normal.paragraph_format.space_before = Pt(6)
+    geo_normal.paragraph_format.space_after = Pt(6)
+    geo_normal.paragraph_format.line_spacing = 1.0
+    geo_normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    for name, size, before, italic in (("Heading 1", 12, 18, False), ("Heading 2", 10, 12, True), ("Heading 3", 10, 6, False)):
         style = styles[name]
-        style.font.name = "Aptos Display"
-        style.font.size = Pt(size)
-        style.font.color.rgb = RGBColor(0, 0, 0)
-        style.font.bold = True
+        _set_style_font(style, "Open Sans Condensed", size, GEO_BLUE if name != "Heading 3" else "000000", True, italic)
+        style.paragraph_format.space_before = Pt(before)
+        style.paragraph_format.space_after = Pt(6)
+        style.paragraph_format.keep_with_next = True
+        style.paragraph_format.keep_together = True
+    styles["Heading 1"].font.all_caps = True
+    _set_paragraph_border(styles["Heading 1"], GEO_BLUE)
+    _set_style_font(styles["Title"], "Open Sans Condensed", 22, "000000", True)
+    styles["Title"].paragraph_format.space_after = Pt(12)
+    _clear_paragraph_borders(styles["Title"])
+    figure_style = _add_style(document, "GEO pie de figura", "GEOpiedefigura")
+    _set_style_font(figure_style, "Open Sans Light", 9, GEO_BLUE, True)
+    figure_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    figure_style.paragraph_format.space_before = Pt(6)
+    figure_style.paragraph_format.space_after = Pt(12)
+    table_title = _add_style(document, "GEO tabla titulo", "GEOtablatitulo")
+    _set_style_font(table_title, "Open Sans Light", 9, GEO_BLUE, True)
+    table_title.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table_title.paragraph_format.space_after = Pt(6)
+    table_title.paragraph_format.keep_with_next = True
+    table_content = _add_style(document, "GEO tabla contenido", "GEOtablacontenido")
+    _set_style_font(table_content, "Arial", 9)
+    table_content.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table_content.paragraph_format.line_spacing = 1.0
+    list_style = styles["List Bullet"]
+    _set_style_font(list_style, "Open Sans", 10)
+    list_style.paragraph_format.space_before = Pt(3)
+    list_style.paragraph_format.space_after = Pt(3)
     footer = section.footer.paragraphs[0]
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    footer.add_run("Analisis preliminar de estabilidad de talud temporal | Herramienta GeoTech").font.size = Pt(8)
+    footer_run = footer.add_run("Analisis preliminar de estabilidad de talud temporal | GeoTech")
+    footer_run.font.name = "Open Sans Light"
+    footer_run.font.size = Pt(8)
+    footer_run.font.color.rgb = RGBColor.from_string(GEO_BLUE)
+    return _add_heading_numbering(document)
 
 
 def build_report(
@@ -207,20 +382,22 @@ def build_report(
 ) -> bytes:
     """Genera un DOCX en memoria listo para descarga."""
     document = Document()
-    _configure_document(document)
+    heading_num_id = _configure_document(document)
     title = document.add_paragraph(style="Title")
     title.add_run("Estabilidad de talud temporal")
-    subtitle = document.add_paragraph()
+    subtitle = document.add_paragraph(style="GEO normal")
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.LEFT
     subtitle.add_run(project.name or "Analisis sin titulo").bold = True
     subtitle.add_run(f"\n{project.location}" if project.location else "")
     subtitle.add_run(f"\nFecha: {datetime.now():%d/%m/%Y}")
     if project.author:
         subtitle.add_run(f"  |  Autor: {project.author}")
     document.add_paragraph(
-        "Informe de calculo por equilibrio limite para superficies circulares. Los resultados son una ayuda al proyecto y no sustituyen la definicion del modelo geotecnico, las combinaciones de acciones ni las comprobaciones exigibles en el marco normativo aplicable."
+        "Informe de calculo por equilibrio limite para superficies circulares. Los resultados son una ayuda al proyecto y no sustituyen la definicion del modelo geotecnico, las combinaciones de acciones ni las comprobaciones exigibles en el marco normativo aplicable.",
+        style="GEO normal",
     )
 
-    document.add_heading("1. Resumen de resultados", level=1)
+    _add_numbered_heading(document, "Resumen de resultados", heading_num_id)
     governing = min(result.fellenius.factor_of_safety, result.bishop.factor_of_safety)
     status = "Cumple el objetivo introducido" if governing >= config.target_factor else "No alcanza el objetivo introducido"
     _add_table(
@@ -237,18 +414,19 @@ def build_report(
             ]
             for critical in (result.fellenius, result.bishop)
         ],
+        "Resumen de las superficies criticas",
+        1,
     )
     document.add_paragraph(
-        f"Resultado gobernante: FS = {governing:.3f}. Factor objetivo definido por el usuario: {config.target_factor:.2f}. {status}. Se evaluaron {result.evaluated_surfaces} circulos, de los cuales {result.valid_surfaces} fueron geometricamente y numericamente validos."
+        f"Resultado gobernante: FS = {governing:.3f}. Factor objetivo definido por el usuario: {config.target_factor:.2f}. {status}. Se evaluaron {result.evaluated_surfaces} circulos, de los cuales {result.valid_surfaces} fueron geometricamente y numericamente validos.",
+        style="GEO normal",
     )
-    document.add_picture(_section_image(geometry, profile, result), width=Inches(6.75))
-    caption = document.add_paragraph("Figura 1. Geometria y superficie critica obtenida con Bishop simplificado.")
-    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    caption.runs[0].italic = True
-    caption.runs[0].font.size = Pt(8.5)
+    picture = document.add_picture(_section_image(geometry, profile, result), width=Cm(14.8))
+    picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _add_caption(document, "Figura", 1, "Geometria y superficie critica obtenida con Bishop simplificado")
 
     document.add_page_break()
-    document.add_heading("2. Datos de entrada", level=1)
+    _add_numbered_heading(document, "Datos de entrada", heading_num_id)
     _add_table(
         document,
         ["Parametro", "Valor", "Unidad / criterio"],
@@ -264,6 +442,8 @@ def build_report(
             ["Peso unitario del agua", f"{config.gamma_water:.2f}", "kN/m3"],
             ["Factor objetivo", f"{config.target_factor:.2f}", "definido por el usuario"],
         ],
+        "Geometria y parametros de calculo",
+        2,
     )
     soil_rows = []
     cumulative = 0.0
@@ -287,13 +467,16 @@ def build_report(
         document,
         ["Capa", "Suelo", "Espesor", "Prof. desde coronacion", "gamma seco", "gamma sat.", "c'", "phi'"],
         soil_rows,
+        "Parametros geotecnicos del perfil estratigrafico",
+        3,
     )
     document.add_paragraph(
         f"El perfil contiene {len(profile.layers)} capas con un espesor acumulado de {profile.total_thickness:.2f} m. "
-        f"El dominio de calculo alcanza {geometry.model_depth:.2f} m desde coronacion."
+        f"El dominio de calculo alcanza {geometry.model_depth:.2f} m desde coronacion.",
+        style="GEO normal",
     )
 
-    document.add_heading("3. Metodo e hipotesis", level=1)
+    _add_numbered_heading(document, "Metodo e hipotesis", heading_num_id)
     assumptions = [
         "Analisis bidimensional por metro de ancho, deformacion plana y mecanismo de rotura circular.",
         "Resistencia drenada Mohr-Coulomb con c' y phi' constantes dentro de cada estrato.",
@@ -307,32 +490,43 @@ def build_report(
 
     has_sensitivity = sensitivity is not None and not sensitivity.empty
     if has_sensitivity:
-        document.add_section(WD_SECTION_START.NEW_PAGE)
-        document.add_heading("4. Sensibilidad parametrica", level=1)
+        _add_numbered_heading(document, "Sensibilidad parametrica", heading_num_id)
         minimum_row = sensitivity.loc[sensitivity["FS Bishop"].idxmin()]
         maximum_row = sensitivity.loc[sensitivity["FS Bishop"].idxmax()]
         document.add_paragraph(
-            f"Se analizaron {len(sensitivity)} combinaciones. Bishop varia entre {minimum_row['FS Bishop']:.3f} y {maximum_row['FS Bishop']:.3f}. El minimo corresponde a pendiente {minimum_row['Pendiente (deg)']:.1f} grados y profundidad del nivel freatico d={minimum_row['Profundidad NF (m)']:.2f} m desde coronacion."
+            f"Se analizaron {len(sensitivity)} combinaciones. Bishop varia entre {minimum_row['FS Bishop']:.3f} y {maximum_row['FS Bishop']:.3f}. El minimo corresponde a pendiente {minimum_row['Pendiente (deg)']:.1f} grados y profundidad del nivel freatico d={minimum_row['Profundidad NF (m)']:.2f} m desde coronacion.",
+            style="GEO normal",
         )
-        document.add_picture(_sensitivity_image(sensitivity), width=Inches(6.7))
+        sensitivity_picture = document.add_picture(_sensitivity_image(sensitivity), width=Cm(14.8))
+        sensitivity_picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _add_caption(document, "Figura", 2, "Sensibilidad del factor de seguridad frente a los parametros analizados")
         display = sensitivity.copy()
-        if len(display) > 15:
-            display = display.sort_values("FS Bishop").head(15)
-            document.add_paragraph("La tabla muestra las 15 combinaciones mas desfavorables; el CSV descargable conserva todos los casos.")
+        if len(display) > 10:
+            display = display.sort_values("FS Bishop").head(10)
+            document.add_paragraph(
+                "La tabla muestra las 10 combinaciones mas desfavorables; el CSV descargable conserva todos los casos.",
+                style="GEO normal",
+            )
         rows = [
             [f"{row['Pendiente (deg)']:.2f}", f"{row['Profundidad NF (m)']:.2f}", f"{row['FS Fellenius']:.3f}", f"{row['FS Bishop']:.3f}"]
             for _, row in display.iterrows()
         ]
-        _add_table(document, ["Pendiente (deg)", "Prof. NF (m)", "FS Fellenius", "FS Bishop"], rows)
+        _add_table(
+            document,
+            ["Pendiente (deg)", "Prof. NF (m)", "FS Fellenius", "FS Bishop"],
+            rows,
+            "Resultados de sensibilidad parametrica",
+            4,
+        )
 
-    limitations_number = 5 if has_sensitivity else 4
-    document.add_heading(f"{limitations_number}. Limitaciones y recomendaciones", level=1)
+    _add_numbered_heading(document, "Limitaciones y recomendaciones", heading_num_id)
     document.add_paragraph(
-        "Antes de adoptar el resultado deben contrastarse la estratigrafia, el regimen piezometrico, la representatividad de c' y phi', la posible respuesta no drenada, las sobrecargas, las excavaciones por fases y los mecanismos no circulares. El factor objetivo debe fijarse expresamente segun normativa, duracion de la situacion temporal, fiabilidad de la investigacion y consecuencias de fallo."
+        "Antes de adoptar el resultado deben contrastarse la estratigrafia, el regimen piezometrico, la representatividad de c' y phi', la posible respuesta no drenada, las sobrecargas, las excavaciones por fases y los mecanismos no circulares. El factor objetivo debe fijarse expresamente segun normativa, duracion de la situacion temporal, fiabilidad de la investigacion y consecuencias de fallo.",
+        style="GEO normal",
     )
     if project.notes:
-        document.add_heading(f"{limitations_number + 1}. Observaciones del proyecto", level=1)
-        document.add_paragraph(project.notes)
+        _add_numbered_heading(document, "Observaciones del proyecto", heading_num_id)
+        document.add_paragraph(project.notes, style="GEO normal")
     output = BytesIO()
     document.save(output)
     return output.getvalue()
