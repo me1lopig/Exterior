@@ -11,7 +11,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt, RGBColor
 import pandas as pd
 
-from models.inputs import Foundation, SoilLayer, SoilProfile
+from models.inputs import DrainageCondition, Foundation, SoilLayer, SoilProfile
 
 
 BLUE = "2164AF"
@@ -451,12 +451,20 @@ def generate_capacity_report(
     )
 
     doc.add_heading("Criterios de calculo", level=1)
+    strength_description = (
+        f"cu constante = {soil.cu0_kpa:.2f} kPa"
+        if soil.drainage is DrainageCondition.UNDRAINED and not cu_profile
+        else "perfil tabulado cu(z)"
+        if soil.drainage is DrainageCondition.UNDRAINED
+        else "parametros efectivos c' y phi'"
+    )
     _add_key_value_table(
         doc,
         [
             ("Tipologia", foundation_template.kind.value),
             ("Cota de apoyo D", f"{foundation_template.embedment_m:.3f} m"),
             ("Regimen", soil.drainage.value),
+            ("Resistencia para hundimiento", strength_description),
             ("Estrato representativo ELU", bearing_layer_name),
             ("Nivel freatico", f"{soil.water_table_depth_m:.3f} m"),
             ("Asiento admisible", f"{allowable_settlement_mm:.2f} mm"),
@@ -493,58 +501,39 @@ def generate_capacity_report(
 
     doc.add_heading("Capacidad para la malla B-L", level=1)
     doc.add_paragraph(
-        "qd es la resistencia bruta de calculo frente a hundimiento. qadm,s es la "
-        "presion bruta que produce el asiento admisible. qlim es el menor de ambos "
-        "valores. Qadm,estructura descuenta los pesos configurados en la aplicacion."
+        "qd ELU es la resistencia bruta de calculo frente a hundimiento. qd ELS "
+        "designa, a efectos de esta tabla, la presion bruta que produce el asiento "
+        "admisible; no es una resistencia de calculo. qadm es el menor de ambos "
+        "valores. Nadm descuenta los pesos configurados en la aplicacion."
     )
-    pressure_report = capacity_grid[
+    capacity_report = capacity_grid[
         [
             "B_m",
             "L_m",
-            "q_h_kpa",
             "q_d_kpa",
             "q_adm_asiento_bruta_kpa",
             "q_limite_bruta_kpa",
-            "criterio_gobernante",
-        ]
-    ].rename(
-        columns={
-            "B_m": "B m",
-            "L_m": "L m",
-            "q_h_kpa": "qh kPa",
-            "q_d_kpa": "qd kPa",
-            "q_adm_asiento_bruta_kpa": "qadm,s kPa",
-            "q_limite_bruta_kpa": "qlim kPa",
-            "criterio_gobernante": "Gobierna",
-        }
-    )
-    doc.add_heading("Presiones limite", level=2)
-    _add_dataframe(doc, pressure_report)
-
-    load_report = capacity_grid[
-        [
-            "B_m",
-            "L_m",
-            "area_m2",
-            "Q_limite_base_kn",
             "Q_limite_estructura_kn",
+            "criterio_gobernante",
             "perfil_cubre_bulbos",
         ]
     ].rename(
         columns={
             "B_m": "B m",
             "L_m": "L m",
-            "area_m2": "Area m2",
-            "Q_limite_base_kn": "Qbase kN",
-            "Q_limite_estructura_kn": "Qadm estructura kN",
-            "perfil_cubre_bulbos": "Perfil completo",
+            "q_d_kpa": "qd ELU kPa",
+            "q_adm_asiento_bruta_kpa": "qd ELS kPa",
+            "q_limite_bruta_kpa": "qadm kPa",
+            "Q_limite_estructura_kn": "Nadm kN",
+            "criterio_gobernante": "Gobierna",
+            "perfil_cubre_bulbos": "Perfil",
         }
     )
-    load_report["Perfil completo"] = load_report["Perfil completo"].map(
+    capacity_report["Perfil"] = capacity_report["Perfil"].map(
         {True: "SI", False: "NO"}
     )
-    doc.add_heading("Cargas admisibles", level=2)
-    _add_dataframe(doc, load_report)
+    doc.add_heading("Presiones y axil admisible", level=2)
+    _add_dataframe(doc, capacity_report)
 
     incomplete = int((~capacity_grid["perfil_cubre_bulbos"]).sum())
     if incomplete:

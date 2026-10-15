@@ -7,9 +7,9 @@ No incluye dimensionamiento estructural, deslizamiento, estabilidad global ni me
 ## Flujo principal
 
 1. Definir el proyecto, la tipologia y la cota de apoyo.
-2. Introducir la estratigrafia en una tabla con c', phi', pesos especificos, E_s y Poisson por capa.
+2. Introducir la estratigrafia mediante espesores consecutivos, con c', phi', pesos especificos, E_s y Poisson por capa.
 3. Seleccionar el estrato representativo para el hundimiento.
-4. En condiciones no drenadas, introducir el perfil tabulado cu(z).
+4. En condiciones no drenadas, elegir entre cu constante o un perfil tabulado cu(z). En este regimen phi' se fija en cero.
 5. Definir rangos y paso de B-L, asiento admisible y profundidad de influencia.
 6. Calcular la tabla de presiones y cargas limite.
 7. Activar, solo si se necesita, la comprobacion de una geometria con acciones V-H-M.
@@ -18,12 +18,10 @@ No incluye dimensionamiento estructural, deslizamiento, estabilidad global ni me
 
 Para cada geometria se obtiene:
 
-- presion de hundimiento caracteristica `qh`;
-- resistencia bruta de calculo `qd`;
-- presion bruta limitada por asiento `qadm,s`;
-- presion final `qlim = min(qd, qadm,s)`;
-- carga limite en la base;
-- carga admisible estructural tras descontar los pesos configurados;
+- resistencia bruta de calculo `qd ELU`;
+- presion bruta limitada por asiento `qd ELS`;
+- presion final `qadm = min(qd ELU, qd ELS)`;
+- axil admisible `Nadm` tras descontar los pesos configurados;
 - criterio gobernante y estado de cobertura del perfil.
 
 ## Asientos

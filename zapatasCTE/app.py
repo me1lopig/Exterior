@@ -6,7 +6,6 @@ import streamlit as st
 from calculations.analysis import (
     admissible_capacity_grid,
     evaluate_cases,
-    sensitivity_analysis,
 )
 from calculations.layers import vertical_overburden_from_layers
 from models.inputs import (
@@ -20,7 +19,7 @@ from models.inputs import (
 )
 from services.exporting import capacity_grid_to_excel
 from services.reporting import generate_capacity_report
-from visualization.plots import optimization_figure, sensitivity_figure, terms_figure
+from visualization.plots import optimization_figure, terms_figure
 
 
 st.set_page_config(page_title="Carga admisible CTE DB SE-C", layout="wide")
@@ -49,7 +48,7 @@ st.markdown(
 def _default_layers() -> pd.DataFrame:
     return pd.DataFrame(
         [{
-            "Capa": "Terreno 1", "Techo m": 0.0, "Muro m": 20.0,
+            "Capa": "Terreno 1", "Espesor m": 20.0,
             "c' kPa": 0.0, "phi' grados": 30.0,
             "gamma kN/m3": 18.0, "gamma sat kN/m3": 20.0,
             "E_s MPa": 25.0, "Poisson": 0.30,
@@ -90,12 +89,24 @@ def _required_float(row: pd.Series, column: str, layer_name: str) -> float:
     return float(value)
 
 
+def _normalize_layers_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Migrate previous top/bottom tables to the thickness-only interface."""
+    normalized = frame.copy()
+    if "Espesor m" not in normalized.columns:
+        if {"Techo m", "Muro m"}.issubset(normalized.columns):
+            normalized["Espesor m"] = normalized["Muro m"] - normalized["Techo m"]
+        else:
+            normalized["Espesor m"] = pd.NA
+    return normalized.drop(columns=["Techo m", "Muro m"], errors="ignore")
+
+
 def _build_layers(frame: pd.DataFrame) -> list[SoilLayer]:
     clean = frame.dropna(how="all")
     if clean.empty:
         raise ValueError("Debe definir al menos una capa de terreno")
     layers: list[SoilLayer] = []
     names: set[str] = set()
+    top_depth = 0.0
     for index, row in clean.iterrows():
         name = str(row.get("Capa", "")).strip()
         if not name or name.lower() == "nan":
@@ -103,10 +114,14 @@ def _build_layers(frame: pd.DataFrame) -> list[SoilLayer]:
         if name in names:
             raise ValueError(f"El nombre de capa '{name}' esta repetido")
         names.add(name)
+        thickness = _required_float(row, "Espesor m", name)
+        if thickness <= 0:
+            raise ValueError(f"El espesor de la capa '{name}' debe ser positivo")
+        bottom_depth = top_depth + thickness
         layers.append(SoilLayer(
             name=name,
-            top_depth_m=_required_float(row, "Techo m", name),
-            bottom_depth_m=_required_float(row, "Muro m", name),
+            top_depth_m=top_depth,
+            bottom_depth_m=bottom_depth,
             deformation_modulus_mpa=_required_float(row, "E_s MPa", name),
             phi_effective_deg=_required_float(row, "phi' grados", name),
             c_effective_kpa=_required_float(row, "c' kPa", name),
@@ -114,7 +129,8 @@ def _build_layers(frame: pd.DataFrame) -> list[SoilLayer]:
             gamma_saturated_kn_m3=_required_float(row, "gamma sat kN/m3", name),
             poisson_ratio=_required_float(row, "Poisson", name),
         ))
-    return sorted(layers, key=lambda item: item.top_depth_m)
+        top_depth = bottom_depth
+    return layers
 
 
 def _build_cu_profile(frame: pd.DataFrame) -> tuple[tuple[float, float], ...]:
@@ -152,7 +168,7 @@ st.write("Hundimiento y asiento elastico estratificado, con comprobacion opciona
 
 tabs = st.tabs([
     "Proyecto y geometria", "Terrenos", "Calculo B-L", "Acciones opcionales",
-    "Sensibilidad", "Resultados", "Formulaciones CTE",
+    "Resultados", "Formulaciones CTE",
 ])
 
 with tabs[0]:
@@ -182,29 +198,67 @@ with tabs[0]:
 
 with tabs[1]:
     st.subheader("Estratigrafia")
-    st.caption("Profundidades desde la superficie. E_s y Poisson se emplean en Steinbrenner.")
+    t1, t2, t3, t4 = st.columns(4)
+    drainage_label = t1.segmented_control(
+        "Regimen de calculo", ["Drenado", "No drenado"], default="Drenado"
+    )
+    drainage = (
+        DrainageCondition.DRAINED
+        if drainage_label == "Drenado"
+        else DrainageCondition.UNDRAINED
+    )
+    water_table = t2.number_input(
+        "Nivel freatico desde superficie (m)", min_value=0.0, value=5.0
+    )
+    upward_gradient = t3.number_input(
+        "Gradiente hidraulico ascendente i", min_value=0.0, value=0.0, step=0.05
+    )
+    st.session_state.layers_df = _normalize_layers_frame(st.session_state.layers_df)
+    if drainage is DrainageCondition.UNDRAINED:
+        st.session_state.layers_df.loc[:, "phi' grados"] = 0.0
+    st.caption(
+        "Las capas se introducen consecutivamente mediante su espesor. "
+        "E_s y Poisson se emplean en Steinbrenner."
+    )
     st.session_state.layers_df = st.data_editor(
         st.session_state.layers_df, num_rows="dynamic", use_container_width=True,
         column_config={
+            "Espesor m": st.column_config.NumberColumn(min_value=0.01),
+            "phi' grados": st.column_config.NumberColumn(min_value=0.0, max_value=59.9),
             "Poisson": st.column_config.NumberColumn(min_value=0.0, max_value=0.49, step=0.01),
             "E_s MPa": st.column_config.NumberColumn(min_value=0.01),
-        }, key="layers_editor_v3")
+        },
+        disabled=["phi' grados"] if drainage is DrainageCondition.UNDRAINED else False,
+        key="layers_editor_v4",
+    )
     layer_names = [str(v) for v in st.session_state.layers_df.get("Capa", pd.Series(dtype=str)).dropna() if str(v).strip()]
-    t1, t2, t3, t4 = st.columns(4)
-    bearing_layer_name = t1.selectbox("Estrato representativo para hundimiento", layer_names or ["Sin capas"])
-    drainage_label = t2.segmented_control("Regimen de calculo", ["Drenado", "No drenado"], default="Drenado")
-    water_table = t3.number_input("Nivel freatico desde superficie (m)", min_value=0.0, value=5.0)
-    upward_gradient = t4.number_input("Gradiente hidraulico ascendente", min_value=0.0, value=0.0, step=0.05)
-    drainage = DrainageCondition.DRAINED if drainage_label == "Drenado" else DrainageCondition.UNDRAINED
+    bearing_layer_name = t4.selectbox(
+        "Estrato representativo para hundimiento", layer_names or ["Sin capas"]
+    )
+    use_cu_profile = False
+    cu_constant = 50.0
     if drainage is DrainageCondition.UNDRAINED:
-        st.subheader("Perfil de resistencia no drenada cu(z)")
-        st.caption("z es la profundidad absoluta desde la superficie; se interpola entre puntos sin extrapolar.")
-        st.session_state.cu_df = st.data_editor(
-            st.session_state.cu_df, num_rows="dynamic", use_container_width=True,
-            column_config={
-                "Profundidad z m": st.column_config.NumberColumn(min_value=0.0),
-                "cu kPa": st.column_config.NumberColumn(min_value=0.0),
-            }, key="cu_editor_v3")
+        st.subheader("Resistencia no drenada")
+        use_cu_profile = st.checkbox(
+            "Considerar variacion de cu con la profundidad", value=True
+        )
+        if use_cu_profile:
+            st.caption(
+                "z es la profundidad absoluta desde la superficie; "
+                "cu se interpola entre puntos sin extrapolar."
+            )
+            st.session_state.cu_df = st.data_editor(
+                st.session_state.cu_df, num_rows="dynamic", use_container_width=True,
+                column_config={
+                    "Profundidad z m": st.column_config.NumberColumn(min_value=0.0),
+                    "cu kPa": st.column_config.NumberColumn(min_value=0.0),
+                }, key="cu_editor_v4")
+        else:
+            cu_constant = st.number_input(
+                "Resistencia no drenada constante cu (kPa)",
+                min_value=0.01,
+                value=50.0,
+            )
 
 with tabs[2]:
     st.subheader("Malla de dimensiones y criterio de asiento")
@@ -247,16 +301,6 @@ with tabs[3]:
                 options=[item.value for item in DesignSituation], required=True)},
             key="actions_editor_v3")
 
-with tabs[4]:
-    st.subheader("Analisis de sensibilidad")
-    sensitivity_percent = st.slider("Variacion de parametros (%)", 5, 40, 20, 5)
-    if st.session_state.analysis is None:
-        st.info("Ejecute el calculo para generar la sensibilidad.")
-    else:
-        sensitivity = st.session_state.analysis["sensitivity"]
-        st.plotly_chart(sensitivity_figure(sensitivity), use_container_width=True)
-        st.dataframe(sensitivity, use_container_width=True, hide_index=True)
-
 with st.sidebar:
     st.header("Navegacion")
     st.write("Defina el terreno y la malla B-L antes de ejecutar el calculo.")
@@ -277,7 +321,11 @@ if calculate:
     try:
         layers = _build_layers(st.session_state.layers_df)
         selected_layer = next(layer for layer in layers if layer.name == bearing_layer_name)
-        cu_profile = _build_cu_profile(st.session_state.cu_df) if drainage is DrainageCondition.UNDRAINED else ()
+        cu_profile = (
+            _build_cu_profile(st.session_state.cu_df)
+            if drainage is DrainageCondition.UNDRAINED and use_cu_profile
+            else ()
+        )
         overburden = vertical_overburden_from_layers(
             layers,
             embedment,
@@ -287,8 +335,16 @@ if calculate:
         soil = SoilProfile(
             drainage=drainage,
             c_effective_kpa=selected_layer.c_effective_kpa,
-            phi_effective_deg=selected_layer.phi_effective_deg or 0.0,
-            cu0_kpa=cu_profile[0][1] if cu_profile else 0.0,
+            phi_effective_deg=(
+                0.0
+                if drainage is DrainageCondition.UNDRAINED
+                else selected_layer.phi_effective_deg or 0.0
+            ),
+            cu0_kpa=(
+                cu_profile[0][1]
+                if cu_profile
+                else cu_constant if drainage is DrainageCondition.UNDRAINED else 0.0
+            ),
             cu_profile=cu_profile,
             gamma_apparent_kn_m3=selected_layer.gamma_apparent_kn_m3,
             gamma_saturated_kn_m3=selected_layer.gamma_saturated_kn_m3,
@@ -328,20 +384,6 @@ if calculate:
             )
             action_summary, action_details = evaluate_cases(soil, check_foundation, actions)
 
-        finite_grid = grid.dropna(subset=["q_limite_bruta_kpa"])
-        reference = finite_grid.iloc[0] if not finite_grid.empty else grid.iloc[0]
-        reference_pressure = float(reference["q_limite_bruta_kpa"] if not finite_grid.empty else reference["q_d_kpa"])
-        reference_foundation = Foundation(
-            kind=kind, width_m=float(reference["B_m"]), length_m=float(reference["L_m"]),
-            embedment_m=embedment, ground_slope_deg=slope,
-            surcharge_kpa=surcharge, include_depth_factors=depth_factors,
-            near_slope=near_slope,
-        )
-        sensitivity = sensitivity_analysis(
-            soil, reference_foundation,
-            ActionCase("Carga de referencia", max(reference_pressure * reference_foundation.plan_area_m2, 1e-6)),
-            sensitivity_percent / 100.0,
-        )
         project = {"name": project_name, "location": project_location,
                    "author": project_author, "notes": project_notes}
         report = generate_capacity_report(
@@ -358,7 +400,7 @@ if calculate:
         st.session_state.analysis = {
             "soil": soil, "layers": layers, "cu_profile": cu_profile,
             "grid": grid, "grid_details": grid_details,
-            "sensitivity": sensitivity, "action_summary": action_summary,
+            "action_summary": action_summary,
             "action_details": action_details, "report": report, "excel": excel,
         }
         st.success("Malla B-L calculada e informe actualizado.")
@@ -367,28 +409,32 @@ if calculate:
         st.error(f"No se ha podido completar el calculo: {exc}")
 
 
-with tabs[5]:
+with tabs[4]:
     analysis = st.session_state.analysis
     if analysis is None:
         st.info("Ejecute el calculo para mostrar las capacidades admisibles.")
     else:
         grid = analysis["grid"]
-        valid_grid = grid.dropna(subset=["Q_limite_estructura_kn"])
-        r1, r2, r3 = st.columns(3)
+        r1, r2 = st.columns(2)
         r1.metric("Geometrias calculadas", str(len(grid)))
         r2.metric("Geometrias con perfil completo", str(int(grid["perfil_cubre_bulbos"].sum())))
-        r3.metric("Carga admisible maxima", "No disponible" if valid_grid.empty else f"{valid_grid['Q_limite_estructura_kn'].max():.1f} kN")
         st.plotly_chart(optimization_figure(grid), use_container_width=True)
-        display_grid = grid.rename(columns={
-            "B_m": "B (m)", "L_m": "L (m)", "area_m2": "Area (m2)",
-            "q_h_kpa": "qh (kPa)", "q_d_kpa": "qd ELU (kPa)",
-            "q_adm_asiento_bruta_kpa": "q adm asiento bruta (kPa)",
-            "q_limite_bruta_kpa": "q limite bruta (kPa)",
-            "Q_limite_base_kn": "Q limite base (kN)",
-            "Q_limite_estructura_kn": "Q adm estructura (kN)",
+        display_grid = grid[[
+            "B_m", "L_m", "q_d_kpa", "q_adm_asiento_bruta_kpa",
+            "q_limite_bruta_kpa", "Q_limite_estructura_kn",
+            "criterio_gobernante", "perfil_cubre_bulbos",
+        ]].rename(columns={
+            "B_m": "B (m)", "L_m": "L (m)",
+            "q_d_kpa": "qd ELU (kPa)",
+            "q_adm_asiento_bruta_kpa": "qd ELS (kPa)",
+            "q_limite_bruta_kpa": "qadm (kPa)",
+            "Q_limite_estructura_kn": "Nadm (kN)",
             "criterio_gobernante": "Criterio gobernante",
             "perfil_cubre_bulbos": "Perfil completo",
-        })
+        }).round(2)
+        display_grid["Perfil completo"] = display_grid["Perfil completo"].map(
+            {True: "SI", False: "NO"}
+        )
         st.dataframe(display_grid, use_container_width=True, hide_index=True)
         options = [f"B={row.B_m:.2f} m · L={row.L_m:.2f} m" for row in grid.itertuples()]
         selected_index = options.index(st.selectbox("Desglose de geometria", options))
@@ -416,7 +462,7 @@ with tabs[5]:
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            use_container_width=True)
 
-with tabs[6]:
+with tabs[5]:
     st.subheader("Formulaciones implementadas")
     st.caption("Referencia: CTE DB SE-C, apartados 2.4, 4.3 y Anejo F.1.")
     st.markdown("**Geometria efectiva con excentricidad**")

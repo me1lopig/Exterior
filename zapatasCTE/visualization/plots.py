@@ -42,8 +42,10 @@ def optimization_figure(results: pd.DataFrame):
             pivot,
             aspect="auto",
             color_continuous_scale=["#E8F0F8", COLORS["blue"]],
+            text_auto=".0f",
             labels={"x": "B (m)", "y": "L (m)", "color": "Carga admisible (kN)"},
         )
+        fig.update_traces(textfont={"size": 12})
     else:
         y_columns = (
             ["Q_limite_estructura_kn"]
@@ -62,23 +64,12 @@ def optimization_figure(results: pd.DataFrame):
             },
             color_discrete_sequence=[COLORS["coral"], COLORS["blue"]],
         )
+        fig.update_traces(
+            mode="lines+markers+text",
+            texttemplate="%{y:.0f}",
+            textposition="top center",
+        )
     return _layout(fig, "Carga admisible para la malla de dimensiones")
-
-
-def sensitivity_figure(data: pd.DataFrame):
-    if data.empty:
-        return go.Figure()
-    fig = px.line(
-        data,
-        x="factor",
-        y="utilizacion",
-        color="variable",
-        markers=True,
-        labels={"factor": "Factor sobre valor base", "utilizacion": "Utilizacion"},
-        color_discrete_sequence=px.colors.qualitative.Safe,
-    )
-    fig.add_hline(y=1.0, line_dash="dash", line_color=COLORS["ink"])
-    return _layout(fig, "Sensibilidad de la resistencia de hundimiento")
 
 
 def terms_figure(terms: dict[str, float]):
