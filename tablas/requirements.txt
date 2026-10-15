@@ -1,7 +1,7 @@
-streamlit>=1.30
-pandas>=2.0
-PyYAML>=6.0
+streamlit
+pandas
+PyYAML
 # Solo para regenerar los YAML desde el Excel (build_data.py):
-openpyxl>=3.1
+openpyxl
 # Solo para los tests:
-pytest>=7.0
+pytest
