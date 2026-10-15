@@ -11,7 +11,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt, RGBColor
 import pandas as pd
 
-from models.inputs import Foundation, SoilProfile
+from models.inputs import Foundation, SoilLayer, SoilProfile
 
 
 BLUE = "2164AF"
@@ -105,6 +105,7 @@ def _configure_document(doc: Document) -> None:
     normal.font.color.rgb = RGBColor(0, 0, 0)
     normal.paragraph_format.space_before = Pt(6)
     normal.paragraph_format.space_after = Pt(6)
+    normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
     title = doc.styles["Title"]
     title.font.name = FONT
@@ -117,10 +118,23 @@ def _configure_document(doc: Document) -> None:
         style.font.name = HEADING_FONT
         style.font.size = Pt(size)
         style.font.bold = True
+        style.font.all_caps = level == 1
         style.font.color.rgb = RGBColor.from_string(BLUE if level < 3 else "000000")
         style.paragraph_format.keep_with_next = True
         style.paragraph_format.space_before = Pt(18 if level == 1 else 12)
         style.paragraph_format.space_after = Pt(6)
+        if level == 1:
+            p_pr = style.element.get_or_add_pPr()
+            borders = p_pr.find(qn("w:pBdr"))
+            if borders is None:
+                borders = OxmlElement("w:pBdr")
+                p_pr.append(borders)
+            bottom = OxmlElement("w:bottom")
+            bottom.set(qn("w:val"), "single")
+            bottom.set(qn("w:sz"), "6")
+            bottom.set(qn("w:space"), "1")
+            bottom.set(qn("w:color"), BLUE)
+            borders.append(bottom)
 
     _add_page_number(section.footer.paragraphs[0])
 
@@ -315,7 +329,6 @@ def generate_docx_report(
             "q_b_kpa",
             "q_d_kpa",
             "util_hundimiento",
-            "util_deslizamiento",
             "cumple_geotecnia",
         ]
     ].rename(
@@ -325,7 +338,6 @@ def generate_docx_report(
             "q_b_kpa": "qb kPa",
             "q_d_kpa": "qd kPa",
             "util_hundimiento": "Eta h",
-            "util_deslizamiento": "Eta d",
             "cumple_geotecnia": "Estado ELU",
         }
     )
@@ -363,7 +375,7 @@ def generate_docx_report(
             ]
         )
         _add_dataframe(doc, factor_table)
-        for warning in bearing.warnings + detail["sliding"].warnings:
+        for warning in bearing.warnings:
             doc.add_paragraph(f"Limitacion: {warning}")
 
     if serviceability:
@@ -391,6 +403,213 @@ def generate_docx_report(
     doc.add_paragraph(
         "Codigo Tecnico de la Edificacion. Documento Basico DB SE C Cimientos, "
         "apartados 2.4, 4.2, 4.3, 4.4 y Anejo F."
+    )
+
+    buffer = BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def generate_capacity_report(
+    project: dict[str, str],
+    soil: SoilProfile,
+    bearing_layer_name: str,
+    layers: list[SoilLayer],
+    cu_profile: tuple[tuple[float, float], ...],
+    foundation_template: Foundation,
+    allowable_settlement_mm: float,
+    influence_depth_m: float,
+    capacity_grid: pd.DataFrame,
+    action_summary: pd.DataFrame | None = None,
+    action_details: list[dict[str, Any]] | None = None,
+) -> bytes:
+    """Generate the B-L admissible-capacity report using the stored GEO style."""
+    doc = Document()
+    _configure_document(doc)
+
+    title = doc.add_paragraph(style="Title")
+    title.add_run("Carga admisible de cimentaciones directas")
+    subtitle = doc.add_paragraph()
+    subtitle.add_run(
+        "Hundimiento CTE DB SE-C y asiento elastico estratificado"
+    ).bold = True
+    doc.add_paragraph(
+        "La carga admisible se obtiene para carga vertical centrada. Se distingue "
+        "entre resistencia de calculo ELU y limitacion por asiento ELS. No se incluye "
+        "el dimensionamiento estructural ni la comprobacion de deslizamiento."
+    )
+
+    doc.add_heading("Identificacion", level=1)
+    _add_key_value_table(
+        doc,
+        [
+            ("Proyecto", project.get("name", "Sin denominacion")),
+            ("Localizacion", project.get("location", "No indicada")),
+            ("Autor o revision", project.get("author", "No indicado")),
+            ("Observaciones", project.get("notes", "-")),
+        ],
+    )
+
+    doc.add_heading("Criterios de calculo", level=1)
+    _add_key_value_table(
+        doc,
+        [
+            ("Tipologia", foundation_template.kind.value),
+            ("Cota de apoyo D", f"{foundation_template.embedment_m:.3f} m"),
+            ("Regimen", soil.drainage.value),
+            ("Estrato representativo ELU", bearing_layer_name),
+            ("Nivel freatico", f"{soil.water_table_depth_m:.3f} m"),
+            ("Asiento admisible", f"{allowable_settlement_mm:.2f} mm"),
+            ("Profundidad de influencia ZI", f"{influence_depth_m:.2f} m"),
+            ("Metodo de asiento", "Steinbrenner multicapa, zapata rigida"),
+        ],
+    )
+
+    doc.add_heading("Modelo estratigrafico", level=1)
+    layer_frame = pd.DataFrame(
+        [
+            {
+                "Capa": layer.name,
+                "Techo m": layer.top_depth_m,
+                "Muro m": layer.bottom_depth_m,
+                "c' kPa": layer.c_effective_kpa,
+                "phi grados": layer.phi_effective_deg,
+                "gamma": layer.gamma_apparent_kn_m3,
+                "gamma sat": layer.gamma_saturated_kn_m3,
+                "E_s MPa": layer.deformation_modulus_mpa,
+                "nu": layer.poisson_ratio,
+            }
+            for layer in layers
+        ]
+    )
+    _add_dataframe(doc, layer_frame)
+
+    if cu_profile:
+        doc.add_heading("Perfil de resistencia no drenada", level=2)
+        _add_dataframe(
+            doc,
+            pd.DataFrame(cu_profile, columns=["Profundidad z m", "cu kPa"]),
+        )
+
+    doc.add_heading("Capacidad para la malla B-L", level=1)
+    doc.add_paragraph(
+        "qd es la resistencia bruta de calculo frente a hundimiento. qadm,s es la "
+        "presion bruta que produce el asiento admisible. qlim es el menor de ambos "
+        "valores. Qadm,estructura descuenta los pesos configurados en la aplicacion."
+    )
+    pressure_report = capacity_grid[
+        [
+            "B_m",
+            "L_m",
+            "q_h_kpa",
+            "q_d_kpa",
+            "q_adm_asiento_bruta_kpa",
+            "q_limite_bruta_kpa",
+            "criterio_gobernante",
+        ]
+    ].rename(
+        columns={
+            "B_m": "B m",
+            "L_m": "L m",
+            "q_h_kpa": "qh kPa",
+            "q_d_kpa": "qd kPa",
+            "q_adm_asiento_bruta_kpa": "qadm,s kPa",
+            "q_limite_bruta_kpa": "qlim kPa",
+            "criterio_gobernante": "Gobierna",
+        }
+    )
+    doc.add_heading("Presiones limite", level=2)
+    _add_dataframe(doc, pressure_report)
+
+    load_report = capacity_grid[
+        [
+            "B_m",
+            "L_m",
+            "area_m2",
+            "Q_limite_base_kn",
+            "Q_limite_estructura_kn",
+            "perfil_cubre_bulbos",
+        ]
+    ].rename(
+        columns={
+            "B_m": "B m",
+            "L_m": "L m",
+            "area_m2": "Area m2",
+            "Q_limite_base_kn": "Qbase kN",
+            "Q_limite_estructura_kn": "Qadm estructura kN",
+            "perfil_cubre_bulbos": "Perfil completo",
+        }
+    )
+    load_report["Perfil completo"] = load_report["Perfil completo"].map(
+        {True: "SI", False: "NO"}
+    )
+    doc.add_heading("Cargas admisibles", level=2)
+    _add_dataframe(doc, load_report)
+
+    incomplete = int((~capacity_grid["perfil_cubre_bulbos"]).sum())
+    if incomplete:
+        doc.add_paragraph(
+            f"Aviso: {incomplete} geometria(s) no disponen de cobertura estratigrafica "
+            "completa y no tienen carga admisible final."
+        )
+
+    if action_summary is not None and not action_summary.empty:
+        doc.add_page_break()
+        doc.add_heading("Comprobacion opcional con acciones", level=1)
+        action_report = action_summary[
+            [
+                "combinacion",
+                "situacion",
+                "B_eff_m",
+                "L_eff_m",
+                "q_b_kpa",
+                "q_d_kpa",
+                "util_hundimiento",
+                "cumple_geotecnia",
+            ]
+        ].rename(
+            columns={
+                "combinacion": "Caso",
+                "situacion": "Situacion",
+                "B_eff_m": "B* m",
+                "L_eff_m": "L* m",
+                "q_b_kpa": "qb kPa",
+                "q_d_kpa": "qd kPa",
+                "util_hundimiento": "Eta h",
+                "cumple_geotecnia": "Estado ELU",
+            }
+        )
+        action_report["Estado ELU"] = action_report["Estado ELU"].map(
+            {True: "CUMPLE", False: "NO CUMPLE"}
+        )
+        _add_dataframe(doc, action_report)
+        doc.add_paragraph(
+            "Esta comprobacion no incluye la resistencia frente al deslizamiento."
+        )
+
+    doc.add_heading("Formulaciones y alcance", level=1)
+    for item in (
+        "Hundimiento: CTE DB SE-C 4.3 y Anejo F.1.1, con geometria efectiva cuando existen excentricidades.",
+        "Coeficiente parcial de hundimiento: gamma_R=3,0 en situacion persistente o transitoria y 2,0 en extraordinaria.",
+        "Asiento: solucion elastica de Steinbrenner por superposicion de capas; metodo analitico no normativo.",
+        "Presion limite: minimo entre qd ELU y la presion bruta limitada por el asiento admisible.",
+        "El perfil debe cubrir D+1,5B para el control del bulbo de hundimiento y D+ZI para el asiento.",
+    ):
+        doc.add_paragraph(item, style="List Bullet")
+
+    doc.add_heading("Limitaciones", level=1)
+    for item in (
+        "Los parametros del estrato portante deben ser valores caracteristicos representativos del mecanismo de rotura.",
+        "Steinbrenner supone comportamiento elastico lineal y modulos compatibles con el nivel tensional de servicio.",
+        "No se calculan consolidacion primaria, asiento secundario, estabilidad global ni dimensionamiento estructural.",
+        "La equivalencia rectangular de una zapata circular para asientos conserva el area, pero no reproduce exactamente la respuesta axisimetrica.",
+    ):
+        doc.add_paragraph(item, style="List Bullet")
+
+    doc.add_heading("Referencia", level=1)
+    doc.add_paragraph(
+        "Codigo Tecnico de la Edificacion. Documento Basico DB SE-C Cimientos, "
+        "apartados 2.4, 4.3, 4.4 y Anejo F."
     )
 
     buffer = BytesIO()

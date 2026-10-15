@@ -3,6 +3,39 @@ from __future__ import annotations
 from models.inputs import SoilLayer
 
 
+def vertical_overburden_from_layers(
+    layers: list[SoilLayer],
+    depth_m: float,
+    water_table_depth_m: float,
+    drained: bool,
+    gamma_water_kn_m3: float = 9.81,
+) -> float:
+    """Integrate total or effective vertical overburden from ground to depth."""
+    if depth_m < 0 or water_table_depth_m < 0:
+        raise ValueError("D y el nivel freatico deben ser no negativos")
+    if depth_m == 0:
+        return 0.0
+    coverage = check_layer_coverage(layers, 0.0, depth_m, "Recubrimiento 0 a D")
+    if not coverage["covered"]:
+        raise ValueError("La estratigrafia no cubre de forma continua desde 0 hasta D")
+    stress = 0.0
+    for layer in sorted(layers, key=lambda item: item.top_depth_m):
+        top = max(layer.top_depth_m, 0.0)
+        bottom = min(layer.bottom_depth_m, depth_m)
+        if bottom <= top:
+            continue
+        dry_bottom = min(bottom, water_table_depth_m)
+        if dry_bottom > top:
+            stress += layer.gamma_apparent_kn_m3 * (dry_bottom - top)
+        saturated_top = max(top, water_table_depth_m)
+        if bottom > saturated_top:
+            gamma = layer.gamma_saturated_kn_m3
+            if drained:
+                gamma -= gamma_water_kn_m3
+            stress += gamma * (bottom - saturated_top)
+    return stress
+
+
 def check_layer_coverage(
     layers: list[SoilLayer],
     required_top_m: float,

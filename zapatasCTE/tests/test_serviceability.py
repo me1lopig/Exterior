@@ -5,17 +5,67 @@ import unittest
 import pandas as pd
 
 from calculations.serviceability import (
+    allowable_net_pressure_steinbrenner,
     elastic_settlement,
     layered_settlement_2to1,
     spt_allowable_pressure_cte,
     spt_settlement_burland_burbidge,
+    steinbrenner_layered_settlement,
 )
-from calculations.layers import assess_foundation_bulbs, check_layer_coverage
+from calculations.layers import (
+    assess_foundation_bulbs,
+    check_layer_coverage,
+    vertical_overburden_from_layers,
+)
 from models.inputs import SoilLayer
 from services.field_data import mean_spt_in_cte_zone, normalize_field_data
 
 
 class ServiceabilityTests(unittest.TestCase):
+    def test_steinbrenner_is_linear_with_pressure(self) -> None:
+        layers = [SoilLayer("A", 0.0, 10.0, 20.0, poisson_ratio=0.30)]
+        first = steinbrenner_layered_settlement(
+            100.0, 2.0, 3.0, 1.0, layers, 5.0
+        )
+        second = steinbrenner_layered_settlement(
+            200.0, 2.0, 3.0, 1.0, layers, 5.0
+        )
+        self.assertAlmostEqual(
+            float(second["settlement_mm"]),
+            2.0 * float(first["settlement_mm"]),
+        )
+
+    def test_steinbrenner_allowable_pressure_reproduces_target_settlement(self) -> None:
+        layers = [SoilLayer("A", 0.0, 10.0, 20.0, poisson_ratio=0.30)]
+        result = allowable_net_pressure_steinbrenner(
+            25.0, 2.0, 3.0, 1.0, layers, 5.0
+        )
+        check = steinbrenner_layered_settlement(
+            float(result["allowable_net_pressure_kpa"]),
+            2.0,
+            3.0,
+            1.0,
+            layers,
+            5.0,
+        )
+        self.assertAlmostEqual(float(check["settlement_mm"]), 25.0)
+
+    def test_layered_overburden_integrates_water_table(self) -> None:
+        layers = [
+            SoilLayer(
+                "A", 0.0, 1.0, 20.0,
+                gamma_apparent_kn_m3=18.0,
+                gamma_saturated_kn_m3=20.0,
+            ),
+            SoilLayer(
+                "B", 1.0, 3.0, 20.0,
+                gamma_apparent_kn_m3=19.0,
+                gamma_saturated_kn_m3=21.0,
+            ),
+        ]
+        value = vertical_overburden_from_layers(layers, 2.0, 1.0, True)
+        self.assertAlmostEqual(value, 18.0 + (21.0 - 9.81))
+
     def test_layer_coverage_accepts_continuous_profile(self) -> None:
         layers = [
             SoilLayer("A", 0.0, 2.0, 20.0),

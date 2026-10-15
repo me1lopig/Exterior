@@ -4,7 +4,7 @@ import math
 import unittest
 
 from calculations.bearing_capacity import calculate_bearing_capacity, effective_geometry
-from calculations.analysis import optimize_geometry
+from calculations.analysis import admissible_capacity_grid, optimize_geometry
 from calculations.stability import check_contact
 from models.inputs import (
     ActionCase,
@@ -13,6 +13,7 @@ from models.inputs import (
     Foundation,
     FoundationType,
     SoilProfile,
+    SoilLayer,
 )
 
 
@@ -69,6 +70,25 @@ class BearingCapacityTests(unittest.TestCase):
             soil, rectangular(embedment_m=2.0), ActionCase("U", 1000.0)
         )
         self.assertAlmostEqual(float(result.parameters["q0k_kpa"]), 38.0)
+        self.assertAlmostEqual(
+            result.design_resistance_kpa,
+            result.characteristic_resistance_kpa / 3.0,
+        )
+
+    def test_undrained_profile_is_interpolated_at_d_plus_b_over_four(self) -> None:
+        soil = SoilProfile(
+            drainage=DrainageCondition.UNDRAINED,
+            cu_profile=((0.0, 40.0), (4.0, 80.0)),
+        )
+        self.assertAlmostEqual(soil.cohesion_kpa(2.0, 1.0), 55.0)
+
+    def test_undrained_profile_rejects_extrapolation(self) -> None:
+        soil = SoilProfile(
+            drainage=DrainageCondition.UNDRAINED,
+            cu_profile=((0.0, 40.0), (1.0, 50.0)),
+        )
+        with self.assertRaisesRegex(ValueError, "no cubre"):
+            soil.cohesion_kpa(2.0, 1.0)
 
     def test_undrained_horizontal_load_outside_domain_is_rejected(self) -> None:
         soil = SoilProfile(drainage=DrainageCondition.UNDRAINED, cu0_kpa=10.0)
@@ -147,6 +167,24 @@ class BearingCapacityTests(unittest.TestCase):
         two = result.loc[(result["B_m"] == 2.0) & (result["L_m"] == 2.0)].iloc[0]
         self.assertAlmostEqual(one["q_b_max_kpa"], 120.0)
         self.assertAlmostEqual(two["q_b_max_kpa"], 45.0)
+
+    def test_capacity_grid_returns_governing_admissible_load(self) -> None:
+        grid, details = admissible_capacity_grid(
+            drained_soil(overburden_soil_kpa=18.0),
+            rectangular(width_m=1.0, length_m=1.0),
+            [SoilLayer("A", 0.0, 10.0, 25.0, poisson_ratio=0.30)],
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.25,
+            25.0,
+            4.0,
+        )
+        self.assertEqual(len(grid), 1)
+        self.assertEqual(len(details), 1)
+        self.assertTrue(bool(grid.iloc[0]["perfil_cubre_bulbos"]))
+        self.assertGreater(float(grid.iloc[0]["Q_limite_base_kn"]), 0.0)
 
 
 if __name__ == "__main__":

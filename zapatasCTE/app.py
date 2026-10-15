@@ -3,18 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from calculations.analysis import evaluate_cases, optimize_geometry, sensitivity_analysis
-from calculations.layers import (
-    assess_foundation_bulbs,
-    assess_relevant_layers,
-    check_layer_coverage,
+from calculations.analysis import (
+    admissible_capacity_grid,
+    evaluate_cases,
+    sensitivity_analysis,
 )
-from calculations.serviceability import (
-    elastic_settlement,
-    layered_settlement_2to1,
-    spt_allowable_pressure_cte,
-    spt_settlement_burland_burbidge,
-)
+from calculations.layers import vertical_overburden_from_layers
 from models.inputs import (
     ActionCase,
     DesignSituation,
@@ -24,26 +18,24 @@ from models.inputs import (
     SoilLayer,
     SoilProfile,
 )
-from services.field_data import mean_spt_in_cte_zone, normalize_field_data
-from services.reporting import generate_docx_report
+from services.exporting import capacity_grid_to_excel
+from services.reporting import generate_capacity_report
 from visualization.plots import optimization_figure, sensitivity_figure, terms_figure
 
 
-st.set_page_config(page_title="Zapatas CTE Geotecnia", layout="wide")
-
+st.set_page_config(page_title="Carga admisible CTE DB SE-C", layout="wide")
 st.markdown(
     """
     <style>
     :root { --ink:#0b2239; --muted:#64748b; --coral:#e55353; --line:#d9e0e7; }
     .stApp { background:#ffffff; color:var(--ink); }
     [data-testid="stSidebar"] { background:#fbfcfd; border-right:1px solid var(--line); }
-    [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color:var(--ink); }
     h1, h2, h3 { color:var(--ink); letter-spacing:0 !important; }
     h1 { font-size:2rem !important; margin-bottom:.2rem !important; }
-    .block-container { max-width:1440px; padding-top:2rem; }
+    .block-container { max-width:1480px; padding-top:2rem; }
     .stButton > button[kind="primary"] { background:var(--coral); border-color:var(--coral); }
     .stButton > button { border-radius:4px; min-height:2.65rem; }
-    div[data-baseweb="tab-list"] { gap:1.25rem; border-bottom:1px solid var(--line); }
+    div[data-baseweb="tab-list"] { gap:1.15rem; border-bottom:1px solid var(--line); }
     button[data-baseweb="tab"] { padding-left:0; padding-right:0; }
     [data-testid="stMetric"] { border-left:3px solid var(--coral); padding-left:.8rem; }
     .status-ok { color:#087443; font-weight:700; }
@@ -54,517 +46,394 @@ st.markdown(
 )
 
 
-def _default_actions() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "Combinacion": "Persistente 1",
-                "Situacion": "persistente",
-                "V estructura": 1000.0,
-                "H_B": 0.0,
-                "H_L": 0.0,
-                "M_B": 0.0,
-                "M_L": 0.0,
-            }
-        ]
-    )
-
-
 def _default_layers() -> pd.DataFrame:
     return pd.DataFrame(
-        [
-            {
-                "Capa": "Estrato 1",
-                "Techo m": 0.0,
-                "Muro m": 10.0,
-                "E oed MPa": 25.0,
-                "phi grados": 30.0,
-                "cu kPa": None,
-                "N SPT": 20.0,
-            }
-        ]
+        [{
+            "Capa": "Terreno 1", "Techo m": 0.0, "Muro m": 20.0,
+            "c' kPa": 0.0, "phi' grados": 30.0,
+            "gamma kN/m3": 18.0, "gamma sat kN/m3": 20.0,
+            "E_s MPa": 25.0, "Poisson": 0.30,
+        }]
     )
 
 
-if "actions_df" not in st.session_state:
-    st.session_state.actions_df = _default_actions()
-if "layers_df" not in st.session_state:
-    st.session_state.layers_df = _default_layers()
+def _default_cu_profile() -> pd.DataFrame:
+    return pd.DataFrame([
+        {"Profundidad z m": 0.0, "cu kPa": 50.0},
+        {"Profundidad z m": 20.0, "cu kPa": 100.0},
+    ])
+
+
+def _default_actions() -> pd.DataFrame:
+    return pd.DataFrame([{
+        "Combinacion": "Persistente 1", "Situacion": "persistente",
+        "V estructura": 1000.0, "H_B": 0.0, "H_L": 0.0,
+        "M_B": 0.0, "M_L": 0.0,
+    }])
+
+
+for key, default in (
+    ("layers_df", _default_layers()),
+    ("cu_df", _default_cu_profile()),
+    ("actions_df", _default_actions()),
+):
+    if key not in st.session_state:
+        st.session_state[key] = default
 if "analysis" not in st.session_state:
     st.session_state.analysis = None
 
 
-st.caption("ZAPATAS CTE · ANALISIS GEOTECNICO")
-st.title("Cimentaciones directas")
-st.write(
-    "Hundimiento, deslizamiento, servicio y sensibilidad con trazabilidad de hipotesis."
-)
+def _required_float(row: pd.Series, column: str, layer_name: str) -> float:
+    value = row.get(column)
+    if pd.isna(value):
+        raise ValueError(f"Falta '{column}' en la capa {layer_name}")
+    return float(value)
 
-tabs = st.tabs(
-    [
-        "Proyecto y geometria",
-        "Terreno",
-        "Acciones",
-        "Datos de campo",
-        "Calculo",
-        "Sensibilidad",
-        "Resultados",
+
+def _build_layers(frame: pd.DataFrame) -> list[SoilLayer]:
+    clean = frame.dropna(how="all")
+    if clean.empty:
+        raise ValueError("Debe definir al menos una capa de terreno")
+    layers: list[SoilLayer] = []
+    names: set[str] = set()
+    for index, row in clean.iterrows():
+        name = str(row.get("Capa", "")).strip()
+        if not name or name.lower() == "nan":
+            raise ValueError(f"Falta el nombre de la capa en la fila {index + 1}")
+        if name in names:
+            raise ValueError(f"El nombre de capa '{name}' esta repetido")
+        names.add(name)
+        layers.append(SoilLayer(
+            name=name,
+            top_depth_m=_required_float(row, "Techo m", name),
+            bottom_depth_m=_required_float(row, "Muro m", name),
+            deformation_modulus_mpa=_required_float(row, "E_s MPa", name),
+            phi_effective_deg=_required_float(row, "phi' grados", name),
+            c_effective_kpa=_required_float(row, "c' kPa", name),
+            gamma_apparent_kn_m3=_required_float(row, "gamma kN/m3", name),
+            gamma_saturated_kn_m3=_required_float(row, "gamma sat kN/m3", name),
+            poisson_ratio=_required_float(row, "Poisson", name),
+        ))
+    return sorted(layers, key=lambda item: item.top_depth_m)
+
+
+def _build_cu_profile(frame: pd.DataFrame) -> tuple[tuple[float, float], ...]:
+    clean = frame.dropna(how="all")
+    if len(clean) < 2:
+        raise ValueError("El perfil cu(z) requiere al menos dos puntos")
+    points = [
+        (float(row["Profundidad z m"]), float(row["cu kPa"]))
+        for _, row in clean.iterrows()
+        if not pd.isna(row.get("Profundidad z m")) and not pd.isna(row.get("cu kPa"))
     ]
-)
+    if len(points) != len(clean):
+        raise ValueError("Hay filas incompletas en el perfil cu(z)")
+    return tuple(sorted(points))
+
+
+def _build_actions(frame: pd.DataFrame, added_vertical_kn: float) -> list[ActionCase]:
+    clean = frame.dropna(how="all")
+    if clean.empty:
+        raise ValueError("Debe definir al menos una combinacion de acciones")
+    return [ActionCase(
+        name=str(row["Combinacion"]),
+        situation=DesignSituation(str(row["Situacion"])),
+        vertical_kn=float(row["V estructura"]) + added_vertical_kn,
+        horizontal_b_kn=float(row["H_B"]),
+        horizontal_l_kn=float(row["H_L"]),
+        moment_b_knm=float(row["M_B"]),
+        moment_l_knm=float(row["M_L"]),
+    ) for _, row in clean.iterrows()]
+
+
+st.caption("CTE DB SE-C · CARGA ADMISIBLE DE CIMENTACIONES DIRECTAS")
+st.title("Capacidad geotecnica B-L")
+st.write("Hundimiento y asiento elastico estratificado, con comprobacion opcional de acciones.")
+
+tabs = st.tabs([
+    "Proyecto y geometria", "Terrenos", "Calculo B-L", "Acciones opcionales",
+    "Sensibilidad", "Resultados", "Formulaciones CTE",
+])
 
 with tabs[0]:
     st.subheader("Datos del caso")
-    p1, p2 = st.columns([2, 1])
-    project_name = p1.text_input("Proyecto", "Cimentacion directa - Caso 01")
+    p1, p2 = st.columns(2)
+    project_name = p1.text_input("Proyecto", "Carga admisible - Caso 01")
     project_location = p2.text_input("Localizacion", "")
     project_author = p1.text_input("Autor o revision", "")
     project_notes = p2.text_input("Observaciones", "")
-
-    st.subheader("Geometria")
+    st.subheader("Cimentacion y entorno")
     g1, g2, g3, g4 = st.columns(4)
-    kind_label = g1.selectbox("Tipologia", ["Rectangular", "Corrida", "Circular"])
-    kind_map = {
-        "Rectangular": FoundationType.RECTANGULAR,
-        "Corrida": FoundationType.STRIP,
-        "Circular": FoundationType.CIRCULAR,
-    }
-    kind = kind_map[kind_label]
-    width = g2.number_input("B o diametro (m)", min_value=0.10, value=2.00, step=0.10)
-    if kind is FoundationType.RECTANGULAR:
-        length = g3.number_input("L (m)", min_value=width, value=max(3.0, width), step=0.10)
-    elif kind is FoundationType.CIRCULAR:
-        length = width
-        g3.metric("L equivalente", f"{length:.2f} m")
-    else:
-        length = 1.0
-        g3.metric("Franja de calculo", "1.00 m")
-    embedment = g4.number_input("D (m)", min_value=0.0, value=1.0, step=0.10)
-
-    g5, g6, g7, g8 = st.columns(4)
-    slope = g5.number_input("Pendiente beta (grados)", min_value=0.0, max_value=44.0, value=0.0)
-    surcharge = g6.number_input("Sobrecarga exterior (kPa)", min_value=0.0, value=0.0)
-    near_slope = g7.checkbox("Proxima a talud", value=False)
-    depth_factors = g8.checkbox("Considerar factores de profundidad", value=True)
-
-    st.subheader("Peso propio geotecnico")
+    kind_label = g1.selectbox("Tipologia", ["Rectangular", "Circular", "Corrida"])
+    kind = {"Rectangular": FoundationType.RECTANGULAR,
+            "Circular": FoundationType.CIRCULAR,
+            "Corrida": FoundationType.STRIP}[kind_label]
+    embedment = g2.number_input("Cota de apoyo D (m)", min_value=0.0, value=1.0, step=0.10)
+    slope = g3.number_input("Pendiente beta (grados)", min_value=0.0, max_value=44.0, value=0.0)
+    surcharge = g4.number_input("Sobrecarga exterior (kPa)", min_value=0.0, value=0.0)
+    g5, g6 = st.columns(2)
+    near_slope = g5.checkbox("Cimentacion proxima a talud", value=False)
+    depth_factors = g6.checkbox("Considerar factores de profundidad", value=True)
+    st.subheader("Peso propio a descontar de la carga admisible estructural")
     w1, w2, w3 = st.columns(3)
-    include_weight = w1.checkbox("Sumar zapata y tierras a V", value=True)
+    include_weight = w1.checkbox("Descontar zapata y tierras", value=True)
     footing_thickness = w2.number_input("Canto de zapata (m)", min_value=0.10, value=0.50)
     gamma_concrete = w3.number_input("Peso especifico del hormigon (kN/m3)", min_value=20.0, value=25.0)
 
 with tabs[1]:
-    st.subheader("Modelo geotecnico")
-    drainage_label = st.segmented_control(
-        "Regimen de calculo", ["Drenado", "No drenado"], default="Drenado"
-    )
-    drainage = (
-        DrainageCondition.DRAINED
-        if drainage_label == "Drenado"
-        else DrainageCondition.UNDRAINED
-    )
-    s1, s2, s3, s4 = st.columns(4)
-    c_eff = s1.number_input("c' (kPa)", min_value=0.0, value=0.0, disabled=drainage is DrainageCondition.UNDRAINED)
-    phi = s2.number_input("phi' (grados)", min_value=0.0, max_value=55.0, value=30.0, disabled=drainage is DrainageCondition.UNDRAINED)
-    cu0 = s3.number_input("cu0 (kPa)", min_value=0.0, value=50.0, disabled=drainage is DrainageCondition.DRAINED)
-    cu_grad = s4.number_input("Gradiente cu (kPa/m)", min_value=0.0, value=0.0, disabled=drainage is DrainageCondition.DRAINED)
-
-    s5, s6, s7, s8 = st.columns(4)
-    gamma_ap = s5.number_input("gamma aparente (kN/m3)", min_value=1.0, value=18.0)
-    gamma_sat = s6.number_input("gamma saturado (kN/m3)", min_value=9.82, value=20.0)
-    water = s7.number_input("Profundidad del nivel freatico (m)", min_value=0.0, value=5.0)
-    upward = s8.number_input("Gradiente ascendente iv", min_value=0.0, value=0.0, step=0.05)
-
-    s9, s10, s11, s12 = st.columns(4)
-    base_adhesion = s9.number_input("Adhesion garantizada en base (kPa)", min_value=0.0, value=0.0)
-    fines = s10.number_input("Finos (% peso)", min_value=0.0, max_value=100.0, value=10.0)
-    coarse = s11.number_input("Particulas >20 mm (%)", min_value=0.0, max_value=100.0, value=0.0)
-    modulus = s12.number_input("Modulo de deformacion (MPa)", min_value=0.1, value=25.0)
-    poisson = st.slider("Coeficiente de Poisson", 0.0, 0.49, 0.30, 0.01)
+    st.subheader("Estratigrafia")
+    st.caption("Profundidades desde la superficie. E_s y Poisson se emplean en Steinbrenner.")
+    st.session_state.layers_df = st.data_editor(
+        st.session_state.layers_df, num_rows="dynamic", use_container_width=True,
+        column_config={
+            "Poisson": st.column_config.NumberColumn(min_value=0.0, max_value=0.49, step=0.01),
+            "E_s MPa": st.column_config.NumberColumn(min_value=0.01),
+        }, key="layers_editor_v3")
+    layer_names = [str(v) for v in st.session_state.layers_df.get("Capa", pd.Series(dtype=str)).dropna() if str(v).strip()]
+    t1, t2, t3, t4 = st.columns(4)
+    bearing_layer_name = t1.selectbox("Estrato representativo para hundimiento", layer_names or ["Sin capas"])
+    drainage_label = t2.segmented_control("Regimen de calculo", ["Drenado", "No drenado"], default="Drenado")
+    water_table = t3.number_input("Nivel freatico desde superficie (m)", min_value=0.0, value=5.0)
+    upward_gradient = t4.number_input("Gradiente hidraulico ascendente", min_value=0.0, value=0.0, step=0.05)
+    drainage = DrainageCondition.DRAINED if drainage_label == "Drenado" else DrainageCondition.UNDRAINED
+    if drainage is DrainageCondition.UNDRAINED:
+        st.subheader("Perfil de resistencia no drenada cu(z)")
+        st.caption("z es la profundidad absoluta desde la superficie; se interpola entre puntos sin extrapolar.")
+        st.session_state.cu_df = st.data_editor(
+            st.session_state.cu_df, num_rows="dynamic", use_container_width=True,
+            column_config={
+                "Profundidad z m": st.column_config.NumberColumn(min_value=0.0),
+                "cu kPa": st.column_config.NumberColumn(min_value=0.0),
+            }, key="cu_editor_v3")
 
 with tabs[2]:
-    st.subheader("Combinaciones de acciones en la base")
-    unit_note = "por metro lineal" if kind is FoundationType.STRIP else "totales por zapata"
-    st.caption(
-        f"Acciones {unit_note}. V estructura no incluye el peso propio calculado en la pestana anterior."
-    )
-    st.session_state.actions_df = st.data_editor(
-        st.session_state.actions_df,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "Situacion": st.column_config.SelectboxColumn(
-                options=[item.value for item in DesignSituation], required=True
-            ),
-            "V estructura": st.column_config.NumberColumn(min_value=0.01),
-        },
-        key="actions_editor",
-    )
+    st.subheader("Malla de dimensiones y criterio de asiento")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    b_min = c1.number_input("B minima (m)", min_value=0.10, value=1.0, step=0.10)
+    b_max = c2.number_input("B maxima (m)", min_value=b_min, value=3.0, step=0.10)
+    if kind is FoundationType.RECTANGULAR:
+        l_min = c3.number_input(
+            "L minima (m)", min_value=b_min, value=max(1.0, b_min), step=0.10
+        )
+        l_max = c4.number_input("L maxima (m)", min_value=l_min, value=4.0, step=0.10)
+    else:
+        l_min = l_max = 1.0
+        c3.metric("Relacion geometrica", "L=B" if kind is FoundationType.CIRCULAR else "L=1 m")
+        c4.metric("Unidad", "por zapata" if kind is FoundationType.CIRCULAR else "por metro")
+    grid_step = c5.number_input("Paso B-L (m)", min_value=0.05, value=0.25, step=0.05)
+    s1, s2 = st.columns(2)
+    allowable_settlement = s1.number_input("Asiento admisible (mm)", min_value=1.0, value=25.0, step=1.0)
+    influence_depth = s2.number_input("Profundidad de influencia ZI bajo la base (m)", min_value=0.10, value=max(2.0 * b_max, 0.10), step=0.10)
+    st.info("La carga admisible se calcula para carga vertical centrada; gobierna el menor limite entre ELU y asiento.")
 
 with tabs[3]:
-    st.subheader("Ensayos SPT o CPT")
-    st.caption("CSV admitido: depth_m,N_spt o depth_m,qc_MPa.")
-    f1, f2 = st.columns([2, 1])
-    field_upload = f1.file_uploader("Perfil de campo", type=["csv"])
-    qc_ratio = f2.number_input("Relacion qc/N (MPa)", min_value=0.05, value=0.40, step=0.05)
-    terzaghi_correction = f2.checkbox("Correccion de Terzaghi bajo nivel freatico", value=False)
-
-    st.subheader("Estratigrafia para control y asientos")
-    st.session_state.layers_df = st.data_editor(
-        st.session_state.layers_df,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="layers_editor",
-    )
+    st.subheader("Comprobacion de una geometria con acciones")
+    check_actions = st.checkbox("Activar comprobacion con acciones", value=False)
+    a1, a2 = st.columns(2)
+    check_width = a1.number_input("B de comprobacion (m)", min_value=0.10, value=2.0)
+    if kind is FoundationType.RECTANGULAR:
+        check_length = a2.number_input("L de comprobacion (m)", min_value=check_width, value=max(3.0, check_width))
+    elif kind is FoundationType.CIRCULAR:
+        check_length = check_width
+        a2.metric("Diametro", f"{check_width:.2f} m")
+    else:
+        check_length = 1.0
+        a2.metric("Franja", "1.00 m")
+    if check_actions:
+        st.caption("Se comprueban hundimiento, excentricidad y contacto. No se comprueba deslizamiento.")
+        st.session_state.actions_df = st.data_editor(
+            st.session_state.actions_df, num_rows="dynamic", use_container_width=True,
+            column_config={"Situacion": st.column_config.SelectboxColumn(
+                options=[item.value for item in DesignSituation], required=True)},
+            key="actions_editor_v3")
 
 with tabs[4]:
-    st.subheader("Barrido y criterios de servicio")
-    o1, o2, o3, o4, o5 = st.columns(5)
-    b_min = o1.number_input("B minima (m)", min_value=0.10, value=max(0.5, width - 0.5))
-    b_max = o2.number_input("B maxima (m)", min_value=b_min, value=max(width + 1.0, b_min))
-    l_min = o3.number_input("L minima (m)", min_value=0.10, value=max(width, length - 0.5), disabled=kind is not FoundationType.RECTANGULAR)
-    l_max = o4.number_input("L maxima (m)", min_value=l_min, value=max(length + 1.0, l_min), disabled=kind is not FoundationType.RECTANGULAR)
-    grid_step = o5.number_input("Paso (m)", min_value=0.05, value=0.25, step=0.05)
-
-    c1, c2, c3, c4 = st.columns(4)
-    allowable_settlement = c1.number_input("Asiento admisible (mm)", min_value=1.0, max_value=25.0, value=25.0)
-    n_spt_manual = c2.number_input("N SPT medio manual", min_value=1.0, value=20.0)
-    influence_depth = c3.number_input("Profundidad ZI bajo base (m)", min_value=0.1, value=max(2.0 * width, 0.1))
-    influence_factor = c4.number_input("Factor elastico de influencia", min_value=0.1, value=1.0)
-
-with tabs[5]:
     st.subheader("Analisis de sensibilidad")
     sensitivity_percent = st.slider("Variacion de parametros (%)", 5, 40, 20, 5)
-    if st.session_state.analysis is not None:
-        sensitivity_data = st.session_state.analysis["sensitivity"]
-        st.plotly_chart(sensitivity_figure(sensitivity_data), use_container_width=True)
-        st.dataframe(sensitivity_data, use_container_width=True, hide_index=True)
-    else:
+    if st.session_state.analysis is None:
         st.info("Ejecute el calculo para generar la sensibilidad.")
+    else:
+        sensitivity = st.session_state.analysis["sensitivity"]
+        st.plotly_chart(sensitivity_figure(sensitivity), use_container_width=True)
+        st.dataframe(sensitivity, use_container_width=True, hide_index=True)
 
 with st.sidebar:
     st.header("Navegacion")
-    st.write("Complete las pestanas y ejecute la envolvente geotecnica.")
+    st.write("Defina el terreno y la malla B-L antes de ejecutar el calculo.")
     st.divider()
-    st.header("Acciones")
-    calculate = st.button("Calcular caso y barrido", type="primary", use_container_width=True)
+    calculate = st.button("Calcular capacidad B-L", type="primary", use_container_width=True)
     st.divider()
     st.header("Estado")
     if st.session_state.analysis is None:
         st.write("Pendiente de calculo")
     else:
-        status = bool(
-            st.session_state.analysis["summary"]["cumple_geotecnia"].all()
-            and st.session_state.analysis["bulb_coverage"]["all_covered"]
-        )
-        css = "status-ok" if status else "status-bad"
-        label = "Comprobaciones favorables" if status else "Existe una comprobacion no favorable"
+        valid = bool(st.session_state.analysis["grid"]["perfil_cubre_bulbos"].all())
+        css = "status-ok" if valid else "status-bad"
+        label = "Perfil suficiente" if valid else "Existen bulbos sin caracterizar"
         st.markdown(f'<p class="{css}">{label}</p>', unsafe_allow_html=True)
-
-
-def _build_layers(frame: pd.DataFrame) -> list[SoilLayer]:
-    layers: list[SoilLayer] = []
-    for _, row in frame.dropna(subset=["Capa", "Techo m", "Muro m", "E oed MPa"]).iterrows():
-        layers.append(
-            SoilLayer(
-                name=str(row["Capa"]),
-                top_depth_m=float(row["Techo m"]),
-                bottom_depth_m=float(row["Muro m"]),
-                deformation_modulus_mpa=float(row["E oed MPa"]),
-                phi_effective_deg=None if pd.isna(row.get("phi grados")) else float(row["phi grados"]),
-                cu_kpa=None if pd.isna(row.get("cu kPa")) else float(row["cu kPa"]),
-                spt_n=None if pd.isna(row.get("N SPT")) else float(row["N SPT"]),
-            )
-        )
-    return layers
 
 
 if calculate:
     try:
+        layers = _build_layers(st.session_state.layers_df)
+        selected_layer = next(layer for layer in layers if layer.name == bearing_layer_name)
+        cu_profile = _build_cu_profile(st.session_state.cu_df) if drainage is DrainageCondition.UNDRAINED else ()
+        overburden = vertical_overburden_from_layers(
+            layers,
+            embedment,
+            water_table,
+            drainage is DrainageCondition.DRAINED,
+        )
         soil = SoilProfile(
             drainage=drainage,
-            c_effective_kpa=c_eff,
-            phi_effective_deg=phi,
-            cu0_kpa=cu0,
-            cu_gradient_kpa_m=cu_grad,
-            gamma_apparent_kn_m3=gamma_ap,
-            gamma_saturated_kn_m3=gamma_sat,
-            water_table_depth_m=water,
-            upward_gradient=upward,
-            fines_percent=fines,
-            coarse_over_20mm_percent=coarse,
-            spt_n_mean=n_spt_manual,
-            deformation_modulus_mpa=modulus,
-            poisson_ratio=poisson,
+            c_effective_kpa=selected_layer.c_effective_kpa,
+            phi_effective_deg=selected_layer.phi_effective_deg or 0.0,
+            cu0_kpa=cu_profile[0][1] if cu_profile else 0.0,
+            cu_profile=cu_profile,
+            gamma_apparent_kn_m3=selected_layer.gamma_apparent_kn_m3,
+            gamma_saturated_kn_m3=selected_layer.gamma_saturated_kn_m3,
+            water_table_depth_m=water_table,
+            upward_gradient=upward_gradient,
+            overburden_soil_kpa=overburden,
         )
-        foundation = Foundation(
-            kind=kind,
-            width_m=width,
-            length_m=length,
-            embedment_m=embedment,
-            ground_slope_deg=slope,
-            surcharge_kpa=surcharge,
-            base_adhesion_kpa=base_adhesion,
-            include_depth_factors=depth_factors,
+        template_length = b_min if kind is FoundationType.CIRCULAR else (1.0 if kind is FoundationType.STRIP else max(l_min, b_min))
+        template = Foundation(
+            kind=kind, width_m=b_min, length_m=template_length,
+            embedment_m=embedment, ground_slope_deg=slope,
+            surcharge_kpa=surcharge, include_depth_factors=depth_factors,
             near_slope=near_slope,
         )
         cover = max(embedment - footing_thickness, 0.0)
-        additional_vertical_kpa = 0.0
-        if include_weight:
-            additional_vertical_kpa = (
-                footing_thickness * gamma_concrete + cover * gamma_ap
-            )
-        structural_actions: list[ActionCase] = []
-        for _, row in st.session_state.actions_df.iterrows():
-            structural_actions.append(
-                ActionCase(
-                    name=str(row["Combinacion"]),
-                    situation=DesignSituation(str(row["Situacion"])),
-                    vertical_kn=float(row["V estructura"]),
-                    horizontal_b_kn=float(row["H_B"]),
-                    horizontal_l_kn=float(row["H_L"]),
-                    moment_b_knm=float(row["M_B"]),
-                    moment_l_knm=float(row["M_L"]),
-                )
-            )
-        action_cases = [
-            ActionCase(
-                name=action.name,
-                situation=action.situation,
-                vertical_kn=(
-                    action.vertical_kn
-                    + foundation.plan_area_m2 * additional_vertical_kpa
-                ),
-                horizontal_b_kn=action.horizontal_b_kn,
-                horizontal_l_kn=action.horizontal_l_kn,
-                moment_b_knm=action.moment_b_knm,
-                moment_l_knm=action.moment_l_knm,
-            )
-            for action in structural_actions
-        ]
-        summary, details = evaluate_cases(soil, foundation, action_cases)
-        layers = _build_layers(st.session_state.layers_df)
-        layer_assessment = assess_relevant_layers(layers, embedment, width)
-        bulb_coverage = assess_foundation_bulbs(
-            layers,
-            embedment,
-            width,
-            influence_depth,
+        additional_vertical_kpa = (
+            footing_thickness * gamma_concrete + cover * selected_layer.gamma_apparent_kn_m3
+            if include_weight else 0.0
         )
-        optimization = optimize_geometry(
-            soil,
-            foundation,
-            structural_actions,
-            b_min,
-            b_max,
-            l_min if kind is FoundationType.RECTANGULAR else 1.0,
-            l_max if kind is FoundationType.RECTANGULAR else 1.0,
-            grid_step,
-            additional_vertical_kpa,
+        grid, grid_details = admissible_capacity_grid(
+            soil, template, layers, b_min, b_max, l_min, l_max, grid_step,
+            allowable_settlement, influence_depth, additional_vertical_kpa)
+        if grid.empty:
+            raise ValueError("La malla B-L no contiene geometrías calculables")
+
+        action_summary = action_details = None
+        check_foundation = Foundation(
+            kind=kind, width_m=check_width, length_m=check_length,
+            embedment_m=embedment, ground_slope_deg=slope,
+            surcharge_kpa=surcharge, include_depth_factors=depth_factors,
+            near_slope=near_slope,
         )
-        if not optimization.empty:
-            optimization["cumple_resistencia"] = optimization["cumple"]
-            optimization["perfil_cubre_bulbo"] = [
-                bool(
-                    check_layer_coverage(
-                        layers,
-                        embedment,
-                        embedment + 1.5 * float(candidate_width),
-                        f"Geometria B={float(candidate_width):.2f} m",
-                    )["covered"]
-                )
-                for candidate_width in optimization["B_m"]
-            ]
-            optimization["cumple"] = (
-                optimization["cumple_resistencia"]
-                & optimization["perfil_cubre_bulbo"]
+        if check_actions:
+            actions = _build_actions(
+                st.session_state.actions_df,
+                check_foundation.plan_area_m2 * additional_vertical_kpa,
             )
+            action_summary, action_details = evaluate_cases(soil, check_foundation, actions)
+
+        finite_grid = grid.dropna(subset=["q_limite_bruta_kpa"])
+        reference = finite_grid.iloc[0] if not finite_grid.empty else grid.iloc[0]
+        reference_pressure = float(reference["q_limite_bruta_kpa"] if not finite_grid.empty else reference["q_d_kpa"])
+        reference_foundation = Foundation(
+            kind=kind, width_m=float(reference["B_m"]), length_m=float(reference["L_m"]),
+            embedment_m=embedment, ground_slope_deg=slope,
+            surcharge_kpa=surcharge, include_depth_factors=depth_factors,
+            near_slope=near_slope,
+        )
         sensitivity = sensitivity_analysis(
-            soil,
-            foundation,
-            action_cases[0],
+            soil, reference_foundation,
+            ActionCase("Carga de referencia", max(reference_pressure * reference_foundation.plan_area_m2, 1e-6)),
             sensitivity_percent / 100.0,
         )
-        n_spt = n_spt_manual
-        field_result = None
-        if field_upload is not None:
-            normalized = normalize_field_data(pd.read_csv(field_upload), qc_ratio)
-            field_result = mean_spt_in_cte_zone(
-                normalized,
-                embedment,
-                details[0]["bearing"].geometry.width_m,
-                terzaghi_correction,
-                water,
-            )
-            n_spt = float(field_result["mean_n"])
-
-        first = details[0]["bearing"]
-        serviceability: dict[str, object] = {}
-        spt_applicable = (
-            fines < 35
-            and coarse <= 30
-            and slope < 5.71
-            and action_cases[0].horizontal_kn < 0.10 * action_cases[0].vertical_kn
-            and width <= 5.0
-            and upward == 0
+        project = {"name": project_name, "location": project_location,
+                   "author": project_author, "notes": project_notes}
+        report = generate_capacity_report(
+            project=project, soil=soil, bearing_layer_name=bearing_layer_name,
+            layers=layers, cu_profile=cu_profile, foundation_template=template,
+            allowable_settlement_mm=allowable_settlement,
+            influence_depth_m=influence_depth, capacity_grid=grid,
+            action_summary=action_summary, action_details=action_details,
         )
-        if spt_applicable:
-            serviceability["q_adm_servicio_SPT_kPa"] = round(
-                spt_allowable_pressure_cte(
-                    n_spt,
-                    first.geometry.width_m,
-                    embedment,
-                    allowable_settlement,
-                ),
-                2,
-            )
-        else:
-            serviceability["SPT_CTE"] = "No aplicable por condiciones de 4.3.3"
-
-        pore_pressure = max(embedment - water, 0.0) * soil.gamma_water_kn_m3
-        q_effective = max(first.pressure_gross_kpa - pore_pressure, 0.0)
-        if fines < 35 and coarse <= 30 and n_spt >= 7:
-            bb = spt_settlement_burland_burbidge(
-                q_effective,
-                first.geometry.width_m,
-                first.geometry.length_m,
-                n_spt,
-                influence_depth,
-            )
-            serviceability["asiento_Burland_Burbidge_mm"] = round(bb["settlement_mm"], 2)
-        serviceability["asiento_elastico_mm"] = round(
-            elastic_settlement(
-                max(first.pressure_net_kpa, 0.0),
-                first.geometry.width_m,
-                modulus,
-                poisson,
-                influence_factor,
-            ),
-            2,
-        )
-        settlement_coverage = bulb_coverage["checks"][1]
-        if layers and settlement_coverage["covered"]:
-            layered = layered_settlement_2to1(
-                max(first.pressure_net_kpa, 0.0),
-                first.geometry.width_m,
-                first.geometry.length_m,
-                embedment,
-                layers,
-                influence_depth,
-            )
-            serviceability["asiento_estratificado_2a1_mm"] = round(
-                layered["settlement_mm"], 2
-            )
-        else:
-            serviceability["asiento_estratificado_2a1"] = (
-                "No calculado: la estratigrafia no cubre completamente D a D+ZI"
-            )
-
-        project = {
-            "name": project_name,
-            "location": project_location,
-            "author": project_author,
-            "notes": project_notes,
-        }
-        report = generate_docx_report(
-            project,
-            soil,
-            foundation,
-            summary,
-            details,
-            serviceability,
-            layer_assessment["warnings"] + bulb_coverage["warnings"],
-            bulb_coverage,
+        excel = capacity_grid_to_excel(
+            grid, st.session_state.layers_df,
+            st.session_state.cu_df if cu_profile else None,
         )
         st.session_state.analysis = {
-            "soil": soil,
-            "foundation": foundation,
-            "actions": action_cases,
-            "summary": summary,
-            "details": details,
-            "optimization": optimization,
-            "sensitivity": sensitivity,
-            "serviceability": serviceability,
-            "layers": layers,
-            "layer_assessment": layer_assessment,
-            "bulb_coverage": bulb_coverage,
-            "field_result": field_result,
-            "report": report,
+            "soil": soil, "layers": layers, "cu_profile": cu_profile,
+            "grid": grid, "grid_details": grid_details,
+            "sensitivity": sensitivity, "action_summary": action_summary,
+            "action_details": action_details, "report": report, "excel": excel,
         }
-        st.success("Calculo completado y memoria actualizada.")
+        st.success("Malla B-L calculada e informe actualizado.")
         st.rerun()
     except Exception as exc:
         st.error(f"No se ha podido completar el calculo: {exc}")
 
-with tabs[6]:
+
+with tabs[5]:
     analysis = st.session_state.analysis
     if analysis is None:
-        st.info("Ejecute el calculo para mostrar la envolvente de resultados.")
+        st.info("Ejecute el calculo para mostrar las capacidades admisibles.")
     else:
-        summary = analysis["summary"]
-        worst_bearing = float(summary["util_hundimiento"].max())
-        worst_sliding = float(summary["util_deslizamiento"].max())
-        best = analysis["optimization"]
-        feasible = best.loc[best["cumple"]] if not best.empty else best
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Maximo hundimiento", f"{worst_bearing:.3f}")
-        r2.metric("Maximo deslizamiento", f"{worst_sliding:.3f}")
-        r3.metric("Asiento elastico", f"{analysis['serviceability']['asiento_elastico_mm']:.2f} mm")
-        r4.metric(
-            "Geometria minima",
-            "Sin solucion" if feasible.empty else f"{feasible.iloc[0]['B_m']:.2f} x {feasible.iloc[0]['L_m']:.2f} m",
-        )
-        st.subheader("Envolvente de combinaciones")
-        st.dataframe(summary, use_container_width=True, hide_index=True)
-        st.plotly_chart(optimization_figure(best), use_container_width=True)
-        st.dataframe(best, use_container_width=True, hide_index=True)
+        grid = analysis["grid"]
+        valid_grid = grid.dropna(subset=["Q_limite_estructura_kn"])
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Geometrias calculadas", str(len(grid)))
+        r2.metric("Geometrias con perfil completo", str(int(grid["perfil_cubre_bulbos"].sum())))
+        r3.metric("Carga admisible maxima", "No disponible" if valid_grid.empty else f"{valid_grid['Q_limite_estructura_kn'].max():.1f} kN")
+        st.plotly_chart(optimization_figure(grid), use_container_width=True)
+        display_grid = grid.rename(columns={
+            "B_m": "B (m)", "L_m": "L (m)", "area_m2": "Area (m2)",
+            "q_h_kpa": "qh (kPa)", "q_d_kpa": "qd ELU (kPa)",
+            "q_adm_asiento_bruta_kpa": "q adm asiento bruta (kPa)",
+            "q_limite_bruta_kpa": "q limite bruta (kPa)",
+            "Q_limite_base_kn": "Q limite base (kN)",
+            "Q_limite_estructura_kn": "Q adm estructura (kN)",
+            "criterio_gobernante": "Criterio gobernante",
+            "perfil_cubre_bulbos": "Perfil completo",
+        })
+        st.dataframe(display_grid, use_container_width=True, hide_index=True)
+        options = [f"B={row.B_m:.2f} m · L={row.L_m:.2f} m" for row in grid.itertuples()]
+        selected_index = options.index(st.selectbox("Desglose de geometria", options))
+        selected_detail = analysis["grid_details"][selected_index]
+        b1, b2 = st.columns(2)
+        with b1:
+            st.plotly_chart(terms_figure(selected_detail["bearing"].terms_kpa), use_container_width=True)
+        with b2:
+            settlement = selected_detail["settlement"]
+            if settlement is None:
+                st.warning("No hay asiento admisible: perfil insuficiente o tipologia no compatible.")
+            else:
+                st.write("Aportacion por estrato para una presion neta unitaria")
+                st.dataframe(pd.DataFrame(settlement["unit_pressure_result"]["components"]), use_container_width=True, hide_index=True)
+        if analysis["action_summary"] is not None:
+            st.subheader("Comprobacion opcional con acciones")
+            st.dataframe(analysis["action_summary"], use_container_width=True, hide_index=True)
+        d1, d2 = st.columns(2)
+        d1.download_button("Descargar memoria DOCX", data=analysis["report"],
+                           file_name="memoria_carga_admisible.docx",
+                           mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                           use_container_width=True)
+        d2.download_button("Descargar tablas XLSX", data=analysis["excel"],
+                           file_name="carga_admisible_B_L.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           use_container_width=True)
 
-        coverage_frame = pd.DataFrame(
-            [
-                {
-                    "Control": check["label"],
-                    "Desde (m)": check["required_top_m"],
-                    "Hasta (m)": check["required_bottom_m"],
-                    "Cobertura": "COMPLETA" if check["covered"] else "INSUFICIENTE",
-                }
-                for check in analysis["bulb_coverage"]["checks"]
-            ]
-        )
-        st.subheader("Cobertura de los bulbos de presiones")
-        st.dataframe(coverage_frame, use_container_width=True, hide_index=True)
-
-        selected_name = st.selectbox("Desglose de combinacion", summary["combinacion"].tolist())
-        selected = next(
-            item for item in analysis["details"] if item["bearing"].action_name == selected_name
-        )
-        st.plotly_chart(terms_figure(selected["bearing"].terms_kpa), use_container_width=True)
-        f1, f2 = st.columns(2)
-        with f1:
-            st.write("Factores")
-            st.dataframe(
-                pd.DataFrame([selected["bearing"].factors]).T.rename(columns={0: "valor"}),
-                use_container_width=True,
-            )
-        with f2:
-            st.write("Servicio")
-            st.dataframe(
-                pd.DataFrame(
-                    list(analysis["serviceability"].items()), columns=["resultado", "valor"]
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
-        warnings = (
-            list(selected["bearing"].warnings)
-            + list(analysis["layer_assessment"]["warnings"])
-            + list(analysis["bulb_coverage"]["warnings"])
-        )
-        for warning in warnings:
-            st.warning(warning)
-
-        st.download_button(
-            "Descargar memoria DOCX",
-            data=analysis["report"],
-            file_name="memoria_geotecnica_zapata.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True,
-        )
+with tabs[6]:
+    st.subheader("Formulaciones implementadas")
+    st.caption("Referencia: CTE DB SE-C, apartados 2.4, 4.3 y Anejo F.1.")
+    st.markdown("**Geometria efectiva con excentricidad**")
+    st.latex(r"B^*=B-2|e_B| \qquad L^*=L-2|e_L|")
+    st.latex(r"e_B=\frac{M_B}{V} \qquad e_L=\frac{M_L}{V}")
+    st.markdown("**Presion de hundimiento caracteristica**")
+    st.latex(r"q_h=c_kN_cs_cd_ci_ct_c+q_{0k}N_qs_qd_qi_qt_q+\frac{1}{2}\gamma_kB^*N_\gamma s_\gamma d_\gamma i_\gamma t_\gamma")
+    st.markdown("**Factores de capacidad de carga**")
+    st.latex(r"N_q=\frac{1+\sin\phi'}{1-\sin\phi'}e^{\pi\tan\phi'}")
+    st.latex(r"N_c=\frac{N_q-1}{\tan\phi'} \qquad N_\gamma=1.5(N_q-1)\tan\phi'")
+    st.markdown("**Resistencia de calculo**")
+    st.latex(r"q_d=\frac{q_h}{\gamma_R}")
+    st.write("Para hundimiento: gamma_R=3,0 en situación persistente o transitoria y 2,0 en extraordinaria.")
+    st.markdown("**Asiento elastico estratificado**")
+    st.write("Se emplea Steinbrenner por superposicion de capas. Es un método analitico, no una expresion normativa del CTE.")
+    st.latex(r"s=\sum_i\left[w_i(z_{i,\mathrm{sup}})-w_i(z_{i,\mathrm{inf}})\right]")
+    st.latex(r"q_{\mathrm{adm,s}}=\frac{s_{\mathrm{adm}}}{s(1\ \mathrm{kPa})}")
+    st.markdown("**Presion y carga limite**")
+    st.latex(r"q_{\mathrm{lim}}=\min(q_d,q_{\mathrm{adm,s,bruta}}) \qquad Q_{\mathrm{lim}}=q_{\mathrm{lim}}A")
+    st.warning("La selección de parámetros característicos representativos corresponde al técnico responsable.")

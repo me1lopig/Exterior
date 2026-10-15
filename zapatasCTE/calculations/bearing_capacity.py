@@ -86,6 +86,8 @@ def effective_geometry(foundation: Foundation, actions: ActionCase) -> Effective
 
 
 def _overburden_kpa(soil: SoilProfile, foundation: Foundation) -> float:
+    if soil.overburden_soil_kpa is not None:
+        return soil.overburden_soil_kpa + foundation.surcharge_kpa
     depth = foundation.embedment_m
     water = soil.water_table_depth_m
     above = min(depth, water)
@@ -266,7 +268,7 @@ def calculate_bearing_capacity(
         if soil.drainage is DrainageCondition.DRAINED
         else 0.0
     )
-    cohesion = soil.cohesion_kpa(foundation.width_m)
+    cohesion = soil.cohesion_kpa(foundation.width_m, foundation.embedment_m)
     overburden = _overburden_kpa(soil, foundation)
     gamma_wedge = _wedge_unit_weight(soil, foundation, geometry.width_m)
     nq, nc, ngamma = _capacity_factors(phi_rad)
@@ -300,11 +302,7 @@ def calculate_bearing_capacity(
         raise ValueError("La resistencia caracteristica resultante no es positiva")
 
     gamma_r = bearing_resistance_factor(actions.situation)
-    if soil.drainage is DrainageCondition.UNDRAINED:
-        cohesive_design = (term_c - undrained_slope_reduction) / gamma_r
-        q_design = cohesive_design + term_q + term_gamma
-    else:
-        q_design = qh / gamma_r
+    q_design = qh / gamma_r
     if q_design <= 0:
         raise ValueError("La resistencia de calculo resultante no es positiva")
 

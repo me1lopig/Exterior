@@ -32,26 +32,37 @@ def optimization_figure(results: pd.DataFrame):
     if results.empty:
         return go.Figure()
     if results["L_m"].nunique() > 1:
-        pivot = results.pivot(index="L_m", columns="B_m", values="util_h_max")
+        value_column = (
+            "Q_limite_estructura_kn"
+            if "Q_limite_estructura_kn" in results
+            else "util_h_max"
+        )
+        pivot = results.pivot(index="L_m", columns="B_m", values=value_column)
         fig = px.imshow(
             pivot,
             aspect="auto",
-            color_continuous_scale=[(0, "#DDF3E8"), (0.5, "#FFD9D9"), (1, "#8B1E2D")],
-            labels={"x": "B (m)", "y": "L (m)", "color": "Utilizacion"},
-            zmin=0,
-            zmax=max(1.2, float(results["util_h_max"].max())),
+            color_continuous_scale=["#E8F0F8", COLORS["blue"]],
+            labels={"x": "B (m)", "y": "L (m)", "color": "Carga admisible (kN)"},
         )
     else:
+        y_columns = (
+            ["Q_limite_estructura_kn"]
+            if "Q_limite_estructura_kn" in results
+            else ["util_h_max"]
+        )
         fig = px.line(
             results.sort_values("B_m"),
             x="B_m",
-            y=["util_h_max", "util_d_max"],
+            y=y_columns,
             markers=True,
-            labels={"value": "Utilizacion", "B_m": "B (m)", "variable": "Comprobacion"},
+            labels={
+                "value": "Carga admisible (kN)",
+                "B_m": "B (m)",
+                "variable": "Resultado",
+            },
             color_discrete_sequence=[COLORS["coral"], COLORS["blue"]],
         )
-        fig.add_hline(y=1.0, line_dash="dash", line_color=COLORS["ink"])
-    return _layout(fig, "Aprovechamiento en el barrido geometrico")
+    return _layout(fig, "Carga admisible para la malla de dimensiones")
 
 
 def sensitivity_figure(data: pd.DataFrame):
@@ -67,7 +78,7 @@ def sensitivity_figure(data: pd.DataFrame):
         color_discrete_sequence=px.colors.qualitative.Safe,
     )
     fig.add_hline(y=1.0, line_dash="dash", line_color=COLORS["ink"])
-    return _layout(fig, "Sensibilidad de la comprobacion de hundimiento")
+    return _layout(fig, "Sensibilidad de la resistencia de hundimiento")
 
 
 def terms_figure(terms: dict[str, float]):
