@@ -178,5 +178,3 @@ Requisitos
 2. ¿Prefieres que añada un script `setup.sh` o un Makefile para instalar dependencias por módulo automáticamente?
 3. ¿Deseas que agregue badges de CI (pytest) y un workflow básico en `.github/workflows`?
 
----
-Traducción y ajuste realizados a partir del contenido actual de las carpetas y archivos principales.
