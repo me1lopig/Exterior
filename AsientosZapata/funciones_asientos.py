@@ -27,7 +27,7 @@ except ImportError:
 
 GAMMA_AGUA = 9.81                       # kN/m³
 PASO_Z_INFLUENCIA = 0.05                # m
-FRACCION_PUNTO_CARACTERISTICO = 0.37    # punto característico en (±0,37·B, ±0,37·L) desde el centro
+FRACCION_PUNTO_CARACTERISTICO = 0.37    # aproximación clásica de Grasshoff; exacta solo en casos particulares
 NU_MAX_CALCULO = 0.499                  # evita la singularidad de la elasticidad isotrópica en ν = 0,5
 COLS_MECANICAS = ["Espesor (m)", "E (kPa)", "nu"]
 
@@ -218,8 +218,12 @@ def w_punto(p, B, L, E, nu, x, y, z):
 
 
 def punto_caracteristico(B, L):
-    """Punto característico (Grasshoff): el asiento de la zapata flexible en él
-    coincide aproximadamente con el asiento de la zapata rígida."""
+    """Punto característico clásico de Grasshoff.
+
+    La posición fija (0,37 B; 0,37 L) corresponde al caso ideal con nu = 0.
+    En general depende de nu, L/B y del espesor compresible, por lo que el
+    resultado de zapata rígida obtenido así debe considerarse aproximado.
+    """
     return FRACCION_PUNTO_CARACTERISTICO * B, FRACCION_PUNTO_CARACTERISTICO * L
 
 

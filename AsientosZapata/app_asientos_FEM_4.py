@@ -311,7 +311,8 @@ def generar_word(ctx):
     _bullets(doc, [
         "Steinbrenner: solución aproximada que supone la distribución de tensiones del semiespacio homogéneo; no "
         "recoge la redistribución de tensiones por contraste de rigidez entre estratos ni la base rígida."
-        + (" El asiento de la zapata rígida se evalúa en el punto característico (0,37·B; 0,37·L)." if rigida else
+        + (" El asiento de la zapata rígida se evalúa con el punto clásico (0,37·B; 0,37·L), aproximación asociada "
+           "a ν = 0 cuya posición no es universal." if rigida else
            " Se evalúa el asiento del centro de la zapata flexible."),
         "MEF 3D (OpenSees): continuo tridimensional con hexaedros bbarBrick y cuarto de dominio por doble simetría. "
         f"La base fija se sitúa a {mp['factor_prof']:.2f}·z_max bajo el apoyo."
@@ -489,6 +490,9 @@ tipo_zapata = st.sidebar.radio("Tipo de zapata", ["Flexible", "Rígida"], horizo
                                help="Flexible: asiento del centro. Rígida: asiento uniforme (punto característico "
                                     "en Steinbrenner; nodos con igual desplazamiento en el MEF).")
 rigida = tipo_zapata == "Rígida"
+if rigida:
+    st.sidebar.caption("El punto 0,37B-0,37L de Steinbrenner es una aproximación; "
+                       "su posición real depende de ν, L/B y del espesor compresible.")
 empotramiento = st.sidebar.checkbox("Corrección por empotramiento en Steinbrenner (Mayne y Poulos)", value=False,
                                     disabled=D <= 0, on_change=reset_calculo,
                                     help="En Steinbrenner se aplica el factor I_E de forma opcional. El MEF solo "
@@ -685,6 +689,8 @@ if modo == "🧮 Panel de Cálculo":
         c1.metric(f"🔵 Steinbrenner ({etiqueta_st})", f"{res_st.total*1000:.3f} mm")
         if res_st.I_E < 1:
             c1.caption(f"Incluye I_E = {res_st.I_E:.3f} (sin corrección: {res_st.total_sin_correccion*1000:.2f} mm)")
+        if ci["rigida"]:
+            c1.caption("Aproximación de Grasshoff: el punto fijo 0,37B-0,37L no es universal.")
         if mef_ok:
             c2.metric(f"🔴 OpenSees 3D ({'rígida' if ci['rigida'] else 'centro'})", f"{res_mef.total*1000:.3f} mm")
             dif = abs(res_st.total - res_mef.total) * 1000
@@ -740,6 +746,10 @@ elif modo == "📋 Modelo Steinbrenner":
         xs, ys = res_st.punto
         st.markdown(f"Punto de evaluación: **x = {xs:.2f} m, y = {ys:.2f} m** "
                     + ("(punto característico, zapata rígida)." if res_st.rigida else "(centro, zapata flexible)."))
+        if res_st.rigida:
+            st.warning("El punto fijo (0,37B; 0,37L) es la aproximación clásica asociada a ν = 0. "
+                       "Para otros ν, relaciones L/B o espesores compresibles, su posición varía; "
+                       "contrasta el resultado rígido con el MEF y un estudio de sensibilidad.")
         if res_st.I_E < 1:
             st.info(f"Factor de empotramiento I_E = {res_st.I_E:.3f} incluido en Δs.")
         st.caption("w = desplazamiento del semiespacio homogéneo con el E y ν del propio estrato. Es un valor "
@@ -840,8 +850,10 @@ elif modo == "📖 Fundamento Teórico":
 
     st.subheader("🧱 Zapata rígida — punto característico")
     st.markdown(r"El asiento de una zapata rígida coincide aproximadamente con el de la zapata flexible en el "
-                r"punto característico $(\pm 0{,}37\,B;\ \pm 0{,}37\,L)$ desde el centro (Grasshoff). En el MEF la "
-                r"rigidez se impone directamente igualando el desplazamiento vertical de los nodos cargados.")
+                r"punto característico clásico $(\pm 0{,}37\,B;\ \pm 0{,}37\,L)$ desde el centro (Grasshoff). "
+                r"Estas coordenadas fijas corresponden al caso ideal con $\nu=0$; en general la posición depende "
+                r"de $\nu$, $L/B$ y del espesor compresible. En el MEF la rigidez se impone directamente igualando "
+                r"el desplazamiento vertical de los nodos cargados.")
 
     st.subheader("⬇️ Empotramiento — Mayne y Poulos (1999)")
     st.latex(r"I_E = 1 - \frac{1}{3{,}5\,e^{(1{,}22\nu - 0{,}4)}\left(\frac{B_e}{D} + 1{,}6\right)}"
