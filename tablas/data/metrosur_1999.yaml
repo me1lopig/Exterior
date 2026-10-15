@@ -1,6 +1,4 @@
-meta: {id: 4, fuente_id: metrosur_1999, nombre: MetroSur 1999, cita: Propiedades geotécnicas de los suelos de Madrid: Jose María Rodriguez Ortiz , nota: 'Cuando
-    aparecen dos valores, los autores recomiendan el mayor para niveles profundos (>10 m) o con mayor
-    grado de consolidación o cementación.'}
+meta: {id: 4, fuente_id: metrosur_1999, nombre: MetroSur 1999, cita: Propiedades geotécnicas de los suelos de Madrid: Jose María Rodriguez Ortiz ,nota: 'Cuando aparecen dos valores, los autores recomiendan el mayor para niveles profundos (>10 m) o con mayor grado de consolidación o cementación.'}
 columnas:
 - {campo: tipo_suelo, etiqueta: Tipo de suelo, unidad: null, tipo: text, grupo: null}
 - {campo: gamma_ap, etiqueta: γ aparente, unidad: kN/m³, tipo: num, grupo: null}
