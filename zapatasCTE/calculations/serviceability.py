@@ -2,10 +2,58 @@ from __future__ import annotations
 
 import math
 
-from models.inputs import SoilLayer
+from models.inputs import (
+    InfluenceDepthMode,
+    SettlementMode,
+    SoilLayer,
+    SubgradeSoilType,
+)
 
 
 CHARACTERISTIC_POINT_FRACTION = 0.37
+
+
+def subgrade_modulus_from_ksp30_cte(
+    ksp30_mn_m3: float,
+    width_m: float,
+    length_m: float | None,
+    soil_type: SubgradeSoilType,
+) -> dict[str, float | str]:
+    """Transform ksp30 to ksB and ksBL following CTE DB SE-C E.6-E.8.
+
+    ``length_m=None`` represents a strip footing (the limit L -> infinity).
+    Units are preserved: all returned moduli are in MN/m3.
+    """
+    if not math.isfinite(ksp30_mn_m3) or ksp30_mn_m3 <= 0:
+        raise ValueError("Ksp30 debe ser finito y positivo")
+    if not math.isfinite(width_m) or width_m <= 0:
+        raise ValueError("B debe ser finito y positivo")
+    if length_m is not None:
+        if not math.isfinite(length_m) or length_m < width_m:
+            raise ValueError("Para zapata rectangular se requiere L >= B")
+
+    if soil_type is SubgradeSoilType.COHESIVE:
+        scale_factor = 0.30 / width_m
+        equation = "E.6"
+    elif soil_type is SubgradeSoilType.GRANULAR:
+        scale_factor = ((width_m + 0.30) / (2.0 * width_m)) ** 2
+        equation = "E.7"
+    else:
+        raise ValueError("Tipo de terreno no reconocido para el modulo de balasto")
+
+    ksb = ksp30_mn_m3 * scale_factor
+    rectangular_factor = 1.0 if length_m is None else 1.0 + width_m / (2.0 * length_m)
+    ksbl = ksb * rectangular_factor
+    return {
+        "ksp30_mn_m3": ksp30_mn_m3,
+        "ksb_mn_m3": ksb,
+        "ksbl_mn_m3": ksbl,
+        "scale_factor": scale_factor,
+        "rectangular_factor": rectangular_factor,
+        "soil_type": soil_type.value,
+        "equation_ksb": equation,
+        "equation_ksbl": "E.8 (limite L->infinito)" if length_m is None else "E.8",
+    }
 
 
 def _steinbrenner_phi1(m: float, n: float) -> float:
@@ -38,6 +86,12 @@ def _steinbrenner_corner_displacement_m(
     poisson_ratio: float,
     depth_m: float,
 ) -> float:
+    """Displacement below a loaded rectangle corner (Steinbrenner).
+
+    The internal influence functions are normalized as phi1=F1/2 and
+    phi2=F2/2. Therefore, the expression below is identical to the common
+    reference form q*B/(2*E)*[(1-nu**2)*F1-(1-nu-2*nu**2)*F2].
+    """
     if width_m <= 1e-12 or length_m <= 1e-12:
         return 0.0
     m = depth_m / width_m
@@ -87,6 +141,96 @@ def _steinbrenner_point_displacement_m(
     )
 
 
+def vertical_stress_ratio_center(
+    width_m: float, length_m: float, depth_below_base_m: float
+) -> float:
+    """Boussinesq vertical-stress increment below the rectangle centre for q=1."""
+    if width_m <= 0 or length_m <= 0 or depth_below_base_m < 0:
+        raise ValueError("B, L y z deben ser validos")
+    if depth_below_base_m <= 1e-12:
+        return 1.0
+    a = width_m / 2.0
+    b = length_m / 2.0
+    z = depth_below_base_m
+    r1 = math.sqrt(b**2 + z**2)
+    r2 = math.sqrt(a**2 + z**2)
+    r3 = math.sqrt(a**2 + b**2 + z**2)
+    quadrant = (
+        math.atan(a * b / (z * r3))
+        + a * b * z / r3 * (1.0 / r1**2 + 1.0 / r2**2)
+    ) / (2.0 * math.pi)
+    return 4.0 * quadrant
+
+
+def _effective_vertical_stress_kpa(
+    layers: list[SoilLayer], depth_m: float, water_table_depth_m: float
+) -> float:
+    from calculations.layers import vertical_overburden_from_layers
+
+    return vertical_overburden_from_layers(
+        layers, depth_m, water_table_depth_m, drained=True
+    )
+
+
+def resolve_influence_depth(
+    mode: InfluenceDepthMode,
+    width_m: float,
+    length_m: float,
+    foundation_base_depth_m: float,
+    layers: list[SoilLayer],
+    water_table_depth_m: float,
+    manual_depth_m: float,
+    stress_ratio_limit: float = 0.20,
+    rigid_layer_depth_m: float | None = None,
+    reference_pressure_kpa: float = 100.0,
+) -> dict[str, float | str]:
+    """Resolve ZI below the base according to the selected engineering criterion."""
+    if mode is InfluenceDepthMode.MANUAL:
+        depth = manual_depth_m
+        basis = "Valor definido por el usuario"
+    elif mode is InfluenceDepthMode.TWO_B:
+        depth = 2.0 * width_m
+        basis = "ZI = 2B"
+    elif mode is InfluenceDepthMode.RIGID_LAYER:
+        if rigid_layer_depth_m is None or rigid_layer_depth_m <= 0:
+            raise ValueError("Debe indicar la profundidad del estrato rigido bajo la base")
+        depth = rigid_layer_depth_m
+        basis = "ZI hasta el techo del estrato practicamente rigido"
+    else:
+        if not 0 < stress_ratio_limit < 1:
+            raise ValueError("El limite Delta sigma/sigma'v0 debe estar entre 0 y 1")
+        if reference_pressure_kpa <= 0:
+            raise ValueError("La presion de referencia debe ser positiva")
+        maximum = max(layer.bottom_depth_m for layer in layers) - foundation_base_depth_m
+        if maximum <= 0:
+            raise ValueError("No hay terreno caracterizado bajo la base")
+        step = min(0.05, width_m / 40.0)
+        depth = step
+        found = False
+        while depth <= maximum + 1e-9:
+            delta_sigma = reference_pressure_kpa * vertical_stress_ratio_center(
+                width_m, length_m, depth
+            )
+            sigma_v0 = _effective_vertical_stress_kpa(
+                layers, foundation_base_depth_m + depth, water_table_depth_m
+            )
+            if sigma_v0 > 0 and delta_sigma / sigma_v0 <= stress_ratio_limit:
+                found = True
+                break
+            depth += step
+        if not found:
+            raise ValueError(
+                "El perfil no alcanza el criterio Delta sigma/sigma'v0; amplie la estratigrafia"
+            )
+        basis = (
+            f"Delta sigma/sigma'v0 <= {stress_ratio_limit:.3f} "
+            f"para qref={reference_pressure_kpa:.1f} kPa"
+        )
+    if depth <= 0:
+        raise ValueError("La profundidad de influencia debe ser positiva")
+    return {"depth_m": float(depth), "basis": basis}
+
+
 def _embedment_factor_mayne_poulos(
     width_m: float, length_m: float, embedment_m: float, poisson_ratio: float
 ) -> float:
@@ -109,6 +253,7 @@ def steinbrenner_layered_settlement(
     influence_depth_m: float,
     rigid_foundation: bool = True,
     embedment_correction: bool = True,
+    settlement_mode: SettlementMode | None = None,
 ) -> dict[str, object]:
     """Elastic settlement by layerwise Steinbrenner superposition.
 
@@ -130,8 +275,19 @@ def steinbrenner_layered_settlement(
     if not coverage["covered"]:
         raise ValueError("La estratigrafia no cubre completamente el bulbo de asientos")
 
-    x_m = CHARACTERISTIC_POINT_FRACTION * width_m if rigid_foundation else 0.0
-    y_m = CHARACTERISTIC_POINT_FRACTION * length_m if rigid_foundation else 0.0
+    mode = settlement_mode or (
+        SettlementMode.RIGID_CHARACTERISTIC
+        if rigid_foundation
+        else SettlementMode.FLEXIBLE_CENTER
+    )
+    if mode is SettlementMode.RIGID_CHARACTERISTIC:
+        x_m = CHARACTERISTIC_POINT_FRACTION * width_m
+        y_m = CHARACTERISTIC_POINT_FRACTION * length_m
+    elif mode is SettlementMode.FLEXIBLE_CENTER:
+        x_m = y_m = 0.0
+    else:
+        x_m = width_m / 2.0
+        y_m = length_m / 2.0
     ordered = sorted(layers, key=lambda item: item.top_depth_m)
     components: list[dict[str, float | str]] = []
     total_m = 0.0
@@ -192,13 +348,36 @@ def steinbrenner_layered_settlement(
                 "settlement_mm": component_m * 1000.0,
             }
         )
+    cumulative_mm = 0.0
+    settlement_profile = [{"depth_below_base_m": 0.0, "settlement_mm": 0.0}]
+    for component in components:
+        cumulative_mm += float(component["settlement_mm"])
+        settlement_profile.append(
+            {
+                "depth_below_base_m": float(component["bottom_m"]) - foundation_base_depth_m,
+                "settlement_mm": cumulative_mm,
+            }
+        )
+    stress_profile = []
+    for index in range(41):
+        depth = influence_depth_m * index / 40.0
+        stress_profile.append(
+            {
+                "depth_below_base_m": depth,
+                "delta_sigma_kpa": pressure_net_kpa
+                * vertical_stress_ratio_center(width_m, length_m, depth),
+            }
+        )
     return {
         "settlement_mm": total_m * 1000.0,
         "components": components,
         "embedment_factor": embedment_factor,
-        "rigid_foundation": rigid_foundation,
+        "rigid_foundation": mode is SettlementMode.RIGID_CHARACTERISTIC,
+        "settlement_mode": mode.value,
         "point_x_m": x_m,
         "point_y_m": y_m,
+        "settlement_profile": settlement_profile,
+        "stress_profile": stress_profile,
     }
 
 
@@ -211,6 +390,7 @@ def allowable_net_pressure_steinbrenner(
     influence_depth_m: float,
     rigid_foundation: bool = True,
     embedment_correction: bool = True,
+    settlement_mode: SettlementMode | None = None,
 ) -> dict[str, object]:
     """Invert the linear Steinbrenner model to obtain net allowable pressure."""
     if allowable_settlement_mm <= 0:
@@ -224,144 +404,18 @@ def allowable_net_pressure_steinbrenner(
         influence_depth_m,
         rigid_foundation,
         embedment_correction,
+        settlement_mode,
     )
     flexibility_mm_per_kpa = float(unit["settlement_mm"])
     if flexibility_mm_per_kpa <= 0:
         raise ValueError("La flexibilidad calculada no es positiva")
     pressure = allowable_settlement_mm / flexibility_mm_per_kpa
+    settlement_m = allowable_settlement_mm / 1000.0
+    subgrade_modulus_kn_m3 = pressure / settlement_m
     return {
         "allowable_net_pressure_kpa": pressure,
         "flexibility_mm_per_kpa": flexibility_mm_per_kpa,
         "unit_pressure_result": unit,
+        "subgrade_modulus_kn_m3": subgrade_modulus_kn_m3,
+        "subgrade_modulus_mn_m3": subgrade_modulus_kn_m3 / 1000.0,
     }
-
-
-def spt_allowable_pressure_cte(
-    n_spt: float,
-    width_eff_m: float,
-    embedment_m: float,
-    allowable_settlement_mm: float = 25.0,
-) -> float:
-    """CTE DB-SE-C equations 4.9 and 4.10 for granular soils."""
-    if n_spt <= 0 or width_eff_m <= 0:
-        raise ValueError("N_SPT y B* deben ser positivos")
-    if not 0 < allowable_settlement_mm <= 25:
-        raise ValueError("El asiento admisible debe estar en (0, 25] mm")
-    if width_eff_m > 5.0:
-        raise ValueError("El metodo simplificado CTE no es aplicable para B > 5 m")
-    depth_factor = min(1.0 + embedment_m / (3.0 * width_eff_m), 1.3)
-    settlement_factor = allowable_settlement_mm / 25.0
-    if width_eff_m < 1.2:
-        return 12.0 * n_spt * depth_factor * settlement_factor
-    width_factor = ((width_eff_m + 0.3) / width_eff_m) ** 2
-    return 8.0 * n_spt * width_factor * depth_factor * settlement_factor
-
-
-def spt_settlement_burland_burbidge(
-    q_effective_gross_kpa: float,
-    width_m: float,
-    length_m: float,
-    n_spt_mean: float,
-    influence_depth_m: float,
-    rigid_layer_depth_below_base_m: float | None = None,
-) -> dict[str, float]:
-    """Estimate mean settlement with CTE F.19 to F.24.
-
-    The caller supplies the influence depth obtained from the project profile.
-    """
-    if q_effective_gross_kpa < 0:
-        raise ValueError("La presion efectiva bruta no puede ser negativa")
-    if width_m <= 0 or length_m < width_m:
-        raise ValueError("Se requiere 0 < B <= L")
-    if n_spt_mean < 7:
-        raise ValueError("F.1.2.2 no se considera aplicable para N_SPT < 7")
-    if influence_depth_m <= 0:
-        raise ValueError("La profundidad de influencia debe ser positiva")
-    ratio = length_m / width_m
-    shape_factor = (1.25 * ratio / (ratio + 0.25)) ** 2
-    compressibility_index = 1.71 / n_spt_mean**1.4
-    rigid_factor = 1.0
-    if rigid_layer_depth_below_base_m is not None:
-        if not 0 < rigid_layer_depth_below_base_m < influence_depth_m:
-            raise ValueError("La capa rigida debe encontrarse dentro de ZI")
-        relative = rigid_layer_depth_below_base_m / influence_depth_m
-        rigid_factor = relative * (2.0 - relative)
-    settlement_mm = (
-        rigid_factor
-        * shape_factor
-        * q_effective_gross_kpa
-        * width_m**0.7
-        * compressibility_index
-    )
-    return {
-        "settlement_mm": settlement_mm,
-        "shape_factor_fs": shape_factor,
-        "rigid_layer_factor_fl": rigid_factor,
-        "compressibility_index_Ic": compressibility_index,
-    }
-
-
-def elastic_settlement(
-    q_net_kpa: float,
-    width_m: float,
-    deformation_modulus_mpa: float,
-    poisson_ratio: float,
-    influence_factor: float = 1.0,
-) -> float:
-    """Elastic half-space settlement, returned in millimetres."""
-    if q_net_kpa < 0 or width_m <= 0 or deformation_modulus_mpa <= 0:
-        raise ValueError("q_neta, B y E deben ser validos y positivos")
-    if not 0 <= poisson_ratio < 0.5 or influence_factor <= 0:
-        raise ValueError("nu o el factor de influencia quedan fuera de dominio")
-    modulus_kpa = deformation_modulus_mpa * 1000.0
-    return (
-        q_net_kpa
-        * width_m
-        * (1.0 - poisson_ratio**2)
-        * influence_factor
-        / modulus_kpa
-        * 1000.0
-    )
-
-
-def layered_settlement_2to1(
-    q_net_kpa: float,
-    width_m: float,
-    length_m: float,
-    foundation_base_depth_m: float,
-    layers: list[SoilLayer],
-    influence_depth_m: float | None = None,
-) -> dict[str, object]:
-    """Approximate layered settlement by 2:1 stress spread and constrained moduli."""
-    if q_net_kpa < 0 or width_m <= 0 or length_m <= 0:
-        raise ValueError("Datos de presion o geometria no validos")
-    target_depth = influence_depth_m or 2.0 * width_m
-    components: list[dict[str, float | str]] = []
-    total_m = 0.0
-    for layer in layers:
-        overlap_top = max(layer.top_depth_m, foundation_base_depth_m)
-        overlap_bottom = min(
-            layer.bottom_depth_m, foundation_base_depth_m + target_depth
-        )
-        if overlap_bottom <= overlap_top:
-            continue
-        thickness = overlap_bottom - overlap_top
-        z_mid = (overlap_top + overlap_bottom) / 2.0 - foundation_base_depth_m
-        stress = q_net_kpa * width_m * length_m / (
-            (width_m + z_mid) * (length_m + z_mid)
-        )
-        modulus_kpa = layer.deformation_modulus_mpa * 1000.0
-        settlement_m = stress * thickness / modulus_kpa
-        total_m += settlement_m
-        components.append(
-            {
-                "layer": layer.name,
-                "thickness_m": thickness,
-                "z_mid_m": z_mid,
-                "delta_sigma_kpa": stress,
-                "settlement_mm": settlement_m * 1000.0,
-            }
-        )
-    if not components:
-        raise ValueError("Ninguna capa cubre la zona de influencia")
-    return {"settlement_mm": total_m * 1000.0, "components": components}

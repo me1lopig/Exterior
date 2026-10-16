@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 COLORS = {
@@ -85,3 +86,41 @@ def terms_figure(terms: dict[str, float]):
     )
     fig.update_coloraxes(showscale=False)
     return _layout(fig, "Contribuciones a la resistencia caracteristica")
+
+
+def settlement_depth_figure(unit_result: dict[str, object]):
+    settlement = pd.DataFrame(unit_result["settlement_profile"])
+    stress = pd.DataFrame(unit_result["stress_profile"])
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        shared_yaxes=True,
+        horizontal_spacing=0.10,
+        subplot_titles=("Acortamiento acumulado", "Incremento de tension"),
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=settlement["settlement_mm"],
+            y=settlement["depth_below_base_m"],
+            mode="lines+markers",
+            line={"color": COLORS["coral"]},
+            name="s acumulado",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=stress["delta_sigma_kpa"],
+            y=stress["depth_below_base_m"],
+            mode="lines",
+            line={"color": COLORS["blue"]},
+            name="Delta sigma z",
+        ),
+        row=1,
+        col=2,
+    )
+    fig.update_yaxes(title_text="Profundidad bajo la base (m)", autorange="reversed", row=1, col=1)
+    fig.update_xaxes(title_text="Asiento (mm)", row=1, col=1)
+    fig.update_xaxes(title_text="Delta sigma z (kPa)", row=1, col=2)
+    return _layout(fig, "Respuesta vertical para una presion neta unitaria")

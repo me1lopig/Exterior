@@ -1,27 +1,61 @@
 from __future__ import annotations
 
+import math
 import unittest
 
-import pandas as pd
-
 from calculations.serviceability import (
+    _steinbrenner_corner_displacement_m,
     allowable_net_pressure_steinbrenner,
-    elastic_settlement,
-    layered_settlement_2to1,
-    spt_allowable_pressure_cte,
-    spt_settlement_burland_burbidge,
+    resolve_influence_depth,
     steinbrenner_layered_settlement,
+    subgrade_modulus_from_ksp30_cte,
+    vertical_stress_ratio_center,
 )
 from calculations.layers import (
     assess_foundation_bulbs,
     check_layer_coverage,
     vertical_overburden_from_layers,
 )
-from models.inputs import SoilLayer
-from services.field_data import mean_spt_in_cte_zone, normalize_field_data
+from models.inputs import (
+    InfluenceDepthMode,
+    SettlementMode,
+    SoilLayer,
+    SubgradeSoilType,
+)
 
 
 class ServiceabilityTests(unittest.TestCase):
+    def test_steinbrenner_matches_classic_f1_f2_expression(self) -> None:
+        q_kpa = 137.0
+        width_m = 2.4
+        length_m = 4.1
+        modulus_kpa = 28_000.0
+        poisson_ratio = 0.32
+        depth_m = 1.7
+
+        m = depth_m / width_m
+        n = length_m / width_m
+        root = math.sqrt(1.0 + m**2 + n**2)
+        f1 = (
+            math.log((root + n) / (root - n))
+            + n * math.log((root + 1.0) / (root - 1.0))
+        ) / math.pi
+        f2 = m / math.pi * math.atan(n / (m * root))
+        expected = q_kpa * width_m / (2.0 * modulus_kpa) * (
+            (1.0 - poisson_ratio**2) * f1
+            - (1.0 - poisson_ratio - 2.0 * poisson_ratio**2) * f2
+        )
+
+        calculated = _steinbrenner_corner_displacement_m(
+            q_kpa,
+            width_m,
+            length_m,
+            modulus_kpa,
+            poisson_ratio,
+            depth_m,
+        )
+        self.assertAlmostEqual(calculated, expected, places=14)
+
     def test_steinbrenner_is_linear_with_pressure(self) -> None:
         layers = [SoilLayer("A", 0.0, 10.0, 20.0, poisson_ratio=0.30)]
         first = steinbrenner_layered_settlement(
@@ -49,6 +83,71 @@ class ServiceabilityTests(unittest.TestCase):
             5.0,
         )
         self.assertAlmostEqual(float(check["settlement_mm"]), 25.0)
+
+    def test_settlement_modes_evaluate_different_points(self) -> None:
+        layers = [SoilLayer("A", 0.0, 10.0, 20.0, poisson_ratio=0.30)]
+        center = steinbrenner_layered_settlement(
+            100.0, 2.0, 3.0, 0.0, layers, 5.0,
+            settlement_mode=SettlementMode.FLEXIBLE_CENTER,
+        )
+        corner = steinbrenner_layered_settlement(
+            100.0, 2.0, 3.0, 0.0, layers, 5.0,
+            settlement_mode=SettlementMode.FLEXIBLE_CORNER,
+        )
+        self.assertGreater(float(center["settlement_mm"]), float(corner["settlement_mm"]))
+
+    def test_two_b_influence_depth_is_geometry_dependent(self) -> None:
+        layers = [SoilLayer("A", 0.0, 20.0, 20.0)]
+        result = resolve_influence_depth(
+            InfluenceDepthMode.TWO_B, 2.5, 4.0, 1.0, layers, 5.0, 4.0
+        )
+        self.assertAlmostEqual(float(result["depth_m"]), 5.0)
+
+    def test_stress_ratio_influence_depth_reaches_selected_limit(self) -> None:
+        layers = [SoilLayer("A", 0.0, 30.0, 20.0)]
+        result = resolve_influence_depth(
+            InfluenceDepthMode.STRESS_RATIO,
+            2.0,
+            3.0,
+            1.0,
+            layers,
+            50.0,
+            4.0,
+            stress_ratio_limit=0.20,
+            reference_pressure_kpa=100.0,
+        )
+        depth = float(result["depth_m"])
+        delta_sigma = 100.0 * vertical_stress_ratio_center(2.0, 3.0, depth)
+        sigma_v0 = vertical_overburden_from_layers(layers, 1.0 + depth, 50.0, True)
+        self.assertLessEqual(delta_sigma / sigma_v0, 0.20)
+
+    def test_allowable_pressure_returns_subgrade_moduli(self) -> None:
+        layers = [SoilLayer("A", 0.0, 10.0, 20.0, poisson_ratio=0.30)]
+        result = allowable_net_pressure_steinbrenner(
+            25.0, 2.0, 3.0, 1.0, layers, 5.0
+        )
+        expected = float(result["allowable_net_pressure_kpa"]) / 0.025 / 1000.0
+        self.assertAlmostEqual(float(result["subgrade_modulus_mn_m3"]), expected)
+
+    def test_cte_ksp30_cohesive_rectangular(self) -> None:
+        result = subgrade_modulus_from_ksp30_cte(
+            100.0, 2.0, 4.0, SubgradeSoilType.COHESIVE
+        )
+        expected_ksb = 100.0 * 0.30 / 2.0
+        self.assertAlmostEqual(float(result["ksb_mn_m3"]), expected_ksb)
+        self.assertAlmostEqual(
+            float(result["ksbl_mn_m3"]), expected_ksb * (1.0 + 2.0 / 8.0)
+        )
+        self.assertEqual(result["equation_ksb"], "E.6")
+
+    def test_cte_ksp30_granular_strip(self) -> None:
+        result = subgrade_modulus_from_ksp30_cte(
+            80.0, 3.0, None, SubgradeSoilType.GRANULAR
+        )
+        expected = 80.0 * ((3.0 + 0.30) / (2.0 * 3.0)) ** 2
+        self.assertAlmostEqual(float(result["ksb_mn_m3"]), expected)
+        self.assertAlmostEqual(float(result["ksbl_mn_m3"]), expected)
+        self.assertEqual(result["equation_ksb"], "E.7")
 
     def test_layered_overburden_integrates_water_table(self) -> None:
         layers = [
@@ -89,46 +188,8 @@ class ServiceabilityTests(unittest.TestCase):
         self.assertFalse(result["covered"])
         self.assertEqual(result["gaps"], [(4.0, 6.0)])
 
-    def test_spt_allowable_pressure_narrow_footing(self) -> None:
-        value = spt_allowable_pressure_cte(10.0, 1.0, 0.5, 25.0)
-        self.assertAlmostEqual(value, 140.0)
-
-    def test_spt_depth_factor_is_capped(self) -> None:
-        shallow = spt_allowable_pressure_cte(10.0, 1.0, 0.9, 25.0)
-        deep = spt_allowable_pressure_cte(10.0, 1.0, 5.0, 25.0)
-        self.assertAlmostEqual(shallow, deep)
-
-    def test_burland_burbidge_rejects_low_n(self) -> None:
-        with self.assertRaisesRegex(ValueError, "N_SPT < 7"):
-            spt_settlement_burland_burbidge(100.0, 2.0, 3.0, 6.0, 4.0)
-
-    def test_elastic_settlement_dimensions(self) -> None:
-        value = elastic_settlement(100.0, 2.0, 20.0, 0.3, 1.0)
-        self.assertAlmostEqual(value, 9.1)
-
-    def test_layered_settlement_sums_components(self) -> None:
-        layers = [
-            SoilLayer("A", 1.0, 3.0, 20.0),
-            SoilLayer("B", 3.0, 6.0, 10.0),
-        ]
-        result = layered_settlement_2to1(100.0, 2.0, 3.0, 1.0, layers, 4.0)
-        component_sum = sum(item["settlement_mm"] for item in result["components"])
-        self.assertAlmostEqual(float(result["settlement_mm"]), component_sum)
-
-    def test_field_profile_zone_and_terzaghi_correction(self) -> None:
-        raw = pd.DataFrame(
-            {"depth_m": [0, 1, 2, 3, 4, 5], "N_spt": [10, 20, 30, 40, 50, 60]}
-        )
-        normalized = normalize_field_data(raw)
-        result = mean_spt_in_cte_zone(normalized, 1.0, 2.0, True, 1.0)
-        self.assertEqual(result["count"], 6)
-        self.assertLess(float(result["mean_n"]), raw["N_spt"].mean())
-
-    def test_cpt_conversion_requires_declared_ratio(self) -> None:
-        raw = pd.DataFrame({"depth_m": [1.0], "qc_MPa": [8.0]})
-        normalized = normalize_field_data(raw, qc_over_n_mpa=0.4)
-        self.assertAlmostEqual(normalized.iloc[0]["N_spt"], 20.0)
 
 
 if __name__ == "__main__":
     unittest.main()
+    resolve_influence_depth,

@@ -4,47 +4,10 @@ import math
 
 from models.inputs import (
     ActionCase,
-    DrainageCondition,
     Foundation,
     FoundationType,
-    SoilProfile,
-    sliding_resistance_factor,
 )
-from models.results import CheckResult, EffectiveGeometry
-
-
-def check_sliding(
-    soil: SoilProfile,
-    foundation: Foundation,
-    actions: ActionCase,
-    geometry: EffectiveGeometry,
-) -> CheckResult:
-    """Check local sliding resistance using CTE 4.2.3.1 contact parameters."""
-    horizontal = actions.horizontal_kn
-    if soil.drainage is DrainageCondition.DRAINED:
-        interface_phi = 0.75 * soil.phi_effective_deg
-        characteristic = actions.vertical_kn * math.tan(math.radians(interface_phi))
-        basis = "CTE 4.2.3.1: a'=0 y delta'=3/4 phi'"
-    else:
-        characteristic = geometry.area_m2 * soil.cohesion_kpa(foundation.width_m)
-        basis = "CTE 4.2.3.1: delta=0 y adhesion de contacto igual a cu"
-    gamma_r = sliding_resistance_factor(actions.situation)
-    design = characteristic / gamma_r
-    utilization = horizontal / design if design > 0 else math.inf
-    warnings: list[str] = []
-    if horizontal == 0:
-        utilization = 0.0
-    warnings.append("No se considera empuje pasivo ni rozamiento de elementos auxiliares.")
-    return CheckResult(
-        name="Deslizamiento local",
-        demand=horizontal,
-        resistance=design,
-        utilization=utilization,
-        passes=utilization <= 1.0,
-        units="kN" if foundation.kind.value != "corrida" else "kN/m",
-        basis=f"{basis}; gamma_R={gamma_r:.2f}",
-        warnings=tuple(warnings),
-    )
+from models.results import CheckResult
 
 
 def check_contact(foundation: Foundation, actions: ActionCase) -> tuple[CheckResult, CheckResult]:

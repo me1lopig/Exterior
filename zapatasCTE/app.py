@@ -10,16 +10,24 @@ from calculations.analysis import (
 from calculations.layers import vertical_overburden_from_layers
 from models.inputs import (
     ActionCase,
+    CuModel,
     DesignSituation,
     DrainageCondition,
     Foundation,
     FoundationType,
+    InfluenceDepthMode,
+    SettlementMode,
     SoilLayer,
     SoilProfile,
+    SubgradeSoilType,
 )
 from services.exporting import capacity_grid_to_excel
 from services.reporting import generate_capacity_report
-from visualization.plots import optimization_figure, terms_figure
+from visualization.plots import (
+    optimization_figure,
+    settlement_depth_figure,
+    terms_figure,
+)
 
 
 st.set_page_config(page_title="Carga admisible CTE DB SE-C", layout="wide")
@@ -190,6 +198,16 @@ with tabs[0]:
     g5, g6 = st.columns(2)
     near_slope = g5.checkbox("Cimentacion proxima a talud", value=False)
     depth_factors = g6.checkbox("Considerar factores de profundidad", value=True)
+    q1, q2, q3 = st.columns(3)
+    include_overburden_term = q1.checkbox(
+        "Considerar termino resistente q0", value=True
+    )
+    overburden_permanent = q2.checkbox(
+        "Terreno sobre la base permanente", value=True
+    )
+    shrinkage_cracks = q3.checkbox(
+        "Posibles grietas de retraccion", value=False
+    )
     st.subheader("Peso propio a descontar de la carga admisible estructural")
     w1, w2, w3 = st.columns(3)
     include_weight = w1.checkbox("Descontar zapata y tierras", value=True)
@@ -235,17 +253,27 @@ with tabs[1]:
     bearing_layer_name = t4.selectbox(
         "Estrato representativo para hundimiento", layer_names or ["Sin capas"]
     )
+    cu_mode = CuModel.CONSTANT
     use_cu_profile = False
     cu_constant = 50.0
+    cu_gradient = 0.0
     if drainage is DrainageCondition.UNDRAINED:
         st.subheader("Resistencia no drenada")
-        use_cu_profile = st.checkbox(
-            "Considerar variacion de cu con la profundidad", value=True
+        cu_mode_label = st.segmented_control(
+            "Modelo de cu",
+            ["Constante", "Gradiente lineal CTE", "Perfil tabulado"],
+            default="Constante",
         )
-        if use_cu_profile:
+        cu_mode = {
+            "Constante": CuModel.CONSTANT,
+            "Gradiente lineal CTE": CuModel.LINEAR_CTE,
+            "Perfil tabulado": CuModel.TABULATED,
+        }[cu_mode_label]
+        use_cu_profile = cu_mode is CuModel.TABULATED
+        if cu_mode is CuModel.TABULATED:
             st.caption(
                 "z es la profundidad absoluta desde la superficie; "
-                "cu se interpola entre puntos sin extrapolar."
+                "cu se interpola entre puntos sin extrapolar ni aplicar el limite 2cu0."
             )
             st.session_state.cu_df = st.data_editor(
                 st.session_state.cu_df, num_rows="dynamic", use_container_width=True,
@@ -253,12 +281,57 @@ with tabs[1]:
                     "Profundidad z m": st.column_config.NumberColumn(min_value=0.0),
                     "cu kPa": st.column_config.NumberColumn(min_value=0.0),
                 }, key="cu_editor_v4")
+        elif cu_mode is CuModel.LINEAR_CTE:
+            u1, u2 = st.columns(2)
+            cu_constant = u1.number_input(
+                "cu0 en superficie (kPa)", min_value=0.01, value=50.0
+            )
+            cu_gradient = u2.number_input(
+                "Gradiente m (kPa/m)", min_value=0.0, value=5.0, step=0.5
+            )
+            st.caption("Se evalua cu en D+B/4 y se limita a 2cu0 conforme al CTE.")
         else:
             cu_constant = st.number_input(
                 "Resistencia no drenada constante cu (kPa)",
                 min_value=0.01,
                 value=50.0,
             )
+
+    st.subheader("Modulo de balasto desde ensayo de placa")
+    include_plate_subgrade = st.checkbox(
+        "Transformar Ksp30 segun CTE DB SE-C E.6 a E.8",
+        value=False,
+        disabled=kind is FoundationType.CIRCULAR,
+    )
+    k1, k2 = st.columns(2)
+    subgrade_soil_label = k1.selectbox(
+        "Tipo de terreno para el escalado",
+        ["Cohesivo", "Granular"],
+        disabled=not include_plate_subgrade,
+    )
+    subgrade_soil_type = {
+        "Cohesivo": SubgradeSoilType.COHESIVE,
+        "Granular": SubgradeSoilType.GRANULAR,
+    }[subgrade_soil_label]
+    ksp30_mn_m3 = k2.number_input(
+        "Ksp30 del ensayo o informe (MN/m3)",
+        min_value=0.01,
+        value=50.0,
+        step=1.0,
+        disabled=not include_plate_subgrade,
+    )
+    if kind is FoundationType.STRIP:
+        st.caption(
+            "Para zapata corrida se adopta el limite L->infinito de E.8: KsBL = KsB."
+        )
+    elif kind is FoundationType.CIRCULAR:
+        st.caption(
+            "La transformacion E.8 se reserva a zapatas rectangulares o corridas."
+        )
+    else:
+        st.caption(
+            "KsB se obtiene con E.6 o E.7; KsBL incorpora la relacion B/L mediante E.8."
+        )
 
 with tabs[2]:
     st.subheader("Malla de dimensiones y criterio de asiento")
@@ -275,9 +348,55 @@ with tabs[2]:
         c3.metric("Relacion geometrica", "L=B" if kind is FoundationType.CIRCULAR else "L=1 m")
         c4.metric("Unidad", "por zapata" if kind is FoundationType.CIRCULAR else "por metro")
     grid_step = c5.number_input("Paso B-L (m)", min_value=0.05, value=0.25, step=0.05)
-    s1, s2 = st.columns(2)
+    s1, s2, s3 = st.columns(3)
     allowable_settlement = s1.number_input("Asiento admisible (mm)", min_value=1.0, value=25.0, step=1.0)
-    influence_depth = s2.number_input("Profundidad de influencia ZI bajo la base (m)", min_value=0.10, value=max(2.0 * b_max, 0.10), step=0.10)
+    settlement_mode_label = s2.selectbox(
+        "Respuesta de la cimentacion",
+        ["Rigida - punto caracteristico", "Flexible - centro", "Flexible - esquina"],
+    )
+    settlement_mode = {
+        "Rigida - punto caracteristico": SettlementMode.RIGID_CHARACTERISTIC,
+        "Flexible - centro": SettlementMode.FLEXIBLE_CENTER,
+        "Flexible - esquina": SettlementMode.FLEXIBLE_CORNER,
+    }[settlement_mode_label]
+    embedment_correction = s3.checkbox("Correccion por empotramiento", value=True)
+    z1, z2, z3 = st.columns(3)
+    influence_mode_label = z1.selectbox(
+        "Criterio de profundidad ZI",
+        ["Manual", "ZI = 2B", "Delta sigma / sigma'v0", "Hasta estrato rigido"],
+    )
+    influence_mode = {
+        "Manual": InfluenceDepthMode.MANUAL,
+        "ZI = 2B": InfluenceDepthMode.TWO_B,
+        "Delta sigma / sigma'v0": InfluenceDepthMode.STRESS_RATIO,
+        "Hasta estrato rigido": InfluenceDepthMode.RIGID_LAYER,
+    }[influence_mode_label]
+    influence_depth = max(2.0 * b_max, 0.10)
+    stress_ratio_limit = 0.20
+    rigid_layer_depth = None
+    reference_pressure = 100.0
+    if influence_mode is InfluenceDepthMode.MANUAL:
+        influence_depth = z2.number_input(
+            "ZI bajo la base (m)", min_value=0.10,
+            value=max(2.0 * b_max, 0.10), step=0.10,
+        )
+    elif influence_mode is InfluenceDepthMode.STRESS_RATIO:
+        stress_ratio_limit = z2.number_input(
+            "Limite Delta sigma/sigma'v0", min_value=0.01,
+            max_value=0.50, value=0.20, step=0.01,
+        )
+        reference_pressure = z3.number_input(
+            "Presion neta de referencia (kPa)", min_value=1.0,
+            value=100.0, step=10.0,
+        )
+    elif influence_mode is InfluenceDepthMode.RIGID_LAYER:
+        rigid_layer_depth = z2.number_input(
+            "Profundidad bajo la base (m)", min_value=0.10,
+            value=max(2.0 * b_max, 0.10), step=0.10,
+        )
+    include_subgrade_modulus = st.checkbox(
+        "Mostrar Ks calculado directamente como q/s", value=False
+    )
     st.info("La carga admisible se calcula para carga vertical centrada; gobierna el menor limite entre ELU y asiento.")
 
 with tabs[3]:
@@ -323,7 +442,8 @@ if calculate:
         selected_layer = next(layer for layer in layers if layer.name == bearing_layer_name)
         cu_profile = (
             _build_cu_profile(st.session_state.cu_df)
-            if drainage is DrainageCondition.UNDRAINED and use_cu_profile
+            if drainage is DrainageCondition.UNDRAINED
+            and cu_mode is CuModel.TABULATED
             else ()
         )
         overburden = vertical_overburden_from_layers(
@@ -345,7 +465,14 @@ if calculate:
                 if cu_profile
                 else cu_constant if drainage is DrainageCondition.UNDRAINED else 0.0
             ),
+            cu_gradient_kpa_m=(
+                cu_gradient
+                if drainage is DrainageCondition.UNDRAINED
+                and cu_mode is CuModel.LINEAR_CTE
+                else 0.0
+            ),
             cu_profile=cu_profile,
+            cu_model=cu_mode,
             gamma_apparent_kn_m3=selected_layer.gamma_apparent_kn_m3,
             gamma_saturated_kn_m3=selected_layer.gamma_saturated_kn_m3,
             water_table_depth_m=water_table,
@@ -358,6 +485,9 @@ if calculate:
             embedment_m=embedment, ground_slope_deg=slope,
             surcharge_kpa=surcharge, include_depth_factors=depth_factors,
             near_slope=near_slope,
+            include_overburden_term=include_overburden_term,
+            overburden_permanent=overburden_permanent,
+            shrinkage_cracks=shrinkage_cracks,
         )
         cover = max(embedment - footing_thickness, 0.0)
         additional_vertical_kpa = (
@@ -366,7 +496,21 @@ if calculate:
         )
         grid, grid_details = admissible_capacity_grid(
             soil, template, layers, b_min, b_max, l_min, l_max, grid_step,
-            allowable_settlement, influence_depth, additional_vertical_kpa)
+            allowable_settlement, influence_depth, additional_vertical_kpa,
+            influence_depth_mode=influence_mode,
+            stress_ratio_limit=stress_ratio_limit,
+            rigid_layer_depth_m=rigid_layer_depth,
+            reference_pressure_kpa=reference_pressure,
+            settlement_mode=settlement_mode,
+            embedment_correction=embedment_correction,
+            include_subgrade_modulus=include_subgrade_modulus,
+            ksp30_mn_m3=(
+                ksp30_mn_m3 if include_plate_subgrade else None
+            ),
+            subgrade_soil_type=(
+                subgrade_soil_type if include_plate_subgrade else None
+            ),
+        )
         if grid.empty:
             raise ValueError("La malla B-L no contiene geometrías calculables")
 
@@ -376,8 +520,13 @@ if calculate:
             embedment_m=embedment, ground_slope_deg=slope,
             surcharge_kpa=surcharge, include_depth_factors=depth_factors,
             near_slope=near_slope,
+            include_overburden_term=include_overburden_term,
+            overburden_permanent=overburden_permanent,
+            shrinkage_cracks=shrinkage_cracks,
         )
         if check_actions:
+            if drainage is DrainageCondition.UNDRAINED:
+                st.session_state.actions_df.loc[:, "Situacion"] = "transitoria"
             actions = _build_actions(
                 st.session_state.actions_df,
                 check_foundation.plan_area_m2 * additional_vertical_kpa,
@@ -392,6 +541,10 @@ if calculate:
             allowable_settlement_mm=allowable_settlement,
             influence_depth_m=influence_depth, capacity_grid=grid,
             action_summary=action_summary, action_details=action_details,
+            settlement_mode=settlement_mode,
+            influence_depth_mode=influence_mode,
+            include_subgrade_modulus=include_subgrade_modulus,
+            grid_details=grid_details,
         )
         excel = capacity_grid_to_excel(
             grid, st.session_state.layers_df,
@@ -419,18 +572,36 @@ with tabs[4]:
         r1.metric("Geometrias calculadas", str(len(grid)))
         r2.metric("Geometrias con perfil completo", str(int(grid["perfil_cubre_bulbos"].sum())))
         st.plotly_chart(optimization_figure(grid), use_container_width=True)
-        display_grid = grid[[
-            "B_m", "L_m", "q_d_kpa", "q_adm_asiento_bruta_kpa",
-            "q_limite_bruta_kpa", "Q_limite_estructura_kn",
-            "criterio_gobernante", "perfil_cubre_bulbos",
-        ]].rename(columns={
+        result_columns = [
+            "B_m", "L_m", "q_d_kpa", "q_adm_asiento_neta_kpa",
+            "q_adm_asiento_bruta_kpa", "q_limite_bruta_kpa", "ZI_m",
+            "Q_limite_estructura_kn", "criterio_gobernante",
+            "perfil_cubre_bulbos",
+        ]
+        if grid["Ks_calculado_MN_m3"].notna().any():
+            result_columns.append("Ks_calculado_MN_m3")
+        if grid["KsB_CTE_MN_m3"].notna().any():
+            result_columns.extend([
+                "Ksp30_MN_m3", "tipo_terreno_balasto",
+                "KsB_CTE_MN_m3", "KsBL_CTE_MN_m3",
+                "ecuaciones_balasto_CTE",
+            ])
+        display_grid = grid[result_columns].rename(columns={
             "B_m": "B (m)", "L_m": "L (m)",
             "q_d_kpa": "qd ELU (kPa)",
-            "q_adm_asiento_bruta_kpa": "qd ELS (kPa)",
+            "q_adm_asiento_neta_kpa": "q ELS neta (kPa)",
+            "q_adm_asiento_bruta_kpa": "q ELS bruta (kPa)",
             "q_limite_bruta_kpa": "qadm (kPa)",
+            "ZI_m": "ZI (m)",
             "Q_limite_estructura_kn": "Nadm (kN)",
             "criterio_gobernante": "Criterio gobernante",
             "perfil_cubre_bulbos": "Perfil completo",
+            "Ks_calculado_MN_m3": "Ks=q/s (MN/m3)",
+            "Ksp30_MN_m3": "Ksp30 (MN/m3)",
+            "tipo_terreno_balasto": "Terreno balasto",
+            "KsB_CTE_MN_m3": "KsB CTE (MN/m3)",
+            "KsBL_CTE_MN_m3": "KsBL CTE (MN/m3)",
+            "ecuaciones_balasto_CTE": "Ecuaciones CTE",
         }).round(2)
         display_grid["Perfil completo"] = display_grid["Perfil completo"].map(
             {True: "SI", False: "NO"}
@@ -439,6 +610,24 @@ with tabs[4]:
         options = [f"B={row.B_m:.2f} m · L={row.L_m:.2f} m" for row in grid.itertuples()]
         selected_index = options.index(st.selectbox("Desglose de geometria", options))
         selected_detail = analysis["grid_details"][selected_index]
+        bearing = selected_detail["bearing"]
+        audit_rows = []
+        for name, value in bearing.parameters.items():
+            audit_rows.append({"Grupo": "Parametros", "Concepto": name, "Valor": value})
+        for name, value in bearing.factors.items():
+            audit_rows.append({"Grupo": "Factores", "Concepto": name, "Valor": value})
+        for name, value in bearing.terms_kpa.items():
+            audit_rows.append({"Grupo": "Terminos kPa", "Concepto": name, "Valor": value})
+        audit_rows.extend([
+            {"Grupo": "Resultados", "Concepto": "qh kPa", "Valor": bearing.characteristic_resistance_kpa},
+            {"Grupo": "Resultados", "Concepto": "qd ELU kPa", "Valor": bearing.design_resistance_kpa},
+            {"Grupo": "Resultados", "Concepto": "B* m", "Valor": bearing.geometry.width_m},
+            {"Grupo": "Resultados", "Concepto": "L* m", "Valor": bearing.geometry.length_m},
+        ])
+        st.subheader("Auditoria de la geometria seleccionada")
+        st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
+        for warning in bearing.warnings:
+            st.warning(warning)
         b1, b2 = st.columns(2)
         with b1:
             st.plotly_chart(terms_figure(selected_detail["bearing"].terms_kpa), use_container_width=True)
@@ -449,6 +638,14 @@ with tabs[4]:
             else:
                 st.write("Aportacion por estrato para una presion neta unitaria")
                 st.dataframe(pd.DataFrame(settlement["unit_pressure_result"]["components"]), use_container_width=True, hide_index=True)
+                st.plotly_chart(
+                    settlement_depth_figure(settlement["unit_pressure_result"]),
+                    use_container_width=True,
+                )
+                st.caption(
+                    f"Modo: {settlement['unit_pressure_result']['settlement_mode']} · "
+                    f"Factor de empotramiento: {settlement['unit_pressure_result']['embedment_factor']:.3f}"
+                )
         if analysis["action_summary"] is not None:
             st.subheader("Comprobacion opcional con acciones")
             st.dataframe(analysis["action_summary"], use_container_width=True, hide_index=True)
@@ -475,11 +672,25 @@ with tabs[5]:
     st.latex(r"N_c=\frac{N_q-1}{\tan\phi'} \qquad N_\gamma=1.5(N_q-1)\tan\phi'")
     st.markdown("**Resistencia de calculo**")
     st.latex(r"q_d=\frac{q_h}{\gamma_R}")
-    st.write("Para hundimiento: gamma_R=3,0 en situación persistente o transitoria y 2,0 en extraordinaria.")
+    st.write("En tensiones efectivas se aplica gamma_R a qh. En situación transitoria sin drenaje se aplica, a efectos prácticos, solamente al término cohesivo conforme a F.1.1.2.5.")
+    st.markdown("**Profundidad y resistencia no drenada**")
+    st.latex(r"d_q=1+2\frac{N_q}{N_c}(1-\sin\phi')^2\arctan\left(\frac{\min(D,2B^*)}{B^*}\right)")
+    st.latex(r"c_u=c_0+m\left(D+\frac{B}{4}\right)\leq 2c_0")
     st.markdown("**Asiento elastico estratificado**")
     st.write("Se emplea Steinbrenner por superposicion de capas. Es un método analitico, no una expresion normativa del CTE.")
+    st.latex(r"w(z)=\frac{qB}{2E}\left[(1-\nu^2)F_1-(1-\nu-2\nu^2)F_2\right]")
+    st.write("La expresion corresponde al desplazamiento bajo la esquina de un rectangulo flexible uniformemente cargado.")
     st.latex(r"s=\sum_i\left[w_i(z_{i,\mathrm{sup}})-w_i(z_{i,\mathrm{inf}})\right]")
     st.latex(r"q_{\mathrm{adm,s}}=\frac{s_{\mathrm{adm}}}{s(1\ \mathrm{kPa})}")
+    st.markdown("**Modulo de balasto, Anejo E.5**")
+    st.latex(r"k_s=\frac{q}{s}")
+    st.latex(r"k_{sB}=k_{sp30}\frac{0.30}{B}\quad\mathrm{(cohesivo,\ E.6)}")
+    st.latex(r"k_{sB}=k_{sp30}\left(\frac{B+0.30}{2B}\right)^2\quad\mathrm{(granular,\ E.7)}")
+    st.latex(r"k_{sBL}=k_{sB}\left(1+\frac{B}{2L}\right)\quad\mathrm{(E.8)}")
+    st.write(
+        "Para zapata corrida se adopta el limite L infinito, de modo que KsBL=KsB. "
+        "La transformacion desde Ksp30 y el calculo directo q/s son rutas alternativas."
+    )
     st.markdown("**Presion y carga limite**")
     st.latex(r"q_{\mathrm{lim}}=\min(q_d,q_{\mathrm{adm,s,bruta}}) \qquad Q_{\mathrm{lim}}=q_{\mathrm{lim}}A")
     st.warning("La selección de parámetros característicos representativos corresponde al técnico responsable.")

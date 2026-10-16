@@ -8,14 +8,23 @@ import pandas as pd
 
 from calculations.bearing_capacity import calculate_bearing_capacity
 from calculations.layers import assess_foundation_bulbs
-from calculations.serviceability import allowable_net_pressure_steinbrenner
+from calculations.serviceability import (
+    allowable_net_pressure_steinbrenner,
+    resolve_influence_depth,
+    subgrade_modulus_from_ksp30_cte,
+)
 from calculations.stability import check_contact
 from models.inputs import (
     ActionCase,
+    DesignSituation,
+    DrainageCondition,
     Foundation,
     FoundationType,
+    InfluenceDepthMode,
+    SettlementMode,
     SoilLayer,
     SoilProfile,
+    SubgradeSoilType,
 )
 
 
@@ -129,6 +138,15 @@ def admissible_capacity_grid(
     allowable_settlement_mm: float,
     influence_depth_m: float,
     additional_vertical_kpa: float = 0.0,
+    influence_depth_mode: InfluenceDepthMode = InfluenceDepthMode.MANUAL,
+    stress_ratio_limit: float = 0.20,
+    rigid_layer_depth_m: float | None = None,
+    reference_pressure_kpa: float = 100.0,
+    settlement_mode: SettlementMode = SettlementMode.RIGID_CHARACTERISTIC,
+    embedment_correction: bool = True,
+    include_subgrade_modulus: bool = False,
+    ksp30_mn_m3: float | None = None,
+    subgrade_soil_type: SubgradeSoilType | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, object]]]:
     """Calculate ELU and settlement limits for a B-L geometry grid."""
     if step_m <= 0 or width_min_m <= 0 or width_max_m < width_min_m:
@@ -161,42 +179,62 @@ def admissible_capacity_grid(
             centered = ActionCase(
                 name="Capacidad centrada",
                 vertical_kn=max(foundation.plan_area_m2, 1e-6),
+                situation=(
+                    DesignSituation.TRANSIENT
+                    if soil.drainage is DrainageCondition.UNDRAINED
+                    else DesignSituation.PERSISTENT
+                ),
             )
             try:
                 bearing = calculate_bearing_capacity(soil, foundation, centered)
             except ValueError:
                 continue
+            if foundation.kind is FoundationType.CIRCULAR:
+                equivalent_side = math.sqrt(foundation.plan_area_m2)
+                settlement_width = equivalent_side
+                settlement_length = equivalent_side
+            else:
+                settlement_width = foundation.width_m
+                settlement_length = foundation.length_m
+            resolved_depth = resolve_influence_depth(
+                influence_depth_mode,
+                settlement_width,
+                settlement_length,
+                foundation.embedment_m,
+                layers,
+                soil.water_table_depth_m,
+                influence_depth_m,
+                stress_ratio_limit,
+                rigid_layer_depth_m,
+                reference_pressure_kpa,
+            )
+            geometry_influence_depth = float(resolved_depth["depth_m"])
             coverage = assess_foundation_bulbs(
                 layers,
                 foundation.embedment_m,
                 foundation.width_m,
-                influence_depth_m,
+                geometry_influence_depth,
             )
-            q0 = float(bearing.parameters["q0k_kpa"])
+            q0_available = float(bearing.parameters["q0k_disponible_kpa"])
             settlement_data: dict[str, object] | None = None
+            q_settlement_net = math.nan
             q_settlement_gross = math.nan
             if (
                 coverage["all_covered"]
                 and foundation.kind is not FoundationType.STRIP
             ):
-                if foundation.kind is FoundationType.CIRCULAR:
-                    equivalent_side = math.sqrt(foundation.plan_area_m2)
-                    settlement_width = equivalent_side
-                    settlement_length = equivalent_side
-                else:
-                    settlement_width = foundation.width_m
-                    settlement_length = foundation.length_m
                 settlement_data = allowable_net_pressure_steinbrenner(
                     allowable_settlement_mm,
                     settlement_width,
                     settlement_length,
                     foundation.embedment_m,
                     layers,
-                    influence_depth_m,
+                    geometry_influence_depth,
+                    embedment_correction=embedment_correction,
+                    settlement_mode=settlement_mode,
                 )
-                q_settlement_gross = (
-                    float(settlement_data["allowable_net_pressure_kpa"]) + q0
-                )
+                q_settlement_net = float(settlement_data["allowable_net_pressure_kpa"])
+                q_settlement_gross = q_settlement_net + q0_available
             q_limit = (
                 min(bearing.design_resistance_kpa, q_settlement_gross)
                 if math.isfinite(q_settlement_gross)
@@ -215,6 +253,22 @@ def admissible_capacity_grid(
                 if math.isfinite(base_load)
                 else math.nan
             )
+            plate_subgrade: dict[str, float | str] | None = None
+            if ksp30_mn_m3 is not None and subgrade_soil_type is not None:
+                if foundation.kind is FoundationType.RECTANGULAR:
+                    plate_subgrade = subgrade_modulus_from_ksp30_cte(
+                        ksp30_mn_m3,
+                        foundation.width_m,
+                        foundation.length_m,
+                        subgrade_soil_type,
+                    )
+                elif foundation.kind is FoundationType.STRIP:
+                    plate_subgrade = subgrade_modulus_from_ksp30_cte(
+                        ksp30_mn_m3,
+                        foundation.width_m,
+                        None,
+                        subgrade_soil_type,
+                    )
             rows.append(
                 {
                     "B_m": foundation.width_m,
@@ -222,12 +276,42 @@ def admissible_capacity_grid(
                     "area_m2": foundation.plan_area_m2,
                     "q_h_kpa": bearing.characteristic_resistance_kpa,
                     "q_d_kpa": bearing.design_resistance_kpa,
+                    "q0_disponible_kpa": q0_available,
+                    "q_adm_asiento_neta_kpa": q_settlement_net,
                     "q_adm_asiento_bruta_kpa": q_settlement_gross,
                     "q_limite_bruta_kpa": q_limit,
                     "Q_limite_base_kn": base_load,
                     "Q_limite_estructura_kn": structure_load,
                     "criterio_gobernante": governing,
                     "perfil_cubre_bulbos": coverage["all_covered"],
+                    "ZI_m": geometry_influence_depth,
+                    "criterio_ZI": str(resolved_depth["basis"]),
+                    "Ks_calculado_MN_m3": (
+                        float(settlement_data["subgrade_modulus_mn_m3"])
+                        if settlement_data is not None and include_subgrade_modulus
+                        else math.nan
+                    ),
+                    "Ksp30_MN_m3": (
+                        float(plate_subgrade["ksp30_mn_m3"])
+                        if plate_subgrade is not None else math.nan
+                    ),
+                    "KsB_CTE_MN_m3": (
+                        float(plate_subgrade["ksb_mn_m3"])
+                        if plate_subgrade is not None else math.nan
+                    ),
+                    "KsBL_CTE_MN_m3": (
+                        float(plate_subgrade["ksbl_mn_m3"])
+                        if plate_subgrade is not None else math.nan
+                    ),
+                    "tipo_terreno_balasto": (
+                        str(plate_subgrade["soil_type"])
+                        if plate_subgrade is not None else ""
+                    ),
+                    "ecuaciones_balasto_CTE": (
+                        f"{plate_subgrade['equation_ksb']} + "
+                        f"{plate_subgrade['equation_ksbl']}"
+                        if plate_subgrade is not None else ""
+                    ),
                 }
             )
             details.append(
@@ -236,10 +320,11 @@ def admissible_capacity_grid(
                     "bearing": bearing,
                     "coverage": coverage,
                     "settlement": settlement_data,
+                    "plate_subgrade": plate_subgrade,
+                    "influence_depth": resolved_depth,
                 }
             )
     frame = pd.DataFrame(rows)
     if not frame.empty:
         frame = frame.sort_values(["B_m", "L_m"]).reset_index(drop=True)
     return frame, details
-

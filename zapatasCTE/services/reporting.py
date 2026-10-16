@@ -11,7 +11,15 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt, RGBColor
 import pandas as pd
 
-from models.inputs import DrainageCondition, Foundation, SoilLayer, SoilProfile
+from models.inputs import (
+    CuModel,
+    DrainageCondition,
+    Foundation,
+    InfluenceDepthMode,
+    SettlementMode,
+    SoilLayer,
+    SoilProfile,
+)
 
 
 BLUE = "2164AF"
@@ -422,6 +430,10 @@ def generate_capacity_report(
     capacity_grid: pd.DataFrame,
     action_summary: pd.DataFrame | None = None,
     action_details: list[dict[str, Any]] | None = None,
+    settlement_mode: SettlementMode = SettlementMode.RIGID_CHARACTERISTIC,
+    influence_depth_mode: InfluenceDepthMode = InfluenceDepthMode.MANUAL,
+    include_subgrade_modulus: bool = False,
+    grid_details: list[dict[str, Any]] | None = None,
 ) -> bytes:
     """Generate the B-L admissible-capacity report using the stored GEO style."""
     doc = Document()
@@ -451,13 +463,22 @@ def generate_capacity_report(
     )
 
     doc.add_heading("Criterios de calculo", level=1)
-    strength_description = (
-        f"cu constante = {soil.cu0_kpa:.2f} kPa"
-        if soil.drainage is DrainageCondition.UNDRAINED and not cu_profile
-        else "perfil tabulado cu(z)"
-        if soil.drainage is DrainageCondition.UNDRAINED
-        else "parametros efectivos c' y phi'"
-    )
+    if soil.drainage is DrainageCondition.DRAINED:
+        strength_description = "parametros efectivos c' y phi'"
+    elif soil.cu_model is CuModel.LINEAR_CTE:
+        strength_description = (
+            f"cu=c0+mz; c0={soil.cu0_kpa:.2f} kPa; "
+            f"m={soil.cu_gradient_kpa_m:.2f} kPa/m; limite 2c0"
+        )
+    elif soil.cu_model is CuModel.TABULATED:
+        strength_description = "perfil tabulado cu(z), interpolacion sin extrapolacion"
+    else:
+        strength_description = f"cu constante = {soil.cu0_kpa:.2f} kPa"
+    settlement_mode_text = {
+        SettlementMode.RIGID_CHARACTERISTIC: "Steinbrenner multicapa, rigida en punto caracteristico",
+        SettlementMode.FLEXIBLE_CENTER: "Steinbrenner multicapa, flexible en el centro",
+        SettlementMode.FLEXIBLE_CORNER: "Steinbrenner multicapa, flexible en la esquina",
+    }[settlement_mode]
     _add_key_value_table(
         doc,
         [
@@ -469,7 +490,11 @@ def generate_capacity_report(
             ("Nivel freatico", f"{soil.water_table_depth_m:.3f} m"),
             ("Asiento admisible", f"{allowable_settlement_mm:.2f} mm"),
             ("Profundidad de influencia ZI", f"{influence_depth_m:.2f} m"),
-            ("Metodo de asiento", "Steinbrenner multicapa, zapata rigida"),
+            ("Criterio de ZI", influence_depth_mode.value),
+            ("Metodo de asiento", settlement_mode_text),
+            ("Termino resistente q0", "SI" if foundation_template.include_overburden_term else "NO"),
+            ("Terreno sobre la base permanente", "SI" if foundation_template.overburden_permanent else "NO"),
+            ("Posibles grietas de retraccion", "SI" if foundation_template.shrinkage_cracks else "NO"),
         ],
     )
 
@@ -501,39 +526,76 @@ def generate_capacity_report(
 
     doc.add_heading("Capacidad para la malla B-L", level=1)
     doc.add_paragraph(
-        "qd ELU es la resistencia bruta de calculo frente a hundimiento. qd ELS "
-        "designa, a efectos de esta tabla, la presion bruta que produce el asiento "
+        "qd ELU es la resistencia bruta de calculo frente a hundimiento. q ELS "
+        "designa la presion que produce el asiento "
         "admisible; no es una resistencia de calculo. qadm es el menor de ambos "
         "valores. Nadm descuenta los pesos configurados en la aplicacion."
     )
-    capacity_report = capacity_grid[
-        [
-            "B_m",
-            "L_m",
-            "q_d_kpa",
-            "q_adm_asiento_bruta_kpa",
-            "q_limite_bruta_kpa",
-            "Q_limite_estructura_kn",
-            "criterio_gobernante",
-            "perfil_cubre_bulbos",
-        ]
-    ].rename(
+    capacity_columns = [
+        "B_m", "L_m", "q_d_kpa", "q_adm_asiento_neta_kpa",
+        "q_adm_asiento_bruta_kpa", "q_limite_bruta_kpa",
+        "Q_limite_estructura_kn", "criterio_gobernante",
+        "perfil_cubre_bulbos",
+    ]
+    capacity_report = capacity_grid[capacity_columns].rename(
         columns={
             "B_m": "B m",
             "L_m": "L m",
             "q_d_kpa": "qd ELU kPa",
-            "q_adm_asiento_bruta_kpa": "qd ELS kPa",
+            "q_adm_asiento_neta_kpa": "q ELS neta kPa",
+            "q_adm_asiento_bruta_kpa": "q ELS bruta kPa",
             "q_limite_bruta_kpa": "qadm kPa",
             "Q_limite_estructura_kn": "Nadm kN",
-            "criterio_gobernante": "Gobierna",
+            "criterio_gobernante": "Criterio",
             "perfil_cubre_bulbos": "Perfil",
         }
     )
     capacity_report["Perfil"] = capacity_report["Perfil"].map(
         {True: "SI", False: "NO"}
     )
+    capacity_report["Criterio"] = capacity_report["Criterio"].replace(
+        {"Hundimiento ELU": "ELU", "Asiento ELS": "ELS"}
+    )
     doc.add_heading("Presiones y axil admisible", level=2)
     _add_dataframe(doc, capacity_report)
+
+    settlement_columns = ["B_m", "L_m", "ZI_m", "criterio_ZI"]
+    if include_subgrade_modulus:
+        settlement_columns.append("Ks_calculado_MN_m3")
+    settlement_report = capacity_grid[settlement_columns].rename(columns={
+        "B_m": "B m",
+        "L_m": "L m",
+        "ZI_m": "ZI m",
+        "criterio_ZI": "Criterio ZI",
+        "Ks_calculado_MN_m3": "Ks=q/s MN/m3",
+    })
+    doc.add_heading("Profundidad de influencia y balasto calculado", level=2)
+    _add_dataframe(doc, settlement_report)
+
+    if capacity_grid["KsB_CTE_MN_m3"].notna().any():
+        doc.add_page_break()
+        doc.add_heading("Balasto transformado desde Ksp30", level=2)
+        doc.add_paragraph(
+            "KsB se obtiene mediante E.6 para terreno cohesivo o E.7 para terreno "
+            "granular. Para zapatas BxL se aplica despues E.8. En zapata corrida "
+            "se adopta su limite L tendiendo a infinito, por lo que KsBL = KsB."
+        )
+        plate_report = capacity_grid[
+            [
+                "B_m", "L_m", "Ksp30_MN_m3", "tipo_terreno_balasto",
+                "KsB_CTE_MN_m3", "KsBL_CTE_MN_m3",
+                "ecuaciones_balasto_CTE",
+            ]
+        ].rename(columns={
+            "B_m": "B m",
+            "L_m": "L m",
+            "Ksp30_MN_m3": "Ksp30 MN/m3",
+            "tipo_terreno_balasto": "Terreno",
+            "KsB_CTE_MN_m3": "KsB MN/m3",
+            "KsBL_CTE_MN_m3": "KsBL MN/m3",
+            "ecuaciones_balasto_CTE": "CTE",
+        })
+        _add_dataframe(doc, plate_report)
 
     incomplete = int((~capacity_grid["perfil_cubre_bulbos"]).sum())
     if incomplete:
@@ -541,6 +603,39 @@ def generate_capacity_report(
             f"Aviso: {incomplete} geometria(s) no disponen de cobertura estratigrafica "
             "completa y no tienen carga admisible final."
         )
+
+    if grid_details:
+        valid = capacity_grid[capacity_grid["q_limite_bruta_kpa"].notna()]
+        if not valid.empty:
+            critical_index = int(valid["q_limite_bruta_kpa"].idxmin())
+            detail = grid_details[critical_index]
+            bearing = detail["bearing"]
+            doc.add_heading("Auditoria de una geometria representativa", level=1)
+            audit_intro = doc.add_paragraph(
+                "Se documenta la geometria con menor presion admisible de la malla."
+            )
+            audit_intro.paragraph_format.keep_with_next = True
+            _add_key_value_table(doc, [
+                ("B*", f"{bearing.geometry.width_m:.3f} m"),
+                ("L*", f"{bearing.geometry.length_m:.3f} m"),
+                ("q0 disponible", f"{float(bearing.parameters['q0k_disponible_kpa']):.2f} kPa"),
+                ("q0 resistente", f"{float(bearing.parameters['q0k_kpa']):.2f} kPa"),
+                ("c o cu", f"{float(bearing.parameters['c_k_kpa']):.2f} kPa"),
+                ("phi", f"{float(bearing.parameters['phi_k_deg']):.2f} grados"),
+                ("qh", f"{bearing.characteristic_resistance_kpa:.2f} kPa"),
+                ("qd ELU", f"{bearing.design_resistance_kpa:.2f} kPa"),
+                ("Aplicacion gamma_R", str(bearing.parameters["aplicacion_gamma_R"])),
+                ("Factores de profundidad", str(bearing.parameters["motivo_factores_profundidad"])),
+            ])
+            doc.add_heading("Factores de capacidad y correccion", level=2)
+            factor_frame = pd.DataFrame([
+                {"Grupo": "N", "c": bearing.factors["Nc"], "q": bearing.factors["Nq"], "gamma": bearing.factors["Ngamma"]},
+                {"Grupo": "s", "c": bearing.factors["sc"], "q": bearing.factors["sq"], "gamma": bearing.factors["sgamma"]},
+                {"Grupo": "d", "c": bearing.factors["dc"], "q": bearing.factors["dq"], "gamma": bearing.factors["dgamma"]},
+                {"Grupo": "i", "c": bearing.factors["ic"], "q": bearing.factors["iq"], "gamma": bearing.factors["igamma"]},
+                {"Grupo": "t", "c": bearing.factors["tc"], "q": bearing.factors["tq"], "gamma": bearing.factors["tgamma"]},
+            ])
+            _add_dataframe(doc, factor_frame)
 
     if action_summary is not None and not action_summary.empty:
         doc.add_page_break()
@@ -579,8 +674,9 @@ def generate_capacity_report(
     doc.add_heading("Formulaciones y alcance", level=1)
     for item in (
         "Hundimiento: CTE DB SE-C 4.3 y Anejo F.1.1, con geometria efectiva cuando existen excentricidades.",
-        "Coeficiente parcial de hundimiento: gamma_R=3,0 en situacion persistente o transitoria y 2,0 en extraordinaria.",
-        "Asiento: solucion elastica de Steinbrenner por superposicion de capas; metodo analitico no normativo.",
+        "Coeficiente parcial de hundimiento: en tensiones efectivas afecta a qh; en condiciones transitorias sin drenaje puede aplicarse solo al termino cohesivo conforme a F.1.1.2.5.",
+        "Asiento: solucion elastica de Steinbrenner por superposicion de capas, con el termino de Poisson (1-nu-2nu^2); metodo analitico no normativo.",
+        "Balasto: definicion ks=q/s y transformacion de Ksp30 mediante CTE DB SE-C Anejo E.5, expresiones E.6 a E.8.",
         "Presion limite: minimo entre qd ELU y la presion bruta limitada por el asiento admisible.",
         "El perfil debe cubrir D+1,5B para el control del bulbo de hundimiento y D+ZI para el asiento.",
     ):
@@ -592,13 +688,14 @@ def generate_capacity_report(
         "Steinbrenner supone comportamiento elastico lineal y modulos compatibles con el nivel tensional de servicio.",
         "No se calculan consolidacion primaria, asiento secundario, estabilidad global ni dimensionamiento estructural.",
         "La equivalencia rectangular de una zapata circular para asientos conserva el area, pero no reproduce exactamente la respuesta axisimetrica.",
+        "La transformacion de Ksp30 no se aplica a zapatas circulares y puede no representar estratos deformables situados fuera del bulbo del ensayo de placa.",
     ):
         doc.add_paragraph(item, style="List Bullet")
 
     doc.add_heading("Referencia", level=1)
     doc.add_paragraph(
         "Codigo Tecnico de la Edificacion. Documento Basico DB SE-C Cimientos, "
-        "apartados 2.4, 4.3, 4.4 y Anejo F."
+        "apartados 2.4, 4.3, 4.4 y Anejos E y F."
     )
 
     buffer = BytesIO()

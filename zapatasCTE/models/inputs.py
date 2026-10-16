@@ -22,6 +22,30 @@ class FoundationType(str, Enum):
     CIRCULAR = "circular"
 
 
+class CuModel(str, Enum):
+    CONSTANT = "constante"
+    LINEAR_CTE = "lineal_cte"
+    TABULATED = "tabulado"
+
+
+class SettlementMode(str, Enum):
+    RIGID_CHARACTERISTIC = "rigida_punto_caracteristico"
+    FLEXIBLE_CENTER = "flexible_centro"
+    FLEXIBLE_CORNER = "flexible_esquina"
+
+
+class InfluenceDepthMode(str, Enum):
+    MANUAL = "manual"
+    TWO_B = "2B"
+    STRESS_RATIO = "relacion_tensiones"
+    RIGID_LAYER = "estrato_rigido"
+
+
+class SubgradeSoilType(str, Enum):
+    COHESIVE = "cohesivo"
+    GRANULAR = "granular"
+
+
 @dataclass(frozen=True)
 class SoilProfile:
     drainage: DrainageCondition
@@ -30,6 +54,7 @@ class SoilProfile:
     cu0_kpa: float = 50.0
     cu_gradient_kpa_m: float = 0.0
     cu_profile: tuple[tuple[float, float], ...] = ()
+    cu_model: CuModel = CuModel.CONSTANT
     gamma_apparent_kn_m3: float = 18.0
     gamma_saturated_kn_m3: float = 20.0
     water_table_depth_m: float = 10.0
@@ -37,7 +62,6 @@ class SoilProfile:
     gamma_water_kn_m3: float = 9.81
     fines_percent: float | None = None
     coarse_over_20mm_percent: float | None = None
-    spt_n_mean: float | None = None
     deformation_modulus_mpa: float | None = None
     poisson_ratio: float = 0.30
     overburden_soil_kpa: float | None = None
@@ -67,8 +91,6 @@ class SoilProfile:
         ):
             if value is not None and not 0 <= value <= 100:
                 raise ValueError(f"{name} debe estar entre 0 y 100")
-        if self.spt_n_mean is not None and self.spt_n_mean <= 0:
-            raise ValueError("N_SPT debe ser positivo")
         if self.deformation_modulus_mpa is not None and self.deformation_modulus_mpa <= 0:
             raise ValueError("El modulo de deformacion debe ser positivo")
         if self.overburden_soil_kpa is not None and self.overburden_soil_kpa < 0:
@@ -84,6 +106,10 @@ class SoilProfile:
                 if not math.isfinite(cu) or cu < 0:
                     raise ValueError("Los valores cu(z) deben ser finitos y no negativos")
                 previous_depth = depth
+        if self.cu_model is CuModel.TABULATED and len(self.cu_profile) < 2:
+            raise ValueError("El modelo tabulado cu(z) requiere al menos dos puntos")
+        if self.cu_model is not CuModel.TABULATED and self.cu_profile:
+            raise ValueError("El perfil cu(z) solo corresponde al modelo tabulado")
 
     @property
     def gamma_submerged_kn_m3(self) -> float:
@@ -92,7 +118,7 @@ class SoilProfile:
     def cohesion_kpa(self, width_m: float, base_depth_m: float = 0.0) -> float:
         if self.drainage is DrainageCondition.DRAINED:
             return self.c_effective_kpa
-        if self.cu_profile:
+        if self.cu_model is CuModel.TABULATED:
             target_depth = base_depth_m + width_m / 4.0
             first_depth, first_cu = self.cu_profile[0]
             last_depth, last_cu = self.cu_profile[-1]
@@ -107,8 +133,11 @@ class SoilProfile:
                     ratio = (target_depth - z0) / (z1 - z0)
                     return cu0 + ratio * (cu1 - cu0)
             return last_cu
-        value = self.cu0_kpa + self.cu_gradient_kpa_m * width_m / 4.0
-        return min(value, 2.0 * self.cu0_kpa)
+        if self.cu_model is CuModel.LINEAR_CTE:
+            target_depth = base_depth_m + width_m / 4.0
+            value = self.cu0_kpa + self.cu_gradient_kpa_m * target_depth
+            return min(value, 2.0 * self.cu0_kpa)
+        return self.cu0_kpa
 
 
 @dataclass(frozen=True)
@@ -122,6 +151,9 @@ class Foundation:
     base_adhesion_kpa: float = 0.0
     include_depth_factors: bool = True
     near_slope: bool = False
+    include_overburden_term: bool = True
+    overburden_permanent: bool = True
+    shrinkage_cracks: bool = False
 
     def __post_init__(self) -> None:
         if self.width_m <= 0 or self.length_m <= 0:
@@ -184,7 +216,6 @@ class SoilLayer:
     deformation_modulus_mpa: float
     phi_effective_deg: float | None = None
     cu_kpa: float | None = None
-    spt_n: float | None = None
     c_effective_kpa: float = 0.0
     gamma_apparent_kn_m3: float = 18.0
     gamma_saturated_kn_m3: float = 20.0
@@ -213,9 +244,3 @@ def bearing_resistance_factor(situation: DesignSituation) -> float:
     if situation is DesignSituation.EXTRAORDINARY:
         return 2.0
     return 3.0
-
-
-def sliding_resistance_factor(situation: DesignSituation) -> float:
-    if situation is DesignSituation.EXTRAORDINARY:
-        return 1.1
-    return 1.5
