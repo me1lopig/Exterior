@@ -1,0 +1,7 @@
+streamlit
+pandas
+PyYAML
+# Solo para regenerar los YAML desde el Excel (build_data.py):
+openpyxl
+# Solo para los tests:
+pytest

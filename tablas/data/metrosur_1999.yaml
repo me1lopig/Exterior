@@ -1,0 +1,120 @@
+meta: {id: 4, fuente_id: metrosur_1999, nombre: MetroSur 1999, cita: Asignación de parámetros geotécnicos
+    para los proyectos de MetroSur (1999). Valores para el diseño de pantallas del metro de Madrid., nota: 'Cuando
+    aparecen dos valores, los autores recomiendan el mayor para niveles profundos (>10 m) o con mayor
+    grado de consolidación o cementación.'}
+columnas:
+- {campo: tipo_suelo, etiqueta: Tipo de suelo, unidad: null, tipo: text, grupo: null}
+- {campo: gamma_ap, etiqueta: γ aparente, unidad: kN/m³, tipo: num, grupo: null}
+- {campo: c, etiqueta: Cohesión c, unidad: kPa, tipo: rango, grupo: null}
+- {campo: phi, etiqueta: Ángulo de rozamiento φ, unidad: °, tipo: num, grupo: null}
+- {campo: e_def, etiqueta: Módulo de deformación E, unidad: t/m², tipo: rango, grupo: null}
+- {campo: poisson, etiqueta: Coef. de Poisson ν, unidad: null, tipo: num, grupo: null}
+- {campo: balasto, etiqueta: Coef. de balasto kₕ, unidad: t/m³, tipo: rango, grupo: null}
+filas:
+- tipo_suelo: Rellenos antrópicos
+  gamma_ap: 18
+  c: 0
+  phi: 28
+  e_def: [800, 1000]
+  poisson: 0.35
+  balasto: 2000
+- {tipo_suelo: Rellenos seleccionados compactados, gamma_ap: 21, c: 20, phi: 34, e_def: 10000, poisson: 0.28,
+  balasto: 8000}
+- tipo_suelo: Aluviales
+  gamma_ap: 20
+  c: 0
+  phi: 32
+  e_def: [1000, 1500]
+  poisson: 0.32
+  balasto: 5000
+- tipo_suelo: Arenas Cuaternarias
+  gamma_ap: 20
+  c: [0, 5]
+  phi: 34
+  e_def: [3000, 6000]
+  poisson: 0.3
+  balasto: 8000
+- tipo_suelo: Arenas de miga
+  gamma_ap: 20
+  c: [5, 10]
+  phi: 35
+  e_def: [5500, 7500]
+  poisson: 0.3
+  balasto: [12000, 20000]
+- tipo_suelo: Arenas Tosquizas
+  gamma_ap: 20.5
+  c: [10, 15]
+  phi: 33
+  e_def: [8000, 10000]
+  poisson: 0.3
+  balasto: [15000, 20000]
+- tipo_suelo: Toscos Arenosos
+  gamma_ap: 20.8
+  c: [20, 25]
+  phi: 32.5
+  e_def: 13000
+  poisson: 0.3
+  balasto: [25000, 35000]
+- tipo_suelo: Toscos
+  gamma_ap: 21
+  c: [30, 40]
+  phi: 30
+  e_def: [15000, 18000]
+  poisson: 0.3
+  balasto: [30000, 40000]
+- tipo_suelo: Toscos de alta plasticidad
+  gamma_ap: 20.6
+  c: [40, 80]
+  phi: 28
+  e_def: 20000
+  poisson: 0.28
+  balasto: 40000
+- tipo_suelo: Peñuelas verdes y grises
+  gamma_ap: 20
+  c: [50, 60]
+  phi: 28
+  e_def: 20000
+  poisson: 0.28
+  balasto: [35000, 50000]
+- tipo_suelo: Peñuelas verdes o grises con yesos
+  gamma_ap: 21
+  c: [50, 80]
+  phi: 30
+  e_def: 25000
+  poisson: 0.27
+  balasto: [40000, 55000]
+- tipo_suelo: Peñuelas reblandecidas con yesos (redepositadas)
+  gamma_ap: 20
+  c: [0, 10]
+  phi: 28
+  e_def: 1000
+  poisson: 0.35
+  balasto: 5000
+- tipo_suelo: Arenas micáceas en Mioceno
+  gamma_ap: 21
+  c: [5, 10]
+  phi: 34
+  e_def: 5000
+  poisson: 0.3
+  balasto: 10000
+- tipo_suelo: Sepiolitas
+  gamma_ap: 16
+  c: 20
+  phi: 28
+  e_def: [30000, 50000]
+  poisson: 0.28
+  balasto: 20000
+- tipo_suelo: Caliches niveles litificados
+  gamma_ap: 22
+  c: 150
+  phi: 32
+  e_def: 60000
+  poisson: 0.25
+  balasto: [80000, 100000]
+- tipo_suelo: Yesos
+  gamma_ap: 23
+  c: [70, 100]
+  phi: 28
+  e_def: 40000
+  poisson: 0.26
+  balasto: 60000

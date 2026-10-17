@@ -1,0 +1,125 @@
+meta: {id: 2, fuente_id: eau_1970, nombre: EAU 1970, cita: EAU 1970 (Empfehlungen des Arbeitsausschusses
+    "Ufereinfassungen" — Comité Alemán de defensa de márgenes). Vía Curso de Cimentaciones de Rodríguez
+    Ortiz., nota: 'cᵤ: cohesión no drenada · φ'': fricción drenada · c'': cohesión drenada · E: módulo
+    de elasticidad.'}
+columnas:
+- {campo: tipo_suelo, etiqueta: Clase de suelo, unidad: null, tipo: text, grupo: null}
+- {campo: gamma_sat, etiqueta: γ saturado, unidad: kN/m³, tipo: num, grupo: Peso específico}
+- {campo: gamma_sum, etiqueta: γ sumergido, unidad: kN/m³, tipo: num, grupo: Peso específico}
+- {campo: phi, etiqueta: φ', unidad: °, tipo: num, grupo: null}
+- {campo: c, etiqueta: c', unidad: kPa, tipo: num, grupo: null}
+- {campo: cu, etiqueta: cᵤ, unidad: kPa, tipo: rango, grupo: null}
+- {campo: e_def, etiqueta: E, unidad: MPa, tipo: rango, grupo: null}
+filas:
+- tipo_suelo: Arena suelta redondeada
+  gamma_sat: 18
+  gamma_sum: 10
+  phi: 30
+  c: null
+  cu: null
+  e_def: [20, 50]
+- tipo_suelo: Arena suelta angulosa
+  gamma_sat: 18
+  gamma_sum: 10
+  phi: 32.5
+  c: null
+  cu: null
+  e_def: [40, 80]
+- tipo_suelo: Arena semidensa redondeada
+  gamma_sat: 19
+  gamma_sum: 11
+  phi: 32.5
+  c: null
+  cu: null
+  e_def: [50, 100]
+- tipo_suelo: Arena semidensa angulosa
+  gamma_sat: 19
+  gamma_sum: 11
+  phi: 35
+  c: null
+  cu: null
+  e_def: [80, 150]
+- tipo_suelo: Grava sin arena
+  gamma_sat: 16
+  gamma_sum: 10
+  phi: 37.5
+  c: null
+  cu: null
+  e_def: [100, 200]
+- tipo_suelo: Grava gruesa angulosa
+  gamma_sat: 18
+  gamma_sum: 11
+  phi: 40
+  c: null
+  cu: null
+  e_def: [150, 300]
+- tipo_suelo: Arcilla semidura
+  gamma_sat: 19
+  gamma_sum: 9
+  phi: 25
+  c: 25
+  cu: [50, 100]
+  e_def: [5, 10]
+- tipo_suelo: Arcilla dura
+  gamma_sat: 18
+  gamma_sum: 8
+  phi: 20
+  c: 20
+  cu: [25, 50]
+  e_def: [2.5, 5]
+- tipo_suelo: Arcilla moldeable, blanda
+  gamma_sat: 17
+  gamma_sum: 7
+  phi: 17.5
+  c: 10
+  cu: [10, 25]
+  e_def: [1, 2.5]
+- tipo_suelo: Arcilla areno limosa media
+  gamma_sat: 21
+  gamma_sum: 11
+  phi: 27.5
+  c: 10
+  cu: [50, 100]
+  e_def: [5, 20]
+- tipo_suelo: Arcilla areno limosa blanda
+  gamma_sat: 19
+  gamma_sum: 9
+  phi: 27.5
+  c: null
+  cu: [10, 25]
+  e_def: [4, 8]
+- tipo_suelo: Limo
+  gamma_sat: 18
+  gamma_sum: 8
+  phi: 27.5
+  c: null
+  cu: [10, 50]
+  e_def: [3, 10]
+- tipo_suelo: Sedimento ligeramente arcilloso, orgánico blando
+  gamma_sat: 17
+  gamma_sum: 7
+  phi: 20
+  c: 10
+  cu: [10, 25]
+  e_def: [2, 5]
+- tipo_suelo: Sedimento muy arcilloso fuertemente orgánico, blando
+  gamma_sat: 14
+  gamma_sum: 4
+  phi: 14
+  c: 15
+  cu: [10, 20]
+  e_def: [0.5, 3]
+- tipo_suelo: Turba
+  gamma_sat: 11
+  gamma_sum: 1
+  phi: 15
+  c: 5
+  cu: null
+  e_def: [0.4, 1]
+- tipo_suelo: Turba moderadamente preconsolidada
+  gamma_sat: 13
+  gamma_sum: 3
+  phi: 15
+  c: 10
+  cu: null
+  e_def: [0.8, 2]

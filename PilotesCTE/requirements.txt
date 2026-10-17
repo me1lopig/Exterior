@@ -4,3 +4,4 @@ pandas
 plotly
 python-docx
 matplotlib
+kaleido

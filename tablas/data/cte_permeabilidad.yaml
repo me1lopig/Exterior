@@ -1,0 +1,15 @@
+meta: {id: 7, fuente_id: cte_permeabilidad, nombre: CTE DB-SE-C — Permeabilidad (D.28), cita: 'CTE DB-SE-C,
+    tabla D.28. Valores orientativos del coeficiente de permeabilidad.', nota: Rangos en m/s (corregido
+    de 'm/sg' del original).}
+columnas:
+- {campo: tipo_suelo, etiqueta: Tipo de suelo, unidad: null, tipo: text, grupo: null}
+- {campo: k, etiqueta: Coeficiente de permeabilidad k_z, unidad: m/s, tipo: perm, grupo: null}
+filas:
+- tipo_suelo: Grava limpia
+  k: [0.01, null]
+- tipo_suelo: Arena limpia y mezcla de grava y arena limpia
+  k: [1.0e-05, 0.01]
+- tipo_suelo: Arena fina, limo, mezclas de arenas limos y arcillas
+  k: [1.0e-09, 1.0e-05]
+- tipo_suelo: Arcilla
+  k: [null, 1.0e-09]
