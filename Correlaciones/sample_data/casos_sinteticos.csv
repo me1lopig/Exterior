@@ -1,0 +1,4 @@
+caso,N_campo,ER_pct,CB,CR,CS,sigma_vertical_efectiva_kPa,IP_pct,LL_pct,consolidacion,nota
+Arenas_NC_1,20,60,1,1,1,100,,,NC,Sintetico para normalizacion SPT y E
+Arcilla_NC_1,,,,,,150,60,80,NC,Sintetico para Cu
+Arena_precargada_2,30,70,1,1,1,120,,,OC,Sintetico Shioi y Dappolonia: N promedio bruto independiente
