@@ -15,6 +15,7 @@ st.markdown("""
 Esta herramienta calcula el valor corregido **$(N_1)_{60}$** basándose en las recomendaciones de 
 *Skempton (1986)* y *Youd et al. (2001)*.
 """)
+st.markdown("Según directiva ITQ404")
 st.markdown("---")
 
 # --- BARRA LATERAL: CONFIGURACIÓN DEL EQUIPO ---
