@@ -1,2 +1,0 @@
-"""Pruebas de GeoCorrelaciones."""
-

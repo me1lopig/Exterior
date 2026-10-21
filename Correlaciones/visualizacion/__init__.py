@@ -1,2 +1,0 @@
-"""Componentes de presentación Streamlit."""
-

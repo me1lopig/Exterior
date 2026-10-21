@@ -1,2 +1,0 @@
-"""Motores de cálculo geotécnico."""
-
