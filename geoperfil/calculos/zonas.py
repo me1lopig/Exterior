@@ -1,0 +1,153 @@
+"""Polygonizacion topologica del perfil a partir de contactos dibujados."""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Iterable
+
+import numpy as np
+import pandas as pd
+
+from perfil_geologico.modelos.dominio import Contacto
+
+
+TRAMAS = (
+    "sin_trama",
+    "horizontal",
+    "vertical",
+    "diagonal_45",
+    "diagonal_135",
+    "cruzada",
+    "puntos",
+    "grava",
+    "roca",
+)
+
+
+def linea_terreno(sondeos_proyectados: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Obtiene una linea de terreno ordenada a partir de las bocas."""
+    terreno = (
+        sondeos_proyectados.groupby("s_m", as_index=False)["cota_boca_m"]
+        .mean()
+        .sort_values("s_m")
+    )
+    return terreno["s_m"].to_numpy(float), terreno["cota_boca_m"].to_numpy(float)
+
+
+def construir_zonas(
+    sondeos_proyectados: pd.DataFrame,
+    contactos: Iterable[Contacto],
+    zonas_previas: list[dict] | None = None,
+    margen_inferior_m: float = 2.0,
+) -> tuple[list[dict], list[str]]:
+    """Divide el dominio terreno-base mediante la red de contactos.
+
+    Los extremos de un contacto deben alcanzar el contorno o coincidir con otro
+    contacto para crear caras cerradas. Shapely realiza el noding de cruces.
+    """
+    try:
+        from shapely.geometry import LineString, Point, Polygon
+        from shapely.ops import polygonize, unary_union
+    except ImportError as exc:
+        raise RuntimeError("La generacion de zonas requiere Shapely >= 2.0.") from exc
+
+    if sondeos_proyectados.empty:
+        return [], ["No hay sondeos proyectados para definir el dominio."]
+    s_terreno, z_terreno = linea_terreno(sondeos_proyectados)
+    if len(s_terreno) < 2:
+        return [], ["Se necesitan al menos dos bocas en abscisas distintas."]
+    base = float(
+        (sondeos_proyectados["cota_boca_m"] - sondeos_proyectados["profundidad_m"]).min()
+        - margen_inferior_m
+    )
+    contorno = [*zip(s_terreno, z_terreno), (s_terreno[-1], base), (s_terreno[0], base)]
+    dominio = Polygon(contorno)
+    lineas = [dominio.boundary]
+    contactos_validos = 0
+    avisos: list[str] = []
+    for contacto in contactos:
+        if len(contacto.vertices) < 2:
+            continue
+        coords = [(p.s_m, p.z_m) for p in contacto.vertices]
+        linea = LineString(coords)
+        if linea.length <= 0:
+            continue
+        if not linea.is_simple:
+            avisos.append(f"El contacto '{contacto.nombre}' se autointerseca.")
+        recortada = linea.intersection(dominio)
+        if not recortada.is_empty:
+            lineas.append(recortada)
+            contactos_validos += 1
+    red = unary_union(lineas)
+    caras = [poligono for poligono in polygonize(red) if dominio.covers(poligono.representative_point())]
+    caras.sort(key=lambda p: (-p.centroid.y, p.centroid.x))
+
+    previas_geometrias = []
+    for zona in zonas_previas or []:
+        coords = zona.get("coordenadas", [])
+        if len(coords) >= 3:
+            poligono = Polygon(coords, holes=zona.get("huecos", []))
+            if poligono.is_valid:
+                previas_geometrias.append((zona, poligono))
+
+    zonas: list[dict] = []
+    for indice, poligono in enumerate(caras, start=1):
+        punto = poligono.representative_point()
+        anterior = _mejor_asignacion(poligono, punto, previas_geometrias)
+        coordenadas = [[round(float(x), 6), round(float(y), 6)] for x, y in poligono.exterior.coords[:-1]]
+        huecos = [
+            [[round(float(x), 6), round(float(y), 6)] for x, y in anillo.coords[:-1]]
+            for anillo in poligono.interiors
+        ]
+        huella = hashlib.sha1(repr(coordenadas).encode("utf-8")).hexdigest()[:10]
+        zonas.append(
+            {
+                "zona_id": f"Z{indice:02d}-{huella}",
+                "etiqueta": f"Z{indice:02d}",
+                "coordenadas": coordenadas,
+                "huecos": huecos,
+                "unidad_id": anterior.get("unidad_id", "") if anterior else "",
+                "trama": anterior.get("trama", "sin_trama") if anterior else "sin_trama",
+                "color": anterior.get("color", "#D9DDE2") if anterior else "#D9DDE2",
+                "area_m2": round(float(poligono.area), 3),
+                "centro_s_m": round(float(punto.x), 3),
+                "centro_z_m": round(float(punto.y), 3),
+            }
+        )
+
+    if contactos_validos and len(caras) <= 1:
+        avisos.append(
+            "Los contactos no dividen el dominio. Ajuste sus extremos al contorno o a otros contactos."
+        )
+    sin_asignar = sum(not zona["unidad_id"] for zona in zonas)
+    if sin_asignar:
+        avisos.append(f"Hay {sin_asignar} zonas sin unidad asignada.")
+    return zonas, avisos
+
+
+def _mejor_asignacion(poligono, punto, previas_geometrias: list[tuple[dict, object]]) -> dict | None:
+    """Conserva estilos por pertenencia o maxima area solapada."""
+    candidatas = [(zona, geometria) for zona, geometria in previas_geometrias if geometria.covers(punto)]
+    if candidatas:
+        return max(candidatas, key=lambda item: item[1].intersection(poligono).area)[0]
+    solapes = [(zona, geometria.intersection(poligono).area) for zona, geometria in previas_geometrias]
+    solapes = [item for item in solapes if item[1] > 0]
+    return max(solapes, key=lambda item: item[1])[0] if solapes else None
+
+
+def asignar_estilos_zonas(zonas: list[dict], tabla: pd.DataFrame, unidades: pd.DataFrame) -> list[dict]:
+    """Aplica unidad y trama desde una tabla editable."""
+    colores = dict(zip(unidades["unidad_id"].astype(str), unidades["color"].astype(str)))
+    por_id = {str(fila.zona_id): fila for fila in tabla.itertuples(index=False)}
+    resultado = []
+    for zona in zonas:
+        copia = dict(zona)
+        fila = por_id.get(str(zona["zona_id"]))
+        if fila is not None:
+            unidad = str(getattr(fila, "unidad_id", ""))
+            trama = str(getattr(fila, "trama", "sin_trama"))
+            copia["unidad_id"] = "" if unidad == "nan" else unidad
+            copia["trama"] = trama if trama in TRAMAS else "sin_trama"
+            copia["color"] = colores.get(copia["unidad_id"], "#D9DDE2")
+        resultado.append(copia)
+    return resultado
