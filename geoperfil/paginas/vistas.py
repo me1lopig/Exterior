@@ -2,27 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime
 from io import BytesIO
-import json
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from perfil_geologico.calculos.contactos import (
     actualizar_vertices,
-    actualizar_vinculos_observados,
     contactos_observados,
-    interfaces_observadas,
-    vinculos_observados_desactualizados,
+    detectar_cruces,
     vertices_a_dataframe,
 )
 from perfil_geologico.calculos.proyeccion import proyectar_puntos
-from perfil_geologico.calculos.zonas import TRAMAS, asignar_estilos_zonas, construir_zonas
-from perfil_geologico.componentes.minicad import minicad_geologico, modelo_minicad
-from perfil_geologico.modelos.dominio import Contacto, Proyecto, VerticeContacto
+from perfil_geologico.modelos.dominio import Contacto, Proyecto
 from perfil_geologico.servicios.datos_demo import crear_datos_demo
 from perfil_geologico.servicios.exportacion import (
     contactos_a_csv,
@@ -49,14 +43,8 @@ def inicializar_estado() -> None:
         st.session_state.datos = crear_datos_demo()
     if "contactos" not in st.session_state:
         st.session_state.contactos = []
-    if "zonas" not in st.session_state:
-        st.session_state.zonas = list(st.session_state.proyecto.zonas)
-    if "ultimo_evento_cad" not in st.session_state:
-        st.session_state.ultimo_evento_cad = None
     if "revision_datos" not in st.session_state:
         st.session_state.revision_datos = 0
-    if "hipotesis_referencia" not in st.session_state:
-        st.session_state.hipotesis_referencia = ""
 
 
 def _datos_geometricos() -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[str]]:
@@ -88,7 +76,6 @@ def _datos_geometricos() -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[st
 def _estado_sidebar() -> None:
     proyecto: Proyecto = st.session_state.proyecto
     proyecto.contactos = st.session_state.contactos
-    proyecto.zonas = st.session_state.zonas
     sondeos, dpsh, errores, avisos = _datos_geometricos()
     st.sidebar.markdown("## Navegacion")
     st.sidebar.caption("Introduzca datos, defina el eje y revise la interpretacion antes de exportar.")
@@ -98,19 +85,13 @@ def _estado_sidebar() -> None:
         st.session_state.proyecto = Proyecto()
         st.session_state.datos = crear_datos_demo()
         st.session_state.contactos = []
-        st.session_state.zonas = []
-        st.session_state.hipotesis_referencia = ""
         st.rerun()
-    if st.sidebar.button("Crear borrador automatico", type="primary", use_container_width=True):
+    if st.sidebar.button("Generar contactos observados", type="primary", use_container_width=True):
         if not errores:
             st.session_state.contactos = contactos_observados(
                 sondeos, st.session_state.datos["Intervalos"], st.session_state.datos["Unidades"]
             )
-            try:
-                st.session_state.zonas, _ = construir_zonas(sondeos, st.session_state.contactos, [])
-                st.rerun()
-            except RuntimeError as exc:
-                st.sidebar.error(str(exc))
+            st.rerun()
     st.sidebar.divider()
     st.sidebar.markdown("### Estado")
     if errores:
@@ -119,7 +100,7 @@ def _estado_sidebar() -> None:
         st.sidebar.markdown('<div class="status-ok">Entradas comprobadas</div>', unsafe_allow_html=True)
     st.sidebar.markdown(
         f'<p class="metric-line">{len(sondeos)} sondeos · {len(dpsh)} DPSH · '
-        f'{len(st.session_state.contactos)} contactos · {len(st.session_state.zonas)} zonas · {len(avisos)} avisos</p>',
+        f'{len(st.session_state.contactos)} contactos · {len(avisos)} avisos</p>',
         unsafe_allow_html=True,
     )
     st.sidebar.divider()
@@ -135,9 +116,7 @@ def _estado_sidebar() -> None:
             proyecto_nuevo, datos_nuevos = proyecto_desde_json(carga.getvalue())
             st.session_state.proyecto = proyecto_nuevo
             st.session_state.contactos = proyecto_nuevo.contactos
-            st.session_state.zonas = proyecto_nuevo.zonas
             st.session_state.datos = datos_nuevos
-            st.session_state.hipotesis_referencia = ""
             st.rerun()
         except (ValueError, KeyError, TypeError) as exc:
             st.sidebar.error(f"Proyecto no valido: {exc}")
@@ -188,7 +167,6 @@ def vista_datos() -> None:
             try:
                 st.session_state.datos = leer_excel(BytesIO(excel.getvalue()))
                 st.session_state.contactos = []
-                st.session_state.zonas = []
                 st.rerun()
             except (ValueError, KeyError) as exc:
                 st.error(str(exc))
@@ -197,9 +175,7 @@ def vista_datos() -> None:
     editada = st.data_editor(tabla, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"tabla-{tabla_nombre}")
     if st.button("Guardar cambios de tabla"):
         st.session_state.datos[tabla_nombre] = editada
-        if tabla_nombre in {"Sondeos", "Intervalos", "Unidades", "Eje"}:
-            st.session_state.contactos = []
-            st.session_state.zonas = []
+        st.session_state.contactos = [] if tabla_nombre in {"Sondeos", "Intervalos", "Unidades", "Eje"} else st.session_state.contactos
         st.success("Tabla actualizada. Las validaciones se han recalculado.")
     _, _, errores, avisos = _datos_geometricos()
     if errores:
@@ -221,7 +197,6 @@ def vista_trazado() -> None:
     if st.button("Aplicar eje", type="primary"):
         st.session_state.datos["Eje"] = eje.sort_values("orden").reset_index(drop=True)
         st.session_state.contactos = []
-        st.session_state.zonas = []
         st.rerun()
     sondeos, dpsh, errores, avisos = _datos_geometricos()
     if errores:
@@ -250,242 +225,82 @@ def vista_trazado() -> None:
         st.warning(aviso)
 
 
-def _contactos_desde_cad(datos: list[dict]) -> list[Contacto]:
-    """Valida y reconstruye los contactos enviados por el lienzo."""
-    resultado: list[Contacto] = []
-    identificadores: set[str] = set()
-    for bruto in datos:
-        identificador = str(bruto.get("contacto_id", "")).strip()
-        if not identificador or identificador in identificadores:
-            raise ValueError("Cada contacto debe tener un identificador unico.")
-        identificadores.add(identificador)
-        vertices = [
-            VerticeContacto(
-                s_m=float(punto["s_m"]), z_m=float(punto["z_m"]),
-                origen=str(punto.get("origen", "interpretado")),
-                referencia=str(punto.get("referencia", "")),
-                interfaz_id=str(punto.get("interfaz_id", "")),
-            )
-            for punto in bruto.get("vertices", [])
-        ]
-        contacto = Contacto(
-            contacto_id=identificador,
-            nombre=str(bruto.get("nombre", identificador)),
-            unidad_superior=str(bruto.get("unidad_superior", "")),
-            unidad_inferior=str(bruto.get("unidad_inferior", "")),
-            color=str(bruto.get("color", "#334155")),
-            vertices=vertices,
-            visible=bool(bruto.get("visible", True)),
-            bloqueado=bool(bruto.get("bloqueado", False)),
-            evidencia=str(bruto.get("evidencia", "interpretado")),
-            incertidumbre_m=max(0.0, float(bruto.get("incertidumbre_m", 0.0))),
-        )
-        contacto.ordenar()
-        resultado.append(contacto)
-    return resultado
+def _ordenar_contactos(contactos: list[Contacto]) -> list[Contacto]:
+    unidades = st.session_state.datos["Unidades"]
+    orden = dict(zip(unidades["unidad_id"].astype(str), unidades["orden"].astype(float)))
+    return sorted(contactos, key=lambda item: orden.get(item.unidad_inferior, 1e9))
 
 
 def vista_interpretacion() -> None:
-    st.header("MiniCAD de interpretacion")
+    st.header("Interpretacion de contactos")
     st.markdown(
-        '<p class="section-note">Dibuje contactos o lentes, ajuste vertices a interfaces observadas y asigne unidad y trama a cada zona cerrada.</p>',
+        '<p class="section-note">Edite polilineas en coordenadas reales. Los puntos observados conservan su referencia al sondeo.</p>',
         unsafe_allow_html=True,
     )
     sondeos, dpsh, errores, _ = _datos_geometricos()
     if errores:
         st.error("Corrija los datos y el eje antes de interpretar contactos.")
         return
-
-    interfaces = interfaces_observadas(sondeos, st.session_state.datos["Intervalos"])
-    vinculos_desactualizados = vinculos_observados_desactualizados(
-        st.session_state.contactos, interfaces
-    )
-    if vinculos_desactualizados:
-        aviso, accion = st.columns([4, 1])
-        aviso.warning(
-            f"Hay {len(vinculos_desactualizados)} vertices vinculados a sondeos cuya posicion "
-            "ha cambiado o cuya interfaz ya no existe. Los contactos bloqueados no se actualizaran."
+    if not st.session_state.contactos:
+        st.info("Aun no hay contactos. Genere la interpretacion inicial desde las columnas de sondeo.")
+        if st.button("Generar interpretacion inicial", type="primary"):
+            st.session_state.contactos = contactos_observados(
+                sondeos, st.session_state.datos["Intervalos"], st.session_state.datos["Unidades"]
+            )
+            st.rerun()
+        return
+    st.session_state.contactos = _ordenar_contactos(st.session_state.contactos)
+    nombres = {c.contacto_id: c.nombre for c in st.session_state.contactos}
+    seleccionado = st.selectbox("Contacto activo", list(nombres), format_func=nombres.get)
+    contacto = next(c for c in st.session_state.contactos if c.contacto_id == seleccionado)
+    propiedades, editor = st.columns([0.34, 0.66])
+    with propiedades:
+        st.text_input("Unidad superior", contacto.unidad_superior, disabled=True)
+        st.text_input("Unidad inferior", contacto.unidad_inferior, disabled=True)
+        contacto.nombre = st.text_input("Nombre", contacto.nombre)
+        contacto.color = st.color_picker("Color de linea", contacto.color)
+        st.caption("Origen: observado, interpretado o extrapolado.")
+    with editor:
+        tabla = vertices_a_dataframe(contacto)
+        editada = st.data_editor(
+            tabla, num_rows="dynamic", use_container_width=True, hide_index=True,
+            column_config={
+                "origen": st.column_config.SelectboxColumn(
+                    "origen", options=["observado", "interpretado", "extrapolado"], required=True
+                ),
+                "s_m": st.column_config.NumberColumn("s (m)", format="%.3f"),
+                "z_m": st.column_config.NumberColumn("cota (m)", format="%.3f"),
+            },
+            key=f"vertices-{seleccionado}",
         )
-        if accion.button("Actualizar vinculos", use_container_width=True):
-            actualizar_vinculos_observados(st.session_state.contactos, interfaces)
+        if st.button("Aplicar vertices", type="primary"):
             try:
-                st.session_state.zonas, avisos = construir_zonas(
-                    sondeos, st.session_state.contactos, st.session_state.zonas
-                )
-                st.session_state.avisos_topologia = avisos
-                st.rerun()
-            except RuntimeError as exc:
+                actualizar_vertices(contacto, editada)
+                st.success("Contacto actualizado.")
+            except ValueError as exc:
                 st.error(str(exc))
-
-    acciones = st.columns([1, 1, 2])
-    if acciones[0].button("Generar borrador automatico", use_container_width=True):
-        st.session_state.contactos = contactos_observados(
-            sondeos, st.session_state.datos["Intervalos"], st.session_state.datos["Unidades"]
-        )
-        try:
-            st.session_state.zonas, avisos = construir_zonas(sondeos, st.session_state.contactos, [])
-            st.session_state.avisos_topologia = avisos
-        except RuntimeError as exc:
-            st.error(str(exc))
-        st.rerun()
-    if acciones[1].button("Recalcular zonas", use_container_width=True):
-        try:
-            st.session_state.zonas, avisos = construir_zonas(
-                sondeos, st.session_state.contactos, st.session_state.zonas
-            )
-            st.session_state.avisos_topologia = avisos
-            st.rerun()
-        except RuntimeError as exc:
-            st.error(str(exc))
-    acciones[2].caption(
-        "Ajuste activo: los vertices cercanos se vinculan a interfaces observadas; Alt lo omite. "
-        "Use Mayusculas + arrastre para desplazar el lienzo y Supr para borrar la seleccion."
+    cruces = detectar_cruces(_ordenar_contactos(st.session_state.contactos))
+    for aviso in cruces:
+        st.error(aviso)
+    figura = crear_figura_perfil(
+        st.session_state.proyecto, sondeos, st.session_state.datos["Intervalos"],
+        st.session_state.datos["Unidades"], st.session_state.contactos, dpsh,
+        st.session_state.datos["Lecturas_DPSH"], escala_dpsh=0.12,
     )
-
-    with st.expander("Hipotesis y comparacion"):
-        st.caption("Guarde primero los cambios del miniCAD antes de crear una hipotesis.")
-        columnas = st.columns([2, 1, 2, 1, 1])
-        nombre_hipotesis = columnas[0].text_input(
-            "Nombre", placeholder="Ej. Hipotesis A", label_visibility="collapsed",
-            key="nombre-nueva-hipotesis",
-        ).strip()
-        if columnas[1].button("Guardar", use_container_width=True, disabled=not nombre_hipotesis):
-            nueva = {
-                "nombre": nombre_hipotesis,
-                "creada": datetime.now().astimezone().isoformat(timespec="seconds"),
-                "contactos": [asdict(contacto) for contacto in st.session_state.contactos],
-                "zonas": list(st.session_state.zonas),
-            }
-            existentes = st.session_state.proyecto.hipotesis
-            st.session_state.proyecto.hipotesis = [
-                hipotesis for hipotesis in existentes if hipotesis.get("nombre") != nombre_hipotesis
-            ] + [nueva]
-            st.rerun()
-        nombres_hipotesis = [
-            str(hipotesis.get("nombre", "")) for hipotesis in st.session_state.proyecto.hipotesis
-            if hipotesis.get("nombre")
-        ]
-        seleccion_hipotesis = columnas[2].selectbox(
-            "Hipotesis", [""] + nombres_hipotesis,
-            format_func=lambda valor: valor or "Seleccionar hipotesis",
-            label_visibility="collapsed", key="selector-hipotesis",
-        )
-        if columnas[3].button("Cargar", use_container_width=True, disabled=not seleccion_hipotesis):
-            hipotesis = next(
-                item for item in st.session_state.proyecto.hipotesis
-                if item.get("nombre") == seleccion_hipotesis
-            )
-            st.session_state.contactos = _contactos_desde_cad(hipotesis.get("contactos", []))
-            st.session_state.zonas = list(hipotesis.get("zonas", []))
-            st.session_state.hipotesis_referencia = ""
-            st.rerun()
-        if columnas[4].button("Borrar", use_container_width=True, disabled=not seleccion_hipotesis):
-            st.session_state.proyecto.hipotesis = [
-                item for item in st.session_state.proyecto.hipotesis
-                if item.get("nombre") != seleccion_hipotesis
-            ]
-            if st.session_state.hipotesis_referencia == seleccion_hipotesis:
-                st.session_state.hipotesis_referencia = ""
-            st.rerun()
-        st.selectbox(
-            "Superponer como referencia", [""] + nombres_hipotesis,
-            format_func=lambda valor: valor or "Ninguna",
-            key="hipotesis_referencia",
-        )
-
-    contactos_referencia: list[Contacto] = []
-    if st.session_state.hipotesis_referencia:
-        referencia = next(
-            (item for item in st.session_state.proyecto.hipotesis
-             if item.get("nombre") == st.session_state.hipotesis_referencia),
-            None,
-        )
-        if referencia:
-            contactos_referencia = _contactos_desde_cad(referencia.get("contactos", []))
-
-    modelo = modelo_minicad(
-        sondeos, st.session_state.datos["Intervalos"], st.session_state.datos["Unidades"],
-        st.session_state.contactos, st.session_state.zonas, dpsh,
-        st.session_state.datos["Lecturas_DPSH"],
-        contactos_referencia=contactos_referencia,
-    )
-    respuesta = minicad_geologico(modelo, key="minicad-principal")
-    if isinstance(respuesta, str):
-        try:
-            respuesta = json.loads(respuesta)
-        except json.JSONDecodeError:
-            respuesta = None
-    if respuesta and respuesta.get("action") == "save":
-        evento = respuesta.get("event_id")
-        if evento != st.session_state.ultimo_evento_cad:
-            try:
-                contactos = _contactos_desde_cad(respuesta.get("contactos", []))
-                if respuesta.get("limpiar_interpretacion") and not contactos:
-                    zonas, avisos = [], []
-                else:
-                    zonas, avisos = construir_zonas(
-                        sondeos, contactos, list(respuesta.get("zonas", []))
-                    )
-                st.session_state.contactos = contactos
-                st.session_state.zonas = zonas
-                st.session_state.avisos_topologia = avisos
-                st.session_state.ultimo_evento_cad = evento
-                st.session_state.proyecto.contactos = contactos
-                st.session_state.proyecto.zonas = zonas
-                st.rerun()
-            except (ValueError, RuntimeError, KeyError, TypeError) as exc:
-                st.error(f"No se pudo guardar la interpretacion: {exc}")
-
-    for aviso in st.session_state.get("avisos_topologia", []):
-        st.warning(aviso)
-    if st.session_state.zonas:
-        sin_asignar = sum(not zona.get("unidad_id") for zona in st.session_state.zonas)
-        if sin_asignar:
-            st.info(f"Asigne unidad y trama a {sin_asignar} zonas desde el modo Pintar zona o desde la tabla avanzada.")
-        else:
-            st.success("Todas las zonas tienen unidad asignada.")
-
-    with st.expander("Edicion numerica y tabla de zonas"):
-        if st.session_state.contactos:
-            nombres = {c.contacto_id: c.nombre for c in st.session_state.contactos}
-            seleccionado = st.selectbox("Contacto", list(nombres), format_func=nombres.get)
-            contacto = next(c for c in st.session_state.contactos if c.contacto_id == seleccionado)
-            editada = st.data_editor(
-                vertices_a_dataframe(contacto), num_rows="dynamic", use_container_width=True, hide_index=True,
-                column_config={
-                    "origen": st.column_config.SelectboxColumn(
-                        "origen", options=["observado", "proyectado", "interpretado", "inferido_acunamiento"], required=True
-                    ),
-                    "s_m": st.column_config.NumberColumn("s (m)", format="%.3f"),
-                    "z_m": st.column_config.NumberColumn("cota (m)", format="%.3f"),
-                    "interfaz_id": st.column_config.TextColumn("interfaz vinculada", disabled=True),
-                }, key=f"vertices-avanzado-{seleccionado}",
-            )
-            if st.button("Aplicar coordenadas exactas"):
-                try:
-                    actualizar_vertices(contacto, editada)
-                    st.session_state.zonas, _ = construir_zonas(
-                        sondeos, st.session_state.contactos, st.session_state.zonas
-                    )
-                    st.rerun()
-                except (ValueError, RuntimeError) as exc:
-                    st.error(str(exc))
-        if st.session_state.zonas:
-            tabla_zonas = pd.DataFrame(st.session_state.zonas)[
-                ["zona_id", "etiqueta", "unidad_id", "trama", "area_m2"]
-            ]
-            unidades = st.session_state.datos["Unidades"]["unidad_id"].astype(str).tolist()
-            tabla_editada = st.data_editor(
-                tabla_zonas, use_container_width=True, hide_index=True, disabled=["zona_id", "etiqueta", "area_m2"],
-                column_config={
-                    "unidad_id": st.column_config.SelectboxColumn("unidad", options=unidades),
-                    "trama": st.column_config.SelectboxColumn("trama", options=list(TRAMAS)),
-                    "area_m2": st.column_config.NumberColumn("area grafica (m2)", format="%.2f"),
-                }, key="tabla-zonas",
-            )
-            if st.button("Aplicar unidades y tramas"):
-                st.session_state.zonas = asignar_estilos_zonas(
-                    st.session_state.zonas, tabla_editada, st.session_state.datos["Unidades"]
+    st.plotly_chart(figura, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
+    with st.expander("Crear contacto manual"):
+        unidades = st.session_state.datos["Unidades"]["unidad_id"].astype(str).tolist()
+        nuevo_id = st.text_input("Identificador", "contacto_manual")
+        nueva_sup = st.selectbox("Unidad superior", unidades, key="nueva-sup")
+        nueva_inf = st.selectbox("Unidad inferior", unidades, index=min(1, len(unidades) - 1), key="nueva-inf")
+        if st.button("Crear contacto vacio"):
+            if any(c.contacto_id == nuevo_id for c in st.session_state.contactos):
+                st.error("El identificador ya existe.")
+            elif nueva_sup == nueva_inf:
+                st.error("Las unidades superior e inferior deben ser distintas.")
+            else:
+                st.session_state.contactos.append(
+                    Contacto(nuevo_id, nuevo_id.replace("_", " ").title(), nueva_sup, nueva_inf)
                 )
                 st.rerun()
 
@@ -504,15 +319,15 @@ def vista_perfil() -> None:
     figura = crear_figura_perfil(
         st.session_state.proyecto, sondeos, st.session_state.datos["Intervalos"],
         st.session_state.datos["Unidades"], st.session_state.contactos, dpsh,
-        st.session_state.datos["Lecturas_DPSH"], zonas=st.session_state.zonas,
-        escala_dpsh=escala, mostrar_rellenos=rellenos, mostrar_dpsh=mostrar_dpsh,
+        st.session_state.datos["Lecturas_DPSH"], escala, rellenos, mostrar_dpsh,
     )
     st.plotly_chart(figura, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
-    sin_asignar = sum(not zona.get("unidad_id") for zona in st.session_state.zonas)
-    if sin_asignar:
-        st.warning(f"Hay {sin_asignar} zonas sin unidad asignada.")
-    elif st.session_state.zonas:
-        st.success("Zonas topologicas calculadas y asignadas.")
+    cruces = detectar_cruces(_ordenar_contactos(st.session_state.contactos))
+    if cruces:
+        for aviso in cruces:
+            st.error(aviso)
+    elif st.session_state.contactos:
+        st.success("Contactos sin cruces detectados en el muestreo numerico.")
     for aviso in avisos:
         st.warning(aviso)
 
@@ -526,13 +341,11 @@ def vista_exportacion() -> None:
         return
     proyecto: Proyecto = st.session_state.proyecto
     proyecto.contactos = st.session_state.contactos
-    proyecto.zonas = st.session_state.zonas
     datos = st.session_state.datos
     escala = st.number_input("Escala DPSH para PDF (m/golpe)", 0.01, 1.0, 0.12, 0.01)
     figura = crear_figura_perfil(
         proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
-        st.session_state.contactos, dpsh, datos["Lecturas_DPSH"],
-        zonas=st.session_state.zonas, escala_dpsh=escala,
+        st.session_state.contactos, dpsh, datos["Lecturas_DPSH"], escala,
     )
     col1, col2, col3 = st.columns(3)
     col1.download_button("Proyecto JSON", proyecto_a_json(proyecto, datos), "perfil_geologico.json", "application/json", use_container_width=True)
@@ -542,15 +355,11 @@ def vista_exportacion() -> None:
                          "perfil_interactivo.html", "text/html", use_container_width=True)
     col4, col5, col6 = st.columns(3)
     col4.download_button("Contactos CSV", contactos_a_csv(st.session_state.contactos), "contactos.csv", "text/csv", use_container_width=True)
-    col5.download_button(
-        "Geometria DXF", contactos_a_dxf(st.session_state.contactos, st.session_state.zonas),
-        "perfil_geologico.dxf", "application/dxf", use_container_width=True,
-    )
+    col5.download_button("Contactos DXF", contactos_a_dxf(st.session_state.contactos), "contactos.dxf", "application/dxf", use_container_width=True)
     try:
         pdf = figura_perfil_pdf(
             proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
             st.session_state.contactos, dpsh, datos["Lecturas_DPSH"], escala,
-            zonas=st.session_state.zonas,
         )
         col6.download_button("Plano PDF", pdf, "perfil_geologico.pdf", "application/pdf", use_container_width=True)
     except ImportError:

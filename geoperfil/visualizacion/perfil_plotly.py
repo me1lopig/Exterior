@@ -37,7 +37,6 @@ def crear_figura_perfil(
     contactos: list[Contacto],
     dpsh: pd.DataFrame,
     lecturas_dpsh: pd.DataFrame,
-    zonas: list[dict] | None = None,
     escala_dpsh: float = 0.12,
     mostrar_rellenos: bool = True,
     mostrar_dpsh: bool = True,
@@ -62,34 +61,7 @@ def crear_figura_perfil(
     z_sup = np.interp(estaciones, s_terreno, z_terreno)
 
     contactos_orden = sorted(contactos, key=lambda c: orden.get(c.unidad_inferior, 1e9))
-    zonas = zonas or []
-    if mostrar_rellenos and zonas:
-        tramas = {
-            "sin_trama": "", "horizontal": "-", "vertical": "|", "diagonal_45": "/",
-            "diagonal_135": "\\", "cruzada": "x", "puntos": ".", "grava": "o", "roca": "+",
-        }
-        unidades_mostradas: set[str] = set()
-        for zona in sorted(zonas, key=lambda item: float(item.get("area_m2", 0.0)), reverse=True):
-            coordenadas = zona.get("coordenadas", [])
-            if len(coordenadas) < 3:
-                continue
-            unidad = str(zona.get("unidad_id", ""))
-            x = [p[0] for p in coordenadas] + [coordenadas[0][0]]
-            y = [p[1] for p in coordenadas] + [coordenadas[0][1]]
-            figura.add_trace(
-                go.Scatter(
-                    x=x, y=y, mode="lines", fill="toself",
-                    line={"color": "rgba(70,80,90,0.45)", "width": 0.7},
-                    fillcolor=_rgba(str(zona.get("color", "#D9DDE2")), 0.58),
-                    fillpattern={"shape": tramas.get(str(zona.get("trama", "sin_trama")), "")},
-                    name=nombres.get(unidad, unidad or "Sin asignar"),
-                    legendgroup=f"unidad-{unidad}", showlegend=unidad not in unidades_mostradas,
-                    customdata=[[zona.get("etiqueta", ""), unidad]] * len(x),
-                    hovertemplate="%{customdata[0]}<br>unidad=%{customdata[1]}<extra></extra>",
-                )
-            )
-            unidades_mostradas.add(unidad)
-    elif mostrar_rellenos:
+    if mostrar_rellenos:
         for contacto in contactos_orden:
             z_inf = interpolar_contacto(contacto, estaciones)
             mascara = np.isfinite(z_sup) & np.isfinite(z_inf)

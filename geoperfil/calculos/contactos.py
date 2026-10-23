@@ -26,7 +26,7 @@ def contactos_observados(
             continue
         filas = list(grupo.sort_values("desde_m").itertuples(index=False))
         datos_sondeo = sondeos.loc[sondeo_id]
-        for indice, (actual, siguiente) in enumerate(zip(filas[:-1], filas[1:]), start=1):
+        for actual, siguiente in zip(filas[:-1], filas[1:]):
             superior = str(actual.unidad_id)
             inferior = str(siguiente.unidad_id)
             if superior == inferior:
@@ -38,7 +38,6 @@ def contactos_observados(
                     z_m=z_contacto,
                     origen="observado",
                     referencia=str(sondeo_id),
-                    interfaz_id=f"{sondeo_id}:I{indice:03d}",
                 )
             )
 
@@ -52,74 +51,11 @@ def contactos_observados(
             unidad_superior=superior,
             unidad_inferior=inferior,
             color=colores.get(inferior, "#334155"),
-            vertices=sorted(unicos.values(), key=lambda punto: punto.s_m),
+            vertices=list(unicos.values()),
         )
         contacto.ordenar()
         contactos.append(contacto)
     return contactos
-
-
-def interfaces_observadas(
-    sondeos_proyectados: pd.DataFrame,
-    intervalos: pd.DataFrame,
-) -> dict[str, tuple[float, float]]:
-    """Devuelve la posicion vigente de cada interfaz identificada por sondeo y profundidad."""
-    sondeos = sondeos_proyectados.set_index("sondeo_id")
-    resultado: dict[str, tuple[float, float]] = {}
-    for sondeo_id, grupo in intervalos.groupby("sondeo_id"):
-        if sondeo_id not in sondeos.index:
-            continue
-        datos_sondeo = sondeos.loc[sondeo_id]
-        for indice, tramo in enumerate(
-            list(grupo.sort_values("desde_m").itertuples(index=False))[1:], start=1
-        ):
-            profundidad = float(tramo.desde_m)
-            interfaz_id = f"{sondeo_id}:I{indice:03d}"
-            resultado[interfaz_id] = (
-                float(datos_sondeo["s_m"]),
-                float(datos_sondeo["cota_boca_m"]) - profundidad,
-            )
-    return resultado
-
-
-def vinculos_observados_desactualizados(
-    contactos: Iterable[Contacto],
-    interfaces: dict[str, tuple[float, float]],
-    tolerancia_m: float = 1e-4,
-) -> list[tuple[str, int, str]]:
-    """Localiza vertices vinculados cuya interfaz falta o ha cambiado de posicion."""
-    resultado: list[tuple[str, int, str]] = []
-    for contacto in contactos:
-        for indice, vertice in enumerate(contacto.vertices):
-            if not vertice.interfaz_id:
-                continue
-            posicion = interfaces.get(vertice.interfaz_id)
-            if posicion is None:
-                resultado.append((contacto.contacto_id, indice, "interfaz no disponible"))
-                continue
-            diferencia = float(np.hypot(vertice.s_m - posicion[0], vertice.z_m - posicion[1]))
-            if diferencia > tolerancia_m:
-                resultado.append((contacto.contacto_id, indice, f"desplazamiento {diferencia:.3f} m"))
-    return resultado
-
-
-def actualizar_vinculos_observados(
-    contactos: Iterable[Contacto],
-    interfaces: dict[str, tuple[float, float]],
-) -> int:
-    """Actualiza explicitamente vertices vinculados y devuelve el numero modificado."""
-    actualizados = 0
-    for contacto in contactos:
-        if contacto.bloqueado:
-            continue
-        for vertice in contacto.vertices:
-            posicion = interfaces.get(vertice.interfaz_id)
-            if not vertice.interfaz_id or posicion is None:
-                continue
-            if vertice.s_m != posicion[0] or vertice.z_m != posicion[1]:
-                vertice.s_m, vertice.z_m = posicion
-                actualizados += 1
-    return actualizados
 
 
 def interpolar_contacto(contacto: Contacto, estaciones: np.ndarray) -> np.ndarray:
@@ -128,12 +64,6 @@ def interpolar_contacto(contacto: Contacto, estaciones: np.ndarray) -> np.ndarra
         return np.full_like(estaciones, np.nan, dtype=float)
     x = np.array([p.s_m for p in contacto.vertices], dtype=float)
     z = np.array([p.z_m for p in contacto.vertices], dtype=float)
-    orden = np.argsort(x)
-    x, z = x[orden], z[orden]
-    x, indices = np.unique(x, return_index=True)
-    z = z[indices]
-    if len(x) < 2:
-        return np.full_like(estaciones, np.nan, dtype=float)
     valores = np.interp(estaciones, x, z)
     valores[(estaciones < x.min()) | (estaciones > x.max())] = np.nan
     return valores
@@ -146,8 +76,8 @@ def detectar_cruces(contactos: Iterable[Contacto], muestras: int = 401) -> list[
     for superior, inferior in zip(lista[:-1], lista[1:]):
         if len(superior.vertices) < 2 or len(inferior.vertices) < 2:
             continue
-        inicio = max(min(p.s_m for p in superior.vertices), min(p.s_m for p in inferior.vertices))
-        fin = min(max(p.s_m for p in superior.vertices), max(p.s_m for p in inferior.vertices))
+        inicio = max(superior.vertices[0].s_m, inferior.vertices[0].s_m)
+        fin = min(superior.vertices[-1].s_m, inferior.vertices[-1].s_m)
         if fin <= inicio:
             continue
         estaciones = np.linspace(inicio, fin, muestras)
@@ -169,11 +99,10 @@ def vertices_a_dataframe(contacto: Contacto) -> pd.DataFrame:
                 "z_m": punto.z_m,
                 "origen": punto.origen,
                 "referencia": punto.referencia,
-                "interfaz_id": punto.interfaz_id,
             }
             for punto in contacto.vertices
         ],
-        columns=["s_m", "z_m", "origen", "referencia", "interfaz_id"],
+        columns=["s_m", "z_m", "origen", "referencia"],
     )
 
 
@@ -187,7 +116,6 @@ def actualizar_vertices(contacto: Contacto, tabla: pd.DataFrame) -> Contacto:
                 z_m=float(fila.z_m),
                 origen=str(getattr(fila, "origen", "interpretado")),
                 referencia=str(getattr(fila, "referencia", "")),
-                interfaz_id=str(getattr(fila, "interfaz_id", "")),
             )
         )
     contacto.vertices = vertices

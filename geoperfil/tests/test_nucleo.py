@@ -6,16 +6,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from perfil_geologico.calculos.contactos import (
-    actualizar_vinculos_observados,
-    contactos_observados,
-    detectar_cruces,
-    interfaces_observadas,
-    interpolar_contacto,
-    vinculos_observados_desactualizados,
-)
+from perfil_geologico.calculos.contactos import contactos_observados, detectar_cruces, interpolar_contacto
 from perfil_geologico.calculos.proyeccion import longitud_eje, proyectar_puntos
-from perfil_geologico.calculos.zonas import construir_zonas
 from perfil_geologico.modelos.dominio import Contacto, Proyecto, VerticeContacto
 from perfil_geologico.servicios.datos_demo import crear_datos_demo
 from perfil_geologico.servicios.exportacion import contactos_a_dxf
@@ -67,28 +59,8 @@ class DatosTests(unittest.TestCase):
         punto_s1 = next(p for p in primer_contacto.vertices if p.referencia == "S-01")
         self.assertAlmostEqual(punto_s1.z_m, 112.4 - 1.4)
 
-    def test_polygonizacion_del_borrador(self) -> None:
-        try:
-            import shapely  # noqa: F401
-        except ImportError:
-            self.skipTest("Shapely no esta disponible en el entorno de pruebas.")
-        sondeos = proyectar_puntos(self.datos["Sondeos"], self.datos["Eje"])
-        contactos = contactos_observados(sondeos, self.datos["Intervalos"], self.datos["Unidades"])
-        zonas, avisos = construir_zonas(sondeos, contactos)
-        self.assertEqual(len(zonas), 4)
-        self.assertTrue(any("sin unidad" in aviso for aviso in avisos))
-
 
 class ContactosTests(unittest.TestCase):
-    def test_contacto_cerrado_conserva_orden_topologico(self) -> None:
-        vertices = [
-            VerticeContacto(0.0, 10.0), VerticeContacto(5.0, 8.0),
-            VerticeContacto(0.0, 6.0), VerticeContacto(0.0, 10.0),
-        ]
-        contacto = Contacto("lente", "Lente", "A", "B", vertices=vertices.copy())
-        contacto.ordenar()
-        self.assertEqual([(p.s_m, p.z_m) for p in contacto.vertices], [(p.s_m, p.z_m) for p in vertices])
-
     def test_interpolacion_sin_extrapolacion(self) -> None:
         contacto = Contacto(
             "c1", "C1", "A", "B", vertices=[VerticeContacto(0.0, 10.0), VerticeContacto(10.0, 5.0)]
@@ -111,59 +83,23 @@ class ContactosTests(unittest.TestCase):
         contacto = Contacto(
             "c1", "C1", "A", "B", vertices=[VerticeContacto(0.0, 10.0), VerticeContacto(10.0, 5.0)]
         )
-        zona = {
-            "unidad_id": "B", "coordenadas": [[0, 10], [10, 10], [10, 5], [0, 5]],
-            "huecos": [],
-        }
-        contenido = contactos_a_dxf([contacto], [zona]).decode("ascii")
+        contenido = contactos_a_dxf([contacto]).decode("ascii")
         self.assertIn("POLYLINE", contenido)
         self.assertIn("10.000000", contenido)
-        self.assertIn("ZONA_B", contenido)
-
-    def test_control_explicito_de_vinculos_observados(self) -> None:
-        datos = crear_datos_demo()
-        sondeos = proyectar_puntos(datos["Sondeos"], datos["Eje"])
-        interfaces = interfaces_observadas(sondeos, datos["Intervalos"])
-        interfaz_id = next(iter(interfaces))
-        s_m, z_m = interfaces[interfaz_id]
-        contacto = Contacto(
-            "c-vinculado", "Contacto vinculado", "A", "B",
-            vertices=[VerticeContacto(s_m, z_m + 0.5, "observado", "S-01", interfaz_id)],
-        )
-        desactualizados = vinculos_observados_desactualizados([contacto], interfaces)
-        self.assertEqual(len(desactualizados), 1)
-        self.assertEqual(actualizar_vinculos_observados([contacto], interfaces), 1)
-        self.assertEqual(vinculos_observados_desactualizados([contacto], interfaces), [])
 
 
 class PersistenciaTests(unittest.TestCase):
     def test_ida_y_vuelta_json(self) -> None:
         datos = crear_datos_demo()
         contacto = Contacto(
-            "c1", "Contacto 1", "A", "B",
-            vertices=[VerticeContacto(1.0, 2.0, "observado", "S-01", "S-01:1.000000")],
-            visible=False, bloqueado=True, evidencia="proyectado", incertidumbre_m=0.4,
+            "c1", "Contacto 1", "A", "B", vertices=[VerticeContacto(1.0, 2.0, "observado", "S-01")]
         )
-        zona = {
-            "zona_id": "Z01-prueba", "coordenadas": [[0, 0], [1, 0], [1, 1]],
-            "unidad_id": "A", "trama": "puntos", "color": "#aaaaaa",
-        }
-        proyecto = Proyecto(
-            nombre="Prueba", contactos=[contacto], zonas=[zona],
-            hipotesis=[{"nombre": "Alternativa", "contactos": [], "zonas": []}],
-        )
+        proyecto = Proyecto(nombre="Prueba", contactos=[contacto])
         contenido = proyecto_a_json(proyecto, datos)
         json.loads(contenido.decode("utf-8"))
         recuperado, tablas = proyecto_desde_json(contenido)
         self.assertEqual(recuperado.nombre, "Prueba")
         self.assertEqual(recuperado.contactos[0].vertices[0].referencia, "S-01")
-        self.assertEqual(recuperado.contactos[0].vertices[0].interfaz_id, "S-01:1.000000")
-        self.assertTrue(recuperado.contactos[0].bloqueado)
-        self.assertFalse(recuperado.contactos[0].visible)
-        self.assertEqual(recuperado.contactos[0].evidencia, "proyectado")
-        self.assertAlmostEqual(recuperado.contactos[0].incertidumbre_m, 0.4)
-        self.assertEqual(recuperado.hipotesis[0]["nombre"], "Alternativa")
-        self.assertEqual(recuperado.zonas[0]["trama"], "puntos")
         self.assertEqual(len(tablas["Sondeos"]), 4)
 
 
