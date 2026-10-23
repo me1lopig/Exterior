@@ -30,7 +30,8 @@ def _rectangulos_sondeos(
     ancho = max(float(sondeos["s_m"].max() - sondeos["s_m"].min()) * 0.006, 0.45)
     for sondeo in sondeos.itertuples(index=False):
         grupo = intervalos[intervalos["sondeo_id"] == sondeo.sondeo_id].sort_values("desde_m")
-        for indice, tramo in enumerate(grupo.itertuples(index=False)):
+        tramos = list(grupo.itertuples(index=False))
+        for indice, tramo in enumerate(tramos):
             techo = float(sondeo.cota_boca_m) - float(tramo.desde_m)
             muro = float(sondeo.cota_boca_m) - float(tramo.hasta_m)
             rectangulos.append(
@@ -45,11 +46,17 @@ def _rectangulos_sondeos(
                 }
             )
             if indice > 0:
+                superior = tramos[indice - 1]
+                interfaz_id = f"{sondeo.sondeo_id}:I{indice:03d}"
                 observados.append(
                     {
                         "s_m": float(sondeo.s_m),
                         "z_m": techo,
                         "referencia": str(sondeo.sondeo_id),
+                        "interfaz_id": interfaz_id,
+                        "profundidad_m": float(tramo.desde_m),
+                        "unidad_superior": str(superior.unidad_id),
+                        "unidad_inferior": str(tramo.unidad_id),
                     }
                 )
     return rectangulos, observados
@@ -80,6 +87,7 @@ def modelo_minicad(
     dpsh: pd.DataFrame,
     lecturas_dpsh: pd.DataFrame,
     escala_dpsh: float = 0.12,
+    contactos_referencia: list[Contacto] | None = None,
 ) -> dict:
     """Convierte el proyecto al modelo JSON del lienzo."""
     s_terreno, z_terreno = linea_terreno(sondeos)
@@ -94,6 +102,7 @@ def modelo_minicad(
         "sondeos": rectangulos,
         "observados": observados,
         "contactos": [asdict(contacto) for contacto in contactos],
+        "contactos_referencia": [asdict(contacto) for contacto in contactos_referencia or []],
         "zonas": zonas,
         "dpsh": _curvas_dpsh(dpsh, lecturas_dpsh, escala_dpsh),
         "unidades": [

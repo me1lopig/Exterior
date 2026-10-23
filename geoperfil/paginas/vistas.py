@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+from datetime import datetime
 from io import BytesIO
 import json
 
@@ -11,7 +13,10 @@ import streamlit as st
 
 from perfil_geologico.calculos.contactos import (
     actualizar_vertices,
+    actualizar_vinculos_observados,
     contactos_observados,
+    interfaces_observadas,
+    vinculos_observados_desactualizados,
     vertices_a_dataframe,
 )
 from perfil_geologico.calculos.proyeccion import proyectar_puntos
@@ -50,6 +55,8 @@ def inicializar_estado() -> None:
         st.session_state.ultimo_evento_cad = None
     if "revision_datos" not in st.session_state:
         st.session_state.revision_datos = 0
+    if "hipotesis_referencia" not in st.session_state:
+        st.session_state.hipotesis_referencia = ""
 
 
 def _datos_geometricos() -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[str]]:
@@ -92,6 +99,7 @@ def _estado_sidebar() -> None:
         st.session_state.datos = crear_datos_demo()
         st.session_state.contactos = []
         st.session_state.zonas = []
+        st.session_state.hipotesis_referencia = ""
         st.rerun()
     if st.sidebar.button("Crear borrador automatico", type="primary", use_container_width=True):
         if not errores:
@@ -129,6 +137,7 @@ def _estado_sidebar() -> None:
             st.session_state.contactos = proyecto_nuevo.contactos
             st.session_state.zonas = proyecto_nuevo.zonas
             st.session_state.datos = datos_nuevos
+            st.session_state.hipotesis_referencia = ""
             st.rerun()
         except (ValueError, KeyError, TypeError) as exc:
             st.sidebar.error(f"Proyecto no valido: {exc}")
@@ -255,6 +264,7 @@ def _contactos_desde_cad(datos: list[dict]) -> list[Contacto]:
                 s_m=float(punto["s_m"]), z_m=float(punto["z_m"]),
                 origen=str(punto.get("origen", "interpretado")),
                 referencia=str(punto.get("referencia", "")),
+                interfaz_id=str(punto.get("interfaz_id", "")),
             )
             for punto in bruto.get("vertices", [])
         ]
@@ -265,6 +275,10 @@ def _contactos_desde_cad(datos: list[dict]) -> list[Contacto]:
             unidad_inferior=str(bruto.get("unidad_inferior", "")),
             color=str(bruto.get("color", "#334155")),
             vertices=vertices,
+            visible=bool(bruto.get("visible", True)),
+            bloqueado=bool(bruto.get("bloqueado", False)),
+            evidencia=str(bruto.get("evidencia", "interpretado")),
+            incertidumbre_m=max(0.0, float(bruto.get("incertidumbre_m", 0.0))),
         )
         contacto.ordenar()
         resultado.append(contacto)
@@ -274,13 +288,34 @@ def _contactos_desde_cad(datos: list[dict]) -> list[Contacto]:
 def vista_interpretacion() -> None:
     st.header("MiniCAD de interpretacion")
     st.markdown(
-        '<p class="section-note">Dibuje los contactos libremente, ajuste vertices a los sondeos y asigne unidad y trama a cada zona cerrada.</p>',
+        '<p class="section-note">Dibuje contactos o lentes, ajuste vertices a interfaces observadas y asigne unidad y trama a cada zona cerrada.</p>',
         unsafe_allow_html=True,
     )
     sondeos, dpsh, errores, _ = _datos_geometricos()
     if errores:
         st.error("Corrija los datos y el eje antes de interpretar contactos.")
         return
+
+    interfaces = interfaces_observadas(sondeos, st.session_state.datos["Intervalos"])
+    vinculos_desactualizados = vinculos_observados_desactualizados(
+        st.session_state.contactos, interfaces
+    )
+    if vinculos_desactualizados:
+        aviso, accion = st.columns([4, 1])
+        aviso.warning(
+            f"Hay {len(vinculos_desactualizados)} vertices vinculados a sondeos cuya posicion "
+            "ha cambiado o cuya interfaz ya no existe. Los contactos bloqueados no se actualizaran."
+        )
+        if accion.button("Actualizar vinculos", use_container_width=True):
+            actualizar_vinculos_observados(st.session_state.contactos, interfaces)
+            try:
+                st.session_state.zonas, avisos = construir_zonas(
+                    sondeos, st.session_state.contactos, st.session_state.zonas
+                )
+                st.session_state.avisos_topologia = avisos
+                st.rerun()
+            except RuntimeError as exc:
+                st.error(str(exc))
 
     acciones = st.columns([1, 1, 2])
     if acciones[0].button("Generar borrador automatico", use_container_width=True):
@@ -303,14 +338,76 @@ def vista_interpretacion() -> None:
         except RuntimeError as exc:
             st.error(str(exc))
     acciones[2].caption(
-        "Ajuste activo: los vertices cercanos se vinculan a interfaces observadas. "
-        "Use Mayusculas + arrastre para desplazar el lienzo."
+        "Ajuste activo: los vertices cercanos se vinculan a interfaces observadas; Alt lo omite. "
+        "Use Mayusculas + arrastre para desplazar el lienzo y Supr para borrar la seleccion."
     )
+
+    with st.expander("Hipotesis y comparacion"):
+        st.caption("Guarde primero los cambios del miniCAD antes de crear una hipotesis.")
+        columnas = st.columns([2, 1, 2, 1, 1])
+        nombre_hipotesis = columnas[0].text_input(
+            "Nombre", placeholder="Ej. Hipotesis A", label_visibility="collapsed",
+            key="nombre-nueva-hipotesis",
+        ).strip()
+        if columnas[1].button("Guardar", use_container_width=True, disabled=not nombre_hipotesis):
+            nueva = {
+                "nombre": nombre_hipotesis,
+                "creada": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "contactos": [asdict(contacto) for contacto in st.session_state.contactos],
+                "zonas": list(st.session_state.zonas),
+            }
+            existentes = st.session_state.proyecto.hipotesis
+            st.session_state.proyecto.hipotesis = [
+                hipotesis for hipotesis in existentes if hipotesis.get("nombre") != nombre_hipotesis
+            ] + [nueva]
+            st.rerun()
+        nombres_hipotesis = [
+            str(hipotesis.get("nombre", "")) for hipotesis in st.session_state.proyecto.hipotesis
+            if hipotesis.get("nombre")
+        ]
+        seleccion_hipotesis = columnas[2].selectbox(
+            "Hipotesis", [""] + nombres_hipotesis,
+            format_func=lambda valor: valor or "Seleccionar hipotesis",
+            label_visibility="collapsed", key="selector-hipotesis",
+        )
+        if columnas[3].button("Cargar", use_container_width=True, disabled=not seleccion_hipotesis):
+            hipotesis = next(
+                item for item in st.session_state.proyecto.hipotesis
+                if item.get("nombre") == seleccion_hipotesis
+            )
+            st.session_state.contactos = _contactos_desde_cad(hipotesis.get("contactos", []))
+            st.session_state.zonas = list(hipotesis.get("zonas", []))
+            st.session_state.hipotesis_referencia = ""
+            st.rerun()
+        if columnas[4].button("Borrar", use_container_width=True, disabled=not seleccion_hipotesis):
+            st.session_state.proyecto.hipotesis = [
+                item for item in st.session_state.proyecto.hipotesis
+                if item.get("nombre") != seleccion_hipotesis
+            ]
+            if st.session_state.hipotesis_referencia == seleccion_hipotesis:
+                st.session_state.hipotesis_referencia = ""
+            st.rerun()
+        st.selectbox(
+            "Superponer como referencia", [""] + nombres_hipotesis,
+            format_func=lambda valor: valor or "Ninguna",
+            key="hipotesis_referencia",
+        )
+
+    contactos_referencia: list[Contacto] = []
+    if st.session_state.hipotesis_referencia:
+        referencia = next(
+            (item for item in st.session_state.proyecto.hipotesis
+             if item.get("nombre") == st.session_state.hipotesis_referencia),
+            None,
+        )
+        if referencia:
+            contactos_referencia = _contactos_desde_cad(referencia.get("contactos", []))
 
     modelo = modelo_minicad(
         sondeos, st.session_state.datos["Intervalos"], st.session_state.datos["Unidades"],
         st.session_state.contactos, st.session_state.zonas, dpsh,
         st.session_state.datos["Lecturas_DPSH"],
+        contactos_referencia=contactos_referencia,
     )
     respuesta = minicad_geologico(modelo, key="minicad-principal")
     if isinstance(respuesta, str):
@@ -323,9 +420,12 @@ def vista_interpretacion() -> None:
         if evento != st.session_state.ultimo_evento_cad:
             try:
                 contactos = _contactos_desde_cad(respuesta.get("contactos", []))
-                zonas, avisos = construir_zonas(
-                    sondeos, contactos, list(respuesta.get("zonas", []))
-                )
+                if respuesta.get("limpiar_interpretacion") and not contactos:
+                    zonas, avisos = [], []
+                else:
+                    zonas, avisos = construir_zonas(
+                        sondeos, contactos, list(respuesta.get("zonas", []))
+                    )
                 st.session_state.contactos = contactos
                 st.session_state.zonas = zonas
                 st.session_state.avisos_topologia = avisos
@@ -354,10 +454,11 @@ def vista_interpretacion() -> None:
                 vertices_a_dataframe(contacto), num_rows="dynamic", use_container_width=True, hide_index=True,
                 column_config={
                     "origen": st.column_config.SelectboxColumn(
-                        "origen", options=["observado", "interpretado", "extrapolado"], required=True
+                        "origen", options=["observado", "proyectado", "interpretado", "inferido_acunamiento"], required=True
                     ),
                     "s_m": st.column_config.NumberColumn("s (m)", format="%.3f"),
                     "z_m": st.column_config.NumberColumn("cota (m)", format="%.3f"),
+                    "interfaz_id": st.column_config.TextColumn("interfaz vinculada", disabled=True),
                 }, key=f"vertices-avanzado-{seleccionado}",
             )
             if st.button("Aplicar coordenadas exactas"):

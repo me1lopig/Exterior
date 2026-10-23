@@ -24,6 +24,7 @@ def contactos_a_csv(contactos: list[Contacto]) -> bytes:
                     "z_m": punto.z_m,
                     "origen": punto.origen,
                     "referencia": punto.referencia,
+                    "interfaz_id": punto.interfaz_id,
                 }
             )
     return pd.DataFrame(filas).to_csv(index=False).encode("utf-8-sig")

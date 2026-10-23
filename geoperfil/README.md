@@ -5,14 +5,23 @@ Aplicacion Streamlit para construir perfiles geologicos 2D a partir de sondeos y
 La carpeta puede renombrarse libremente al desplegarla en Streamlit Cloud.
 En Streamlit Cloud seleccione `app.py` como archivo principal y mantenga `requirements.txt` en la misma carpeta.
 
-## Alcance de la version 0.2
+## Alcance de la version 0.3
 
 - Importacion y edicion de sondeos, intervalos, unidades y DPSH.
 - Ejes rectos o poligonales en coordenadas XY.
 - Proyeccion por minima distancia y control de corredor.
-- MiniCAD SVG para dibujar, seleccionar, mover, insertar y eliminar contactos.
-- Ajuste magnetico a interfaces observadas y vertices existentes.
+- MiniCAD SVG con seleccion jerarquica de vertices, contactos y zonas.
+- Resaltado al pasar el cursor y marcador en aspa sobre interfaces observadas, con profundidad y unidades contiguas.
+- Dibujo de contactos abiertos y lentes cerradas para intercalaciones locales y acunamientos.
+- Movimiento, insercion, eliminacion y division de vertices; union y borrado de contactos.
+- Vaciado de rellenos y limpieza completa de bordes y zonas con confirmacion.
+- Ajuste magnetico a interfaces observadas y vertices existentes, anulable temporalmente con `Alt`.
 - Deshacer, rehacer, zoom, encuadre y desplazamiento del lienzo.
+- Capas, arbol de elementos, visibilidad y bloqueo de contactos.
+- Estados observado, proyectado e interpretado, con banda opcional de incertidumbre grafica.
+- Avisos de autointerseccion, cruces, extremos abiertos y zonas de area anormalmente pequena.
+- Vinculos estables con interfaces de sondeo y actualizacion explicita si cambian los datos originales.
+- Hipotesis alternativas persistentes, recuperables y superponibles como referencia grafica.
 - Borrador automatico opcional desde las columnas de sondeo.
 - Polygonizacion topologica de lentes, intercalaciones y pinzamientos.
 - Asignacion de unidad, color y trama a cada zona cerrada.

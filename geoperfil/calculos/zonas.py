@@ -63,6 +63,7 @@ def construir_zonas(
     contorno = [*zip(s_terreno, z_terreno), (s_terreno[-1], base), (s_terreno[0], base)]
     dominio = Polygon(contorno)
     lineas = [dominio.boundary]
+    lineas_contactos: list[tuple[Contacto, object]] = []
     contactos_validos = 0
     avisos: list[str] = []
     for contacto in contactos:
@@ -77,10 +78,40 @@ def construir_zonas(
         recortada = linea.intersection(dominio)
         if not recortada.is_empty:
             lineas.append(recortada)
+            lineas_contactos.append((contacto, recortada))
             contactos_validos += 1
+
+    tolerancia = max(float(dominio.length) * 1e-6, 1e-5)
+    extremos_abiertos: list[str] = []
+    for contacto, linea in lineas_contactos:
+        if linea.geom_type != "LineString" or linea.is_closed:
+            continue
+        otras = [dominio.boundary, *(otra for otro, otra in lineas_contactos if otro is not contacto)]
+        for extremo in (Point(linea.coords[0]), Point(linea.coords[-1])):
+            if min(extremo.distance(otra) for otra in otras) > tolerancia:
+                extremos_abiertos.append(contacto.nombre)
+                break
+    if extremos_abiertos:
+        nombres = ", ".join(sorted(set(extremos_abiertos)))
+        avisos.append(f"Contactos con extremos libres que no cierran zonas: {nombres}.")
+
+    for indice, (contacto_a, linea_a) in enumerate(lineas_contactos):
+        for contacto_b, linea_b in lineas_contactos[indice + 1:]:
+            if linea_a.crosses(linea_b):
+                avisos.append(
+                    f"Cruce interior entre '{contacto_a.nombre}' y '{contacto_b.nombre}'. "
+                    "Revise si corresponde a una union geologica."
+                )
     red = unary_union(lineas)
     caras = [poligono for poligono in polygonize(red) if dominio.covers(poligono.representative_point())]
     caras.sort(key=lambda p: (-p.centroid.y, p.centroid.x))
+    area_minima = max(float(dominio.area) * 1e-6, 1e-4)
+    caras_pequenas = sum(poligono.area < area_minima for poligono in caras)
+    if caras_pequenas:
+        avisos.append(
+            f"Se han detectado {caras_pequenas} zonas de area grafica muy pequena; "
+            "revise vertices casi coincidentes."
+        )
 
     previas_geometrias = []
     for zona in zonas_previas or []:

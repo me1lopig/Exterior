@@ -6,7 +6,14 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from perfil_geologico.calculos.contactos import contactos_observados, detectar_cruces, interpolar_contacto
+from perfil_geologico.calculos.contactos import (
+    actualizar_vinculos_observados,
+    contactos_observados,
+    detectar_cruces,
+    interfaces_observadas,
+    interpolar_contacto,
+    vinculos_observados_desactualizados,
+)
 from perfil_geologico.calculos.proyeccion import longitud_eje, proyectar_puntos
 from perfil_geologico.calculos.zonas import construir_zonas
 from perfil_geologico.modelos.dominio import Contacto, Proyecto, VerticeContacto
@@ -113,23 +120,49 @@ class ContactosTests(unittest.TestCase):
         self.assertIn("10.000000", contenido)
         self.assertIn("ZONA_B", contenido)
 
+    def test_control_explicito_de_vinculos_observados(self) -> None:
+        datos = crear_datos_demo()
+        sondeos = proyectar_puntos(datos["Sondeos"], datos["Eje"])
+        interfaces = interfaces_observadas(sondeos, datos["Intervalos"])
+        interfaz_id = next(iter(interfaces))
+        s_m, z_m = interfaces[interfaz_id]
+        contacto = Contacto(
+            "c-vinculado", "Contacto vinculado", "A", "B",
+            vertices=[VerticeContacto(s_m, z_m + 0.5, "observado", "S-01", interfaz_id)],
+        )
+        desactualizados = vinculos_observados_desactualizados([contacto], interfaces)
+        self.assertEqual(len(desactualizados), 1)
+        self.assertEqual(actualizar_vinculos_observados([contacto], interfaces), 1)
+        self.assertEqual(vinculos_observados_desactualizados([contacto], interfaces), [])
+
 
 class PersistenciaTests(unittest.TestCase):
     def test_ida_y_vuelta_json(self) -> None:
         datos = crear_datos_demo()
         contacto = Contacto(
-            "c1", "Contacto 1", "A", "B", vertices=[VerticeContacto(1.0, 2.0, "observado", "S-01")]
+            "c1", "Contacto 1", "A", "B",
+            vertices=[VerticeContacto(1.0, 2.0, "observado", "S-01", "S-01:1.000000")],
+            visible=False, bloqueado=True, evidencia="proyectado", incertidumbre_m=0.4,
         )
         zona = {
             "zona_id": "Z01-prueba", "coordenadas": [[0, 0], [1, 0], [1, 1]],
             "unidad_id": "A", "trama": "puntos", "color": "#aaaaaa",
         }
-        proyecto = Proyecto(nombre="Prueba", contactos=[contacto], zonas=[zona])
+        proyecto = Proyecto(
+            nombre="Prueba", contactos=[contacto], zonas=[zona],
+            hipotesis=[{"nombre": "Alternativa", "contactos": [], "zonas": []}],
+        )
         contenido = proyecto_a_json(proyecto, datos)
         json.loads(contenido.decode("utf-8"))
         recuperado, tablas = proyecto_desde_json(contenido)
         self.assertEqual(recuperado.nombre, "Prueba")
         self.assertEqual(recuperado.contactos[0].vertices[0].referencia, "S-01")
+        self.assertEqual(recuperado.contactos[0].vertices[0].interfaz_id, "S-01:1.000000")
+        self.assertTrue(recuperado.contactos[0].bloqueado)
+        self.assertFalse(recuperado.contactos[0].visible)
+        self.assertEqual(recuperado.contactos[0].evidencia, "proyectado")
+        self.assertAlmostEqual(recuperado.contactos[0].incertidumbre_m, 0.4)
+        self.assertEqual(recuperado.hipotesis[0]["nombre"], "Alternativa")
         self.assertEqual(recuperado.zonas[0]["trama"], "puntos")
         self.assertEqual(len(tablas["Sondeos"]), 4)
 
