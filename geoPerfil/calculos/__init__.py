@@ -1,2 +1,0 @@
-"""Motores de calculo geometrico."""
-

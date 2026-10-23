@@ -1,2 +1,0 @@
-"""Importacion, persistencia y exportacion."""
-
