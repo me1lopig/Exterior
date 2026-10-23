@@ -3,19 +3,41 @@
 Aplicacion Streamlit para construir perfiles geologicos 2D a partir de sondeos y representar ensayos DPSH como polilineas `N20`-cota.
 
 La carpeta puede renombrarse libremente al desplegarla en Streamlit Cloud.
+En Streamlit Cloud seleccione `app.py` como archivo principal y mantenga `requirements.txt` en la misma carpeta.
 
-## Alcance de la version 0.1
+## Alcance de la version 0.5
 
 - Importacion y edicion de sondeos, intervalos, unidades y DPSH.
 - Ejes rectos o poligonales en coordenadas XY.
 - Proyeccion por minima distancia y control de corredor.
-- Contactos observados generados desde las columnas de sondeo.
-- Edicion trazable de vertices observados, interpretados y extrapolados.
-- Deteccion numerica de cruces entre contactos consecutivos.
+- MiniCAD SVG simplificado con herramientas para introducir o borrar contactos
+  abiertos y lentejones cerrados, rellenar o vaciar zonas y limpiar toda la
+  interpretacion.
+- Resaltado al pasar el cursor y marcador en aspa sobre interfaces observadas, con profundidad y unidades contiguas.
+- Dibujo de contactos abiertos y lentes cerradas para intercalaciones locales y acunamientos.
+- Seleccion implicita, movimiento de vertices e insercion mediante doble clic,
+  sin recargar la barra principal con operaciones CAD avanzadas.
+- Borrado diferenciado de contactos y lentejones; vaciado de rellenos y limpieza
+  completa de bordes y zonas con confirmacion.
+- Ajuste magnetico a interfaces observadas y vertices existentes, anulable temporalmente con `Alt`.
+- Deshacer, rehacer, zoom, encuadre y desplazamiento del lienzo.
+- Avisos de autointerseccion, cruces, extremos abiertos y zonas de area anormalmente pequena.
+- Vinculos estables con interfaces de sondeo y actualizacion explicita si cambian los datos originales.
+- Hipotesis alternativas persistentes, recuperables y superponibles como referencia grafica.
+- Borrador orientativo opcional y conservador: solo correlaciona interfaces presentes en varios sondeos.
+- Deteccion de intercalaciones locales A-B-A y propuesta de lente cerrada cuando ambos sondeos contiguos confirman la ausencia de B.
+- Tratamiento independiente y con identificadores unicos de unidades alternantes
+  repetidas, por ejemplo A-B-A-B-A.
+- Aviso sin cierre automatico cuando falta cobertura vertical o control lateral suficiente.
+- Acunamientos provisionales a media distancia, siempre identificados como interpretados y editables.
+- Polygonizacion topologica de lentes, intercalaciones y pinzamientos.
+- Asignacion de unidad, color y trama a cada zona cerrada.
 - DPSH representado mediante puntos unidos por segmentos rectos.
+- Separacion segura de tramos DPSH con lagunas de lectura, conservando su
+  estructura tabular para la representacion.
 - Exportacion a JSON, Excel, HTML, CSV, DXF y PDF.
 
-Los DPSH se representan sin convertirlos a SPT, sin clasificar el terreno y sin modificar los contactos. La correlacion geologica sigue siendo una decision tecnica del usuario.
+Los DPSH se representan sin convertirlos a SPT, sin clasificar el terreno y sin modificar los contactos. La correlacion geologica y la asignacion de zonas siguen siendo decisiones tecnicas del usuario.
 
 ## Instalacion
 
@@ -72,8 +94,7 @@ python -m compileall -q perfil_geologico
 
 ## Limitaciones conocidas
 
-- El editor inicial usa una tabla precisa de vertices junto al perfil interactivo. No implementa todavia arrastre persistente de vertices sobre el lienzo.
 - La superficie del terreno se obtiene de las cotas de boca de los sondeos.
-- La interpolacion de contactos es lineal y no extrapola fuera de sus vertices.
 - No se representan todavia fallas ni pliegues volcados.
-- La comprobacion de cruces usa muestreo numerico; no sustituye la revision geologica.
+- Los extremos de los contactos deben alcanzar el contorno o coincidir con otro contacto para dividir una zona.
+- La comprobacion topologica no sustituye la revision geologica del tecnico responsable.

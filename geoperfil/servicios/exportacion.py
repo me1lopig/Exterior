@@ -24,13 +24,14 @@ def contactos_a_csv(contactos: list[Contacto]) -> bytes:
                     "z_m": punto.z_m,
                     "origen": punto.origen,
                     "referencia": punto.referencia,
+                    "interfaz_id": punto.interfaz_id,
                 }
             )
     return pd.DataFrame(filas).to_csv(index=False).encode("utf-8-sig")
 
 
-def contactos_a_dxf(contactos: list[Contacto]) -> bytes:
-    """Genera un DXF ASCII R12 con polilineas en coordenadas s-z."""
+def contactos_a_dxf(contactos: list[Contacto], zonas: list[dict] | None = None) -> bytes:
+    """Genera un DXF ASCII R12 con contactos y contornos de zonas."""
     salida = StringIO()
     salida.write("0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n")
     for contacto in contactos:
@@ -41,6 +42,15 @@ def contactos_a_dxf(contactos: list[Contacto]) -> bytes:
         for punto in contacto.vertices:
             salida.write(f"0\nVERTEX\n8\n{capa}\n10\n{punto.s_m:.6f}\n20\n{punto.z_m:.6f}\n30\n0.0\n")
         salida.write("0\nSEQEND\n")
+    for zona in zonas or []:
+        capa = f"ZONA_{zona.get('unidad_id') or 'SIN_ASIGNAR'}".upper()[:31]
+        for coordenadas in [zona.get("coordenadas", []), *zona.get("huecos", [])]:
+            if len(coordenadas) < 3:
+                continue
+            salida.write(f"0\nPOLYLINE\n8\n{capa}\n66\n1\n70\n1\n")
+            for x, y in coordenadas:
+                salida.write(f"0\nVERTEX\n8\n{capa}\n10\n{float(x):.6f}\n20\n{float(y):.6f}\n30\n0.0\n")
+            salida.write("0\nSEQEND\n")
     salida.write("0\nENDSEC\n0\nEOF\n")
     return salida.getvalue().encode("ascii", errors="replace")
 
@@ -54,10 +64,11 @@ def figura_perfil_pdf(
     dpsh_proyectados: pd.DataFrame,
     lecturas_dpsh: pd.DataFrame,
     escala_dpsh: float,
+    zonas: list[dict] | None = None,
 ) -> bytes:
     """Crea un plano PDF estable con Matplotlib."""
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle
+    from matplotlib.patches import Polygon as MplPolygon, Rectangle
 
     fig, ax = plt.subplots(figsize=(16.5, 8.5), constrained_layout=True)
     colores = dict(zip(unidades["unidad_id"].astype(str), unidades["color"].astype(str)))
@@ -69,26 +80,47 @@ def figura_perfil_pdf(
     superficie = np.interp(estaciones, terreno["s_m"], terreno["cota_boca_m"])
     fondo = float((sondeos_proyectados["cota_boca_m"] - sondeos_proyectados["profundidad_m"]).min()) - 2.0
     contactos_orden = sorted(contactos, key=lambda c: orden_unidades.get(c.unidad_inferior, 1e9))
-    for contacto in contactos_orden:
-        base = interpolar_contacto(contacto, estaciones)
-        mascara = np.isfinite(superficie) & np.isfinite(base)
-        ax.fill_between(
-            estaciones, superficie, base, where=mascara,
-            facecolor=colores.get(contacto.unidad_superior, "#cccccc"), alpha=0.42,
-            linewidth=0, label=nombres.get(contacto.unidad_superior, contacto.unidad_superior), zorder=1,
-        )
-        superficie = np.where(mascara, base, superficie)
-    if contactos_orden:
-        ultima = contactos_orden[-1].unidad_inferior
-        fondo = min(
-            float((sondeos_proyectados["cota_boca_m"] - sondeos_proyectados["profundidad_m"]).min()),
-            float(np.nanmin(superficie)) - 2.0,
-        )
-        ax.fill_between(
-            estaciones, superficie, fondo, where=np.isfinite(superficie),
-            facecolor=colores.get(ultima, "#cccccc"), alpha=0.42, linewidth=0,
-            label=nombres.get(ultima, ultima), zorder=1,
-        )
+    zonas = zonas or []
+    if zonas:
+        tramas = {
+            "sin_trama": None, "horizontal": "---", "vertical": "|||", "diagonal_45": "///",
+            "diagonal_135": "\\\\\\", "cruzada": "xxx", "puntos": "...", "grava": "OO", "roca": "++",
+        }
+        unidades_mostradas: set[str] = set()
+        for zona in sorted(zonas, key=lambda item: float(item.get("area_m2", 0.0)), reverse=True):
+            coordenadas = zona.get("coordenadas", [])
+            if len(coordenadas) < 3:
+                continue
+            unidad = str(zona.get("unidad_id", ""))
+            etiqueta = nombres.get(unidad, unidad or "Sin asignar")
+            parche = MplPolygon(
+                coordenadas, closed=True, facecolor=zona.get("color", "#D9DDE2"), alpha=0.48,
+                edgecolor="#667281", linewidth=0.4, hatch=tramas.get(zona.get("trama", "sin_trama")),
+                label=etiqueta if unidad not in unidades_mostradas else None, zorder=1,
+            )
+            ax.add_patch(parche)
+            unidades_mostradas.add(unidad)
+    else:
+        for contacto in contactos_orden:
+            base = interpolar_contacto(contacto, estaciones)
+            mascara = np.isfinite(superficie) & np.isfinite(base)
+            ax.fill_between(
+                estaciones, superficie, base, where=mascara,
+                facecolor=colores.get(contacto.unidad_superior, "#cccccc"), alpha=0.42,
+                linewidth=0, label=nombres.get(contacto.unidad_superior, contacto.unidad_superior), zorder=1,
+            )
+            superficie = np.where(mascara, base, superficie)
+        if contactos_orden:
+            ultima = contactos_orden[-1].unidad_inferior
+            fondo = min(
+                float((sondeos_proyectados["cota_boca_m"] - sondeos_proyectados["profundidad_m"]).min()),
+                float(np.nanmin(superficie)) - 2.0,
+            )
+            ax.fill_between(
+                estaciones, superficie, fondo, where=np.isfinite(superficie),
+                facecolor=colores.get(ultima, "#cccccc"), alpha=0.42, linewidth=0,
+                label=nombres.get(ultima, ultima), zorder=1,
+            )
     for sondeo in sondeos_proyectados.itertuples(index=False):
         grupo = intervalos[intervalos["sondeo_id"] == sondeo.sondeo_id]
         for tramo in grupo.itertuples(index=False):

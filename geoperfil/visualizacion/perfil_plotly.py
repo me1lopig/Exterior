@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from perfil_geologico.calculos.contactos import interpolar_contacto
+from perfil_geologico.calculos.dpsh import separar_tramos_contiguos
 from perfil_geologico.modelos.dominio import Contacto, Proyecto
 
 
@@ -18,17 +19,6 @@ def _rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
-def _tramos_contiguos(tabla: pd.DataFrame) -> list[pd.DataFrame]:
-    """Separa una serie DPSH cuando faltan lecturas intermedias."""
-    tabla = tabla.sort_values("profundidad_m").dropna(subset=["profundidad_m", "n20"])
-    if len(tabla) < 2:
-        return [tabla] if len(tabla) else []
-    diferencias = np.diff(tabla["profundidad_m"].to_numpy(float))
-    paso = float(np.median(diferencias[diferencias > 0])) if np.any(diferencias > 0) else 0.0
-    cortes = np.where(diferencias > 1.5 * paso)[0] + 1 if paso > 0 else np.array([], dtype=int)
-    return [grupo for grupo in np.split(tabla, cortes) if len(grupo)]
-
-
 def crear_figura_perfil(
     proyecto: Proyecto,
     sondeos: pd.DataFrame,
@@ -37,6 +27,7 @@ def crear_figura_perfil(
     contactos: list[Contacto],
     dpsh: pd.DataFrame,
     lecturas_dpsh: pd.DataFrame,
+    zonas: list[dict] | None = None,
     escala_dpsh: float = 0.12,
     mostrar_rellenos: bool = True,
     mostrar_dpsh: bool = True,
@@ -61,7 +52,34 @@ def crear_figura_perfil(
     z_sup = np.interp(estaciones, s_terreno, z_terreno)
 
     contactos_orden = sorted(contactos, key=lambda c: orden.get(c.unidad_inferior, 1e9))
-    if mostrar_rellenos:
+    zonas = zonas or []
+    if mostrar_rellenos and zonas:
+        tramas = {
+            "sin_trama": "", "horizontal": "-", "vertical": "|", "diagonal_45": "/",
+            "diagonal_135": "\\", "cruzada": "x", "puntos": ".", "grava": "o", "roca": "+",
+        }
+        unidades_mostradas: set[str] = set()
+        for zona in sorted(zonas, key=lambda item: float(item.get("area_m2", 0.0)), reverse=True):
+            coordenadas = zona.get("coordenadas", [])
+            if len(coordenadas) < 3:
+                continue
+            unidad = str(zona.get("unidad_id", ""))
+            x = [p[0] for p in coordenadas] + [coordenadas[0][0]]
+            y = [p[1] for p in coordenadas] + [coordenadas[0][1]]
+            figura.add_trace(
+                go.Scatter(
+                    x=x, y=y, mode="lines", fill="toself",
+                    line={"color": "rgba(70,80,90,0.45)", "width": 0.7},
+                    fillcolor=_rgba(str(zona.get("color", "#D9DDE2")), 0.58),
+                    fillpattern={"shape": tramas.get(str(zona.get("trama", "sin_trama")), "")},
+                    name=nombres.get(unidad, unidad or "Sin asignar"),
+                    legendgroup=f"unidad-{unidad}", showlegend=unidad not in unidades_mostradas,
+                    customdata=[[zona.get("etiqueta", ""), unidad]] * len(x),
+                    hovertemplate="%{customdata[0]}<br>unidad=%{customdata[1]}<extra></extra>",
+                )
+            )
+            unidades_mostradas.add(unidad)
+    elif mostrar_rellenos:
         for contacto in contactos_orden:
             z_inf = interpolar_contacto(contacto, estaciones)
             mascara = np.isfinite(z_sup) & np.isfinite(z_inf)
@@ -162,7 +180,7 @@ def crear_figura_perfil(
     if mostrar_dpsh and not dpsh.empty:
         for ensayo in dpsh.sort_values("s_m").itertuples(index=False):
             grupo = lecturas_dpsh[lecturas_dpsh["ensayo_id"] == ensayo.ensayo_id]
-            for indice, tramo in enumerate(_tramos_contiguos(grupo)):
+            for indice, tramo in enumerate(separar_tramos_contiguos(grupo)):
                 x = float(ensayo.s_m) + tramo["n20"].to_numpy(float) * escala_dpsh
                 z = float(ensayo.cota_inicio_m) - tramo["profundidad_m"].to_numpy(float)
                 figura.add_trace(
