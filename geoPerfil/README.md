@@ -2,6 +2,8 @@
 
 Aplicacion Streamlit para construir perfiles geologicos 2D a partir de sondeos y representar ensayos DPSH como polilineas `N20`-cota.
 
+La carpeta puede renombrarse libremente al desplegarla en Streamlit Cloud.
+
 ## Alcance de la version 0.1
 
 - Importacion y edicion de sondeos, intervalos, unidades y DPSH.
