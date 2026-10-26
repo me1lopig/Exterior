@@ -14,7 +14,6 @@ import streamlit as st
 from perfil_geologico.calculos.contactos import (
     actualizar_vertices,
     actualizar_vinculos_observados,
-    generar_borrador_geologico,
     interfaces_observadas,
     vinculos_observados_desactualizados,
     vertices_a_dataframe,
@@ -23,7 +22,6 @@ from perfil_geologico.calculos.proyeccion import proyectar_puntos
 from perfil_geologico.calculos.zonas import (
     TRAMAS,
     asignar_estilos_zonas,
-    asignar_lentes_del_borrador,
     construir_zonas,
 )
 from perfil_geologico.componentes.minicad import minicad_geologico, modelo_minicad
@@ -90,26 +88,6 @@ def _datos_geometricos() -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[st
     return sondeos, dpsh, errores, avisos
 
 
-def _crear_borrador_orientativo(sondeos: pd.DataFrame) -> None:
-    """Crea el borrador conservando separados datos observados e interpretacion."""
-    contactos, avisos_borrador = generar_borrador_geologico(
-        sondeos, st.session_state.datos["Intervalos"], st.session_state.datos["Unidades"]
-    )
-    zonas, avisos_topologia = construir_zonas(sondeos, contactos, [])
-    zonas = asignar_lentes_del_borrador(
-        zonas, contactos, st.session_state.datos["Unidades"]
-    )
-    avisos_topologia = [
-        aviso for aviso in avisos_topologia if "zonas sin unidad asignada" not in aviso
-    ]
-    sin_asignar = sum(not zona.get("unidad_id") for zona in zonas)
-    if sin_asignar:
-        avisos_topologia.append(f"Hay {sin_asignar} zonas sin unidad asignada.")
-    st.session_state.contactos = contactos
-    st.session_state.zonas = zonas
-    st.session_state.avisos_topologia = [*avisos_borrador, *avisos_topologia]
-
-
 def _estado_sidebar() -> None:
     proyecto: Proyecto = st.session_state.proyecto
     proyecto.contactos = st.session_state.contactos
@@ -119,20 +97,20 @@ def _estado_sidebar() -> None:
     st.sidebar.caption("Introduzca datos, defina el eje y revise la interpretacion antes de exportar.")
     st.sidebar.divider()
     st.sidebar.markdown("### Acciones")
+    confirmar_demo = st.sidebar.checkbox(
+        "Confirmar restablecimiento y descarte de la interpretacion",
+        key="confirmar-demo",
+    ) if st.session_state.contactos or st.session_state.zonas else True
     if st.sidebar.button("Restablecer caso demostrativo", use_container_width=True):
+        if not confirmar_demo:
+            st.sidebar.error("Confirme antes de restablecer.")
+            return
         st.session_state.proyecto = Proyecto()
         st.session_state.datos = crear_datos_demo()
         st.session_state.contactos = []
         st.session_state.zonas = []
         st.session_state.hipotesis_referencia = ""
         st.rerun()
-    if st.sidebar.button("Crear borrador orientativo", type="primary", use_container_width=True):
-        if not errores:
-            try:
-                _crear_borrador_orientativo(sondeos)
-                st.rerun()
-            except RuntimeError as exc:
-                st.sidebar.error(str(exc))
     st.sidebar.divider()
     st.sidebar.markdown("### Estado")
     if errores:
@@ -186,10 +164,15 @@ def vista_proyecto() -> None:
         proyecto.sistema_referencia = st.text_input("Sistema de referencia", proyecto.sistema_referencia)
     with derecha:
         proyecto.corredor_m = st.number_input("Semiancho del corredor (m)", 0.0, 5000.0, proyecto.corredor_m, 5.0)
-        proyecto.exageracion_vertical = st.number_input(
-            "Exageracion vertical", 0.1, 20.0, proyecto.exageracion_vertical, 0.1
-        )
-        st.info("La exageracion afecta al plano exportado. Las coordenadas almacenadas permanecen invariables.")
+        col_h, col_v = st.columns(2)
+        escala_h = col_h.selectbox("Escala H", [100, 200, 500, 1000, 2000, 5000], index=3, key="escala_h")
+        opciones_v = [50, 100, 200, 500, 1000, 2000, 5000]
+        escala_v = col_v.selectbox("Escala V", opciones_v, index=opciones_v.index(
+            min(opciones_v, key=lambda valor: abs(valor - escala_h / max(proyecto.exageracion_vertical, 0.1)))
+        ), key="escala_v")
+        proyecto.exageracion_vertical = escala_h / escala_v
+        st.caption(f"Exageracion vertical: {proyecto.exageracion_vertical:g}x (H 1:{escala_h} / V 1:{escala_v}). "
+                   "Las coordenadas no cambian. Los formatos de impresion precisan escala fisica propia.")
     st.session_state.proyecto = proyecto
 
 
@@ -206,9 +189,23 @@ def vista_datos() -> None:
         )
     with col2:
         excel = st.file_uploader("Importar Excel", type=["xlsx"], label_visibility="collapsed")
+        reemplazar = st.checkbox(
+            "Confirmo que deseo sustituir los datos y descartar la interpretacion actual",
+            value=False, key="confirmar-importacion",
+        ) if st.session_state.contactos or st.session_state.zonas else True
         if excel is not None and st.button("Aplicar datos importados", type="primary", use_container_width=True):
+            if not reemplazar:
+                st.error("Confirme expresamente antes de sustituir el proyecto actual.")
+                return
             try:
-                st.session_state.datos = leer_excel(BytesIO(excel.getvalue()))
+                nuevos = leer_excel(BytesIO(excel.getvalue()))
+                errores, _ = validar_datos(
+                    nuevos["Sondeos"], nuevos["Intervalos"], nuevos["Unidades"],
+                    nuevos["Ensayos_DPSH"], nuevos["Lecturas_DPSH"],
+                )
+                if errores:
+                    raise ValueError("; ".join(errores))
+                st.session_state.datos = nuevos
                 st.session_state.contactos = []
                 st.session_state.zonas = []
                 st.rerun()
@@ -217,12 +214,32 @@ def vista_datos() -> None:
     tabla_nombre = st.selectbox("Tabla editable", TABLAS)
     tabla = st.session_state.datos[tabla_nombre]
     editada = st.data_editor(tabla, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"tabla-{tabla_nombre}")
+    cambia_eje = tabla_nombre == "Eje" and not editada.equals(tabla)
+    confirmar_eje = st.checkbox(
+        "Confirmo que quiero cambiar el eje y descartar contactos y rellenos",
+        key="confirmar-eje-datos",
+    ) if cambia_eje and (st.session_state.contactos or st.session_state.zonas) else True
     if st.button("Guardar cambios de tabla"):
-        st.session_state.datos[tabla_nombre] = editada
-        if tabla_nombre in {"Sondeos", "Intervalos", "Unidades", "Eje"}:
-            st.session_state.contactos = []
-            st.session_state.zonas = []
-        st.success("Tabla actualizada. Las validaciones se han recalculado.")
+        if not confirmar_eje:
+            st.error("Confirme el cambio de eje antes de descartar la interpretacion.")
+        else:
+            nuevos = dict(st.session_state.datos)
+            nuevos[tabla_nombre] = editada
+            errores_nuevos, _ = validar_datos(
+                nuevos["Sondeos"], nuevos["Intervalos"], nuevos["Unidades"],
+                nuevos["Ensayos_DPSH"], nuevos["Lecturas_DPSH"],
+            )
+            if errores_nuevos:
+                st.error("No se guardaron los datos: " + "; ".join(errores_nuevos))
+            else:
+                st.session_state.datos = nuevos
+                if cambia_eje:
+                    st.session_state.contactos = []
+                    st.session_state.zonas = []
+                elif tabla_nombre in {"Sondeos", "Intervalos", "Unidades"}:
+                    st.session_state.revision_datos += 1
+                    st.warning("Revise los vinculos observados y recalcule las zonas si ha cambiado la geometria.")
+                st.success("Tabla actualizada y validada.")
     _, _, errores, avisos = _datos_geometricos()
     if errores:
         for error in errores:
@@ -240,11 +257,22 @@ def vista_trazado() -> None:
         st.session_state.datos["Eje"], num_rows="dynamic", use_container_width=True,
         hide_index=True, key="editor-eje",
     )
+    cambio_eje = not eje.equals(st.session_state.datos["Eje"])
+    confirmar = st.checkbox(
+        "Confirmo que el nuevo eje sustituye al anterior y descarta contactos y rellenos",
+        key="confirmar-eje",
+    ) if cambio_eje and (st.session_state.contactos or st.session_state.zonas) else True
     if st.button("Aplicar eje", type="primary"):
-        st.session_state.datos["Eje"] = eje.sort_values("orden").reset_index(drop=True)
-        st.session_state.contactos = []
-        st.session_state.zonas = []
-        st.rerun()
+        if not confirmar:
+            st.error("Debe confirmar el descarte de interpretacion antes de cambiar el eje.")
+        elif len(eje) < 2 or not {"orden", "x_m", "y_m"}.issubset(eje.columns):
+            st.error("El eje necesita al menos dos puntos con orden y coordenadas X/Y.")
+        else:
+            st.session_state.datos["Eje"] = eje.sort_values("orden").reset_index(drop=True)
+            if cambio_eje:
+                st.session_state.contactos = []
+                st.session_state.zonas = []
+            st.rerun()
     sondeos, dpsh, errores, avisos = _datos_geometricos()
     if errores:
         for error in errores:
@@ -339,25 +367,9 @@ def vista_interpretacion() -> None:
             except RuntimeError as exc:
                 st.error(str(exc))
 
-    acciones = st.columns([1, 1, 2])
-    if acciones[0].button("Generar borrador orientativo", use_container_width=True):
-        try:
-            _crear_borrador_orientativo(sondeos)
-        except RuntimeError as exc:
-            st.error(str(exc))
-        st.rerun()
-    if acciones[1].button("Recalcular zonas", use_container_width=True):
-        try:
-            st.session_state.zonas, avisos = construir_zonas(
-                sondeos, st.session_state.contactos, st.session_state.zonas
-            )
-            st.session_state.avisos_topologia = avisos
-            st.rerun()
-        except RuntimeError as exc:
-            st.error(str(exc))
-    acciones[2].caption(
-        "Ajuste activo: los vertices cercanos se vinculan a interfaces observadas; Alt lo omite. "
-        "Use Mayusculas + arrastre para desplazar el lienzo y Supr para borrar la seleccion."
+    st.caption(
+        "Dibuje contactos y lentejones manualmente. Al finalizar una geometria, "
+        "se recalcularan las zonas para poder rellenarlas. Alt desactiva temporalmente el ajuste."
     )
 
     with st.expander("Hipotesis y comparacion"):
@@ -426,6 +438,7 @@ def vista_interpretacion() -> None:
         st.session_state.contactos, st.session_state.zonas, dpsh,
         st.session_state.datos["Lecturas_DPSH"],
         contactos_referencia=contactos_referencia,
+        exageracion_vertical=st.session_state.proyecto.exageracion_vertical,
     )
     respuesta = minicad_geologico(modelo, key="minicad-principal")
     if isinstance(respuesta, str):
@@ -438,6 +451,12 @@ def vista_interpretacion() -> None:
         if evento != st.session_state.ultimo_evento_cad:
             try:
                 contactos = _contactos_desde_cad(respuesta.get("contactos", []))
+                for contacto in contactos:
+                    for punto in contacto.vertices:
+                        if punto.origen == "observado" and punto.interfaz_id:
+                            referencia = interfaces.get(punto.interfaz_id)
+                            if referencia is None or any(abs(a-b) > 1e-7 for a,b in zip(referencia,(punto.s_m,punto.z_m))):
+                                raise ValueError(f"Interfaz observada desactualizada: {punto.interfaz_id}.")
                 if respuesta.get("limpiar_interpretacion") and not contactos:
                     zonas, avisos = [], []
                 else:

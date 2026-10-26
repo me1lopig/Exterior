@@ -62,6 +62,8 @@ def construir_zonas(
     )
     contorno = [*zip(s_terreno, z_terreno), (s_terreno[-1], base), (s_terreno[0], base)]
     dominio = Polygon(contorno)
+    if not dominio.is_valid or dominio.area <= 0:
+        raise ValueError("El terreno y la base no forman un dominio geologico valido.")
     lineas = [dominio.boundary]
     lineas_contactos: list[tuple[Contacto, object]] = []
     contactos_validos = 0
@@ -157,13 +159,18 @@ def construir_zonas(
 
 
 def _mejor_asignacion(poligono, punto, previas_geometrias: list[tuple[dict, object]]) -> dict | None:
-    """Conserva estilos por pertenencia o maxima area solapada."""
-    candidatas = [(zona, geometria) for zona, geometria in previas_geometrias if geometria.covers(punto)]
-    if candidatas:
-        return max(candidatas, key=lambda item: item[1].intersection(poligono).area)[0]
-    solapes = [(zona, geometria.intersection(poligono).area) for zona, geometria in previas_geometrias]
-    solapes = [item for item in solapes if item[1] > 0]
-    return max(solapes, key=lambda item: item[1])[0] if solapes else None
+    """Conserva la unidad solo cuando la cara geometrica permanece igual.
+
+    Al dividir una zona, las nuevas caras quedan sin clasificar: no se debe
+    heredar una unidad sin una decision del geologo.
+    """
+    for zona, geometria in previas_geometrias:
+        if not poligono.intersects(geometria):
+            continue
+        union = poligono.union(geometria).area
+        if union > 0 and poligono.symmetric_difference(geometria).area / union < 1e-7:
+            return zona
+    return None
 
 
 def asignar_estilos_zonas(zonas: list[dict], tabla: pd.DataFrame, unidades: pd.DataFrame) -> list[dict]:

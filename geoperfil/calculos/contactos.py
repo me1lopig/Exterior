@@ -353,6 +353,20 @@ def actualizar_vertices(contacto: Contacto, tabla: pd.DataFrame) -> Contacto:
                 interfaz_id=str(getattr(fila, "interfaz_id", "")),
             )
         )
+    # Los puntos observados son datos de campo y no pueden modificarse
+    # numericamente sin actualizar antes el sondeo de origen.
+    observados = {v.interfaz_id: (v.s_m, v.z_m) for v in contacto.vertices
+                  if v.origen == "observado" and v.interfaz_id}
+    nuevos = {v.interfaz_id: (v.s_m, v.z_m) for v in vertices
+              if v.origen == "observado" and v.interfaz_id}
+    for referencia, coords in observados.items():
+        if referencia not in nuevos or any(abs(a-b) > 1e-8 for a, b in zip(coords, nuevos[referencia])):
+            raise ValueError(f"El vertice observado {referencia} esta protegido; modifique el sondeo de origen.")
+    temporal = Contacto(
+        contacto_id=contacto.contacto_id, nombre=contacto.nombre,
+        unidad_superior=contacto.unidad_superior, unidad_inferior=contacto.unidad_inferior,
+        vertices=vertices,
+    )
+    temporal.ordenar()
     contacto.vertices = vertices
-    contacto.ordenar()
     return contacto

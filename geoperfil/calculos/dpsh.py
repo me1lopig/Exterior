@@ -32,3 +32,21 @@ def separar_tramos_contiguos(tabla: pd.DataFrame) -> list[pd.DataFrame]:
         for inicio, fin in zip(limites[:-1], limites[1:])
         if fin > inicio
     ]
+
+
+def curvas_dpsh(dpsh: pd.DataFrame, lecturas: pd.DataFrame, escala: float) -> list[dict]:
+    """Devuelve las curvas con tramos independientes cuando hay lagunas."""
+    curvas = []
+    for ensayo in dpsh.itertuples(index=False):
+        grupo = lecturas[lecturas["ensayo_id"] == ensayo.ensayo_id]
+        tramos = []
+        for tramo in separar_tramos_contiguos(grupo):
+            tramos.append([
+                {"s_m": float(ensayo.s_m) + float(fila.n20) * escala,
+                 "z_m": float(ensayo.cota_inicio_m) - float(fila.profundidad_m),
+                 "n20": float(fila.n20)}
+                for fila in tramo.itertuples(index=False)
+            ])
+        curvas.append({"ensayo_id": str(ensayo.ensayo_id), "tramos": tramos})
+    return curvas
+

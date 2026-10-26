@@ -15,7 +15,10 @@ def _rgba(hex_color: str, alpha: float) -> str:
     color = hex_color.lstrip("#")
     if len(color) != 6:
         return f"rgba(160,160,160,{alpha})"
-    r, g, b = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+    try:
+        r, g, b = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return f"rgba(160,160,160,{alpha})"
     return f"rgba({r},{g},{b},{alpha})"
 
 
@@ -64,6 +67,25 @@ def crear_figura_perfil(
             if len(coordenadas) < 3:
                 continue
             unidad = str(zona.get("unidad_id", ""))
+            huecos = [h for h in zona.get("huecos", []) if len(h) >= 3]
+            if huecos:
+                def trazar_anillo(anillo):
+                    return "M " + " L ".join(f"{float(a):.8f},{float(b):.8f}" for a, b in anillo) + " Z"
+                figura.add_shape(
+                    type="path",
+                    path=" ".join([trazar_anillo(coordenadas), *(trazar_anillo(h) for h in huecos)]),
+                    fillrule="evenodd", fillcolor=_rgba(str(zona.get("color", "#D9DDE2")), 0.58),
+                    line={"color": "rgba(70,80,90,0.45)", "width": 0.7}, layer="below",
+                )
+                figura.add_trace(go.Scatter(
+                    x=[zona.get("centro_s_m")], y=[zona.get("centro_z_m")],
+                    mode="markers", marker={"opacity": 0, "size": 1},
+                    name=nombres.get(unidad, unidad or "Sin asignar"),
+                    legendgroup=f"unidad-{unidad}", showlegend=unidad not in unidades_mostradas,
+                    hovertemplate=f"{zona.get('etiqueta','')}<br>unidad={unidad}<extra></extra>",
+                ))
+                unidades_mostradas.add(unidad)
+                continue
             x = [p[0] for p in coordenadas] + [coordenadas[0][0]]
             y = [p[1] for p in coordenadas] + [coordenadas[0][1]]
             figura.add_trace(
@@ -79,46 +101,7 @@ def crear_figura_perfil(
                 )
             )
             unidades_mostradas.add(unidad)
-    elif mostrar_rellenos:
-        for contacto in contactos_orden:
-            z_inf = interpolar_contacto(contacto, estaciones)
-            mascara = np.isfinite(z_sup) & np.isfinite(z_inf)
-            if mascara.any():
-                x = estaciones[mascara]
-                pol_x = np.concatenate([x, x[::-1]])
-                pol_y = np.concatenate([z_sup[mascara], z_inf[mascara][::-1]])
-                unidad = contacto.unidad_superior
-                figura.add_trace(
-                    go.Scatter(
-                        x=pol_x,
-                        y=pol_y,
-                        mode="lines",
-                        line={"width": 0},
-                        fill="toself",
-                        fillcolor=_rgba(colores.get(unidad, "#A0A0A0"), 0.58),
-                        name=nombres.get(unidad, unidad),
-                        legendgroup=f"unidad-{unidad}",
-                        hoverinfo="skip",
-                    )
-                )
-                z_sup = np.where(mascara, z_inf, z_sup)
-        if contactos_orden:
-            ultima = contactos_orden[-1].unidad_inferior
-            fondo = min(
-                float((sondeos["cota_boca_m"] - sondeos["profundidad_m"]).min()),
-                float(np.nanmin(z_sup)) - 2.0,
-            )
-            mascara = np.isfinite(z_sup)
-            x = estaciones[mascara]
-            pol_x = np.concatenate([x, x[::-1]])
-            pol_y = np.concatenate([z_sup[mascara], np.full_like(x, fondo)[::-1]])
-            figura.add_trace(
-                go.Scatter(
-                    x=pol_x, y=pol_y, mode="lines", line={"width": 0}, fill="toself",
-                    fillcolor=_rgba(colores.get(ultima, "#8B9098"), 0.58),
-                    name=nombres.get(ultima, ultima), legendgroup=f"unidad-{ultima}", hoverinfo="skip",
-                )
-            )
+    # Sin poligonos validados no se inventan unidades por orden de contactos.
 
     figura.add_trace(
         go.Scatter(
@@ -229,6 +212,8 @@ def crear_figura_perfil(
         },
         yaxis={
             "title": "Cota (m)",
+            "scaleanchor": "x",
+            "scaleratio": float(proyecto.exageracion_vertical),
             "gridcolor": "#E1E5EA",
             "zeroline": False,
         },

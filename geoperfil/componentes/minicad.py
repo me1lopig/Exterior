@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit.components.v1 as components
 
 from perfil_geologico.calculos.zonas import linea_terreno
+from perfil_geologico.calculos.dpsh import curvas_dpsh
 from perfil_geologico.modelos.dominio import Contacto
 
 
@@ -62,22 +63,6 @@ def _rectangulos_sondeos(
     return rectangulos, observados
 
 
-def _curvas_dpsh(dpsh: pd.DataFrame, lecturas: pd.DataFrame, escala: float) -> list[dict]:
-    curvas = []
-    for ensayo in dpsh.itertuples(index=False):
-        grupo = lecturas[lecturas["ensayo_id"] == ensayo.ensayo_id].sort_values("profundidad_m")
-        puntos = [
-            {
-                "s_m": float(ensayo.s_m) + float(fila.n20) * escala,
-                "z_m": float(ensayo.cota_inicio_m) - float(fila.profundidad_m),
-                "n20": float(fila.n20),
-            }
-            for fila in grupo.itertuples(index=False)
-        ]
-        curvas.append({"ensayo_id": str(ensayo.ensayo_id), "puntos": puntos})
-    return curvas
-
-
 def modelo_minicad(
     sondeos: pd.DataFrame,
     intervalos: pd.DataFrame,
@@ -88,6 +73,7 @@ def modelo_minicad(
     lecturas_dpsh: pd.DataFrame,
     escala_dpsh: float = 0.12,
     contactos_referencia: list[Contacto] | None = None,
+    exageracion_vertical: float | None = None,
 ) -> dict:
     """Convierte el proyecto al modelo JSON del lienzo."""
     s_terreno, z_terreno = linea_terreno(sondeos)
@@ -98,13 +84,14 @@ def modelo_minicad(
     margen_x = max((xmax - xmin) * 0.04, 2.0)
     return {
         "bounds": {"xmin": xmin - margen_x, "xmax": xmax + margen_x, "ymin": base, "ymax": zmax},
+        "exageracion_vertical": exageracion_vertical,
         "terreno": [{"s_m": float(s), "z_m": float(z)} for s, z in zip(s_terreno, z_terreno)],
         "sondeos": rectangulos,
         "observados": observados,
         "contactos": [asdict(contacto) for contacto in contactos],
         "contactos_referencia": [asdict(contacto) for contacto in contactos_referencia or []],
         "zonas": zonas,
-        "dpsh": _curvas_dpsh(dpsh, lecturas_dpsh, escala_dpsh),
+        "dpsh": curvas_dpsh(dpsh, lecturas_dpsh, escala_dpsh),
         "unidades": [
             {"unidad_id": str(fila.unidad_id), "nombre": str(fila.nombre), "color": str(fila.color)}
             for fila in unidades.itertuples(index=False)

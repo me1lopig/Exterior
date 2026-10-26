@@ -38,7 +38,10 @@ def contactos_a_dxf(contactos: list[Contacto], zonas: list[dict] | None = None) 
         if len(contacto.vertices) < 2:
             continue
         capa = contacto.contacto_id.upper()[:31]
-        salida.write(f"0\nPOLYLINE\n8\n{capa}\n66\n1\n70\n0\n")
+        cerrado = (len(contacto.vertices) >= 4 and
+                   abs(contacto.vertices[0].s_m - contacto.vertices[-1].s_m) < 1e-8 and
+                   abs(contacto.vertices[0].z_m - contacto.vertices[-1].z_m) < 1e-8)
+        salida.write(f"0\nPOLYLINE\n8\n{capa}\n66\n1\n70\n{1 if cerrado else 0}\n")
         for punto in contacto.vertices:
             salida.write(f"0\nVERTEX\n8\n{capa}\n10\n{punto.s_m:.6f}\n20\n{punto.z_m:.6f}\n30\n0.0\n")
         salida.write("0\nSEQEND\n")
@@ -68,7 +71,8 @@ def figura_perfil_pdf(
 ) -> bytes:
     """Crea un plano PDF estable con Matplotlib."""
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Polygon as MplPolygon, Rectangle
+    from matplotlib.patches import PathPatch, Rectangle
+    from matplotlib.path import Path
 
     fig, ax = plt.subplots(figsize=(16.5, 8.5), constrained_layout=True)
     colores = dict(zip(unidades["unidad_id"].astype(str), unidades["color"].astype(str)))
@@ -93,11 +97,31 @@ def figura_perfil_pdf(
                 continue
             unidad = str(zona.get("unidad_id", ""))
             etiqueta = nombres.get(unidad, unidad or "Sin asignar")
-            parche = MplPolygon(
-                coordenadas, closed=True, facecolor=zona.get("color", "#D9DDE2"), alpha=0.48,
-                edgecolor="#667281", linewidth=0.4, hatch=tramas.get(zona.get("trama", "sin_trama")),
+            vertices_path = []
+            codigos_path = []
+            for indice_anillo, anillo in enumerate([coordenadas, *zona.get("huecos", [])]):
+                if len(anillo) < 3:
+                    continue
+                vertices_anillo = [tuple(p) for p in anillo]
+                area_orientada = sum(
+                    a[0] * b[1] - b[0] * a[1]
+                    for a, b in zip(vertices_anillo, vertices_anillo[1:] + vertices_anillo[:1])
+                )
+                # El relleno no-cero de Matplotlib exige orientar los huecos
+                # al contrario de su contorno exterior.
+                if (indice_anillo == 0 and area_orientada < 0) or (indice_anillo > 0 and area_orientada > 0):
+                    vertices_anillo.reverse()
+                vertices_path.extend(vertices_anillo + [vertices_anillo[0]])
+                codigos_path.extend([Path.MOVETO] + [Path.LINETO] * (len(vertices_anillo) - 1) + [Path.CLOSEPOLY])
+            parche = PathPatch(
+                Path(vertices_path, codigos_path), facecolor=zona.get("color", "#D9DDE2"),
+                alpha=0.48, edgecolor="#667281", linewidth=0.4,
+                hatch=tramas.get(zona.get("trama", "sin_trama")),
                 label=etiqueta if unidad not in unidades_mostradas else None, zorder=1,
             )
+            # Evita rellenar huecos interiores (regla par-impar).
+            if hasattr(parche, 'set_fillrule'):
+                parche.set_fillrule('evenodd')
             ax.add_patch(parche)
             unidades_mostradas.add(unidad)
     else:
@@ -137,10 +161,12 @@ def figura_perfil_pdf(
                 zorder=3)
     for ensayo in dpsh_proyectados.itertuples(index=False):
         grupo = lecturas_dpsh[lecturas_dpsh["ensayo_id"] == ensayo.ensayo_id].sort_values("profundidad_m")
-        x = ensayo.s_m + grupo["n20"].to_numpy(float) * escala_dpsh
-        z = ensayo.cota_inicio_m - grupo["profundidad_m"].to_numpy(float)
+        from perfil_geologico.calculos.dpsh import separar_tramos_contiguos
         profundidad = float(grupo["profundidad_m"].max()) if len(grupo) else float(ensayo.profundidad_m)
-        ax.plot(x, z, color="#E45658", linewidth=1.2, marker="o", markersize=1.8, zorder=5)
+        for tramo in separar_tramos_contiguos(grupo):
+            x = ensayo.s_m + tramo["n20"].to_numpy(float) * escala_dpsh
+            z = ensayo.cota_inicio_m - tramo["profundidad_m"].to_numpy(float)
+            ax.plot(x, z, color="#E45658", linewidth=1.2, marker="o", markersize=1.8, zorder=5)
         ax.plot(
             [ensayo.s_m, ensayo.s_m],
             [ensayo.cota_inicio_m, ensayo.cota_inicio_m - profundidad],
@@ -153,7 +179,9 @@ def figura_perfil_pdf(
     ax.set_ylabel("Cota (m)")
     ax.grid(True, color="#DDE2E8", linewidth=0.5)
     ax.set_facecolor("#FAFBFC")
-    ax.legend(loc="lower left", ncol=3, fontsize=7, frameon=False)
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(handles, labels, loc="lower left", ncol=3, fontsize=7, frameon=False)
     x_min = float(sondeos_proyectados["s_m"].min())
     x_max = float(sondeos_proyectados["s_m"].max())
     y_min = min(float((sondeos_proyectados["cota_boca_m"] - sondeos_proyectados["profundidad_m"]).min()), fondo) - 0.6
@@ -162,7 +190,7 @@ def figura_perfil_pdf(
     ax.set_ylim(y_min, y_max)
     rango_x = max(np.diff(ax.get_xlim())[0], 1e-9)
     rango_y = max(np.diff(ax.get_ylim())[0], 1e-9)
-    aspecto_caja = np.clip(rango_y * proyecto.exageracion_vertical / rango_x, 0.22, 0.85)
+    aspecto_caja = max(1e-4, rango_y * proyecto.exageracion_vertical / rango_x)
     ax.set_box_aspect(float(aspecto_caja))
     salida = BytesIO()
     fig.savefig(salida, format="pdf", dpi=200, metadata={"Title": proyecto.nombre})

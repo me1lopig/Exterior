@@ -5,9 +5,91 @@ Aplicacion Streamlit para construir perfiles geologicos 2D a partir de sondeos y
 La carpeta puede renombrarse libremente al desplegarla en Streamlit Cloud.
 En Streamlit Cloud seleccione `app.py` como archivo principal y mantenga `requirements.txt` en la misma carpeta.
 
+## Version v0.6.0 - Revision de estabilidad (26/10/2026)
+
+Esta version **no incorpora un CAD generalista**. Corrige y simplifica el flujo
+existente; sigue siendo un prototipo sometido a validacion geologica.
+
+### Cambios funcionales
+
+- Se retira **Generar borrador orientativo** de la interfaz. La geologia se interpreta
+  solo dibujando contactos abiertos y lentejones cerrados.
+- Al finalizar, borrar o modificar una geometria, el MiniCAD guarda la operacion y
+  solicita automaticamente a Python el recalculo de zonas. Tras actualizarse las
+  zonas, **Rellenar** se puede utilizar sin un guardado manual intermedio.
+- Deshacer/rehacer y el borrado de rellenos solicitan su persistencia; el proyecto
+  JSON conserva los datos y las zonas actualizados recibidos de MiniCAD.
+- Al dividir una zona previamente clasificada, las nuevas zonas quedan **sin
+  unidad asignada** hasta que el tecnico las clasifique. Solo se conserva el
+  relleno si la geometria permanece esencialmente identica.
+- Las interfaces observadas estan protegidas frente al arrastre y frente a edicion
+  numerica no autorizada; Python verifica sus coordenadas al recibir el MiniCAD.
+- Cambios de eje, importacion de Excel y restablecimiento que descarten geometria
+  requieren confirmacion explicita; editar sondeos/intervalos ya no borra los
+  contactos silenciosamente.
+- Guardado JSON con metadatos de columnas de las tablas, compatible tambien con
+  proyectos anteriores cuando no contenian ensayos DPSH.
+- Validaciones adicionales de datos finitos, colores, identificadores, profundidad
+  final, lecturas DPSH y contactos fuera de los valores observados.
+- DPSH con lagunas se representa por tramos independientes en MiniCAD, Plotly y PDF.
+- Tratamiento de huecos de poligonos en MiniCAD, Plotly y PDF; polilineas DXF
+  cerradas identificadas como tales.
+- Control H/V en Proyecto. La relacion se aplica en el perfil Plotly y en el PDF;
+  el MiniCAD adapta el alto del lienzo y muestra el factor visual efectivo si
+  los limites de altura del editor impiden mostrar exactamente la relacion pedida.
+- El MiniCAD trata los textos de los sondeos como texto, no como HTML activo.
+
+### Uso recomendado
+
+1. Importe Excel y revise los avisos de validacion.
+2. Configure eje y exageracion vertical.
+3. Entre en MiniCAD y dibuje **Introducir contacto** o **Introducir lentejon**.
+4. Termine con el boton **Finalizar**, Enter o doble clic; tras recalcular zonas,
+   pulse **Rellenar** y asigne unidad/trama a cada cara.
+5. Descargue el proyecto JSON como respaldo. Abra el JSON y compruebe que se han
+   recuperado contactos y rellenos antes de considerar validada la sesion.
+6. Revise la coincidencia del PDF/DXF con el perfil interpretado.
+
+### Validacion
+
+En el entorno de desarrollo se han superado 37 tests: 17 de nucleo anteriores,
+6 del cursor mediante Chromium, 10 nuevos de regresion y 4 de dibujo/guardado/
+relleno bajo distintas escalas, tambien con Chromium. Se ha ensayado un proyecto
+Excel sintetico complejo, su persistencia JSON, y exportaciones PDF/DXF.
+**No se ha realizado una prueba manual completa de Streamlit sobre macOS ni una
+validacion geologica independiente**; por ello se suministra como version de
+pruebas de estabilizacion y no como producto aprobado para uso profesional.
+
+### Limitaciones conocidas
+
+- El terreno se interpola a partir de las bocas de sondeo, no de un MDT.
+- El trazado libre de contactos entre sondeos representa una hipotesis del tecnico.
+- Los extremos abiertos que no cierran una cara no pueden rellenarse.
+- Los huecos en la vista Plotly usan relleno liso, aunque las demas caras
+  pueden representar las tramas seleccionadas.
+- La escala H/V define la relacion geometrica visual; no convierte por si sola
+  una impresion en papel a una escala fisica certificada.
+- Si aparecen contactos observados desactualizados, deben revisarse explicitamente.
+
+### Pruebas
+
+```
+python -m pytest -q tests
+python -m compileall -q .
+streamlit run app.py
+```
+
+Para pruebas en navegador se necesita Playwright y Chromium instalados. Si no
+estan disponibles, esas pruebas se omiten; el nucleo Python se ejecuta igualmente.
+
+El Excel `ejemplos/caso_complejo_topografia_unidades.xlsx` contiene solo datos
+**sinteticos** y sirve para probar geometrias complejas y multiples DPSH.
+
+---
+
 ## Correccion de precision v0.5.1
 
-Esta revision es una correccion puntual sobre v0.5, no la estabilizacion integral v0.6:
+Descripcion historica de la mejora del cursor introducida en v0.5.1:
 
 - Conversion del raton a coordenadas SVG mediante la matriz real del navegador
   (`getScreenCTM().inverse()`) para evitar desfases por ajuste de ancho,
@@ -51,7 +133,7 @@ pytest -q tests/test_minicad_browser.py
 - Avisos de autointerseccion, cruces, extremos abiertos y zonas de area anormalmente pequena.
 - Vinculos estables con interfaces de sondeo y actualizacion explicita si cambian los datos originales.
 - Hipotesis alternativas persistentes, recuperables y superponibles como referencia grafica.
-- Borrador orientativo opcional y conservador: solo correlaciona interfaces presentes en varios sondeos.
+- El generador de borradores permanece como funcion heredada interna para compatibilidad, pero no esta disponible en la interfaz v0.6.
 - Deteccion de intercalaciones locales A-B-A y propuesta de lente cerrada cuando ambos sondeos contiguos confirman la ausencia de B.
 - Tratamiento independiente y con identificadores unicos de unidades alternantes
   repetidas, por ejemplo A-B-A-B-A.
