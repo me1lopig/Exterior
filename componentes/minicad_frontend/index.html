@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { --ink:#0a2239; --muted:#65758b; --line:#d9dfe6; --accent:#e45658; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); font:13px Arial,sans-serif; background:white; }
+    .shell { border:1px solid var(--line); border-radius:6px; overflow:hidden; background:white; }
+    .toolbar { min-height:46px; display:flex; align-items:center; gap:5px; padding:6px 8px; border-bottom:1px solid var(--line); background:#fbfcfd; flex-wrap:wrap; }
+    button,select,input { height:31px; border:1px solid #cbd3dc; border-radius:4px; background:white; color:var(--ink); padding:0 8px; }
+    button { cursor:pointer; } button:hover { border-color:#8294a8; background:#f3f5f7; }
+    button.active,button.primary { color:white; background:var(--accent); border-color:var(--accent); }
+    button.danger { color:#a3292c; } button:disabled { opacity:.42; cursor:default; }
+    .separator { width:1px; height:26px; background:var(--line); margin:0 2px; } .grow { flex:1; }
+    .canvas-wrap { position:relative; height:610px; background:#fafbfc; overflow:hidden; }
+    svg { width:100%; height:100%; display:block; touch-action:none; user-select:none; }
+    .status { min-height:31px; display:flex; align-items:center; gap:16px; padding:5px 10px; border-top:1px solid var(--line); color:var(--muted); background:white; }
+    .status span:last-child { margin-left:auto; } .dirty { color:#b6383b; font-weight:700; }
+    .hint { position:absolute; right:10px; top:10px; padding:6px 8px; background:rgba(255,255,255,.92); border:1px solid var(--line); border-radius:4px; color:var(--muted); pointer-events:none; }
+    .tooltip { position:absolute; display:none; padding:7px 9px; max-width:245px; background:#0a2239; color:white; border-radius:4px; line-height:1.35; pointer-events:none; box-shadow:0 3px 10px #0002; }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <div class="toolbar">
+    <button id="drawBtn" title="Dibujar una polilinea abierta">Introducir contacto</button>
+    <button id="deleteContactBtn" class="danger" title="Eliminar un contacto abierto">Borrar contacto</button>
+    <button id="lensBtn" title="Dibujar una polilinea cerrada">Introducir lentejon</button>
+    <button id="deleteLensBtn" class="danger" title="Eliminar un lentejon cerrado">Borrar lentejon</button>
+    <button id="finishBtn" disabled title="Finalizar el elemento en dibujo">Finalizar</button>
+    <button id="paintBtn" title="Asignar unidad y trama a una zona">Rellenar</button>
+    <button id="clearFillBtn" class="danger" title="Quitar unidad y trama de una zona">Borrar relleno</button>
+    <button id="clearBtn" class="danger" title="Eliminar todos los contactos y rellenos">Limpiar todo</button>
+    <div class="separator"></div>
+    <button id="undoBtn" title="Deshacer (Ctrl+Z)">Deshacer</button>
+    <button id="redoBtn" title="Rehacer (Ctrl+Y)">Rehacer</button>
+    <button id="fitBtn" title="Encuadrar el perfil">Encuadrar</button>
+    <button id="snapBtn" class="active" title="Ajuste magnetico; Alt lo omite temporalmente">Ajuste</button>
+    <div class="separator"></div>
+    <select id="unitSelect" title="Unidad activa"></select>
+    <select id="hatchSelect" title="Trama activa"><option value="sin_trama">Sin trama</option><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option><option value="diagonal_45">Diagonal 45</option><option value="diagonal_135">Diagonal 135</option><option value="cruzada">Cruzada</option><option value="puntos">Puntos</option><option value="grava">Grava</option><option value="roca">Roca</option></select>
+    <span class="grow"></span><button id="saveBtn" class="primary">Guardar interpretacion</button>
+  </div>
+  <div class="canvas-wrap">
+    <svg id="cad" viewBox="0 0 1200 610" aria-label="Editor grafico del perfil"></svg>
+    <div class="hint" id="hint">Pase sobre una interfaz de sondeo para ajustar el contacto</div><div class="tooltip" id="tooltip"></div>
+  </div>
+  <div class="status"><span id="coord">s: -- | z: --</span><span id="selection">Sin seleccion</span><span id="validation"></span><span id="ev"></span><span id="state"></span></div>
+</div>
+<script>
+(() => {
+  const NS='http://www.w3.org/2000/svg',svg=document.getElementById('cad'),W=1200;let H=610;const M={l:58,r:22,t:24,b:46},CORAL='#e45658',SNAP_PX=14;
+  let model=null,contacts=[],zones=[],viewport=null,initialBounds=null,selection=null,hover=null,mode='select',draft=[],drag=null,pan=null;
+  let snap=true,dirty=false,topologyDirty=false,clearedAll=false,history=[],future=[],lastModelSignature='',pendingCommit=null,commitSequence=0,layers={zonas:true,sondeos:true,dpsh:true,contactos:true};
+  const $=id=>document.getElementById(id),clone=x=>JSON.parse(JSON.stringify(x));
+  const el=(tag,attrs={})=>{const n=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));return n;};
+  function send(type,data={}){window.parent.postMessage({isStreamlitMessage:true,type,...data},'*');} function setHeight(){send('streamlit:setFrameHeight',{height:Math.ceil(document.querySelector('.shell').getBoundingClientRect().height+25)});} function setValue(value){send('streamlit:setComponentValue',{value,dataType:'json'});}
+  function signature(m){return JSON.stringify([m.bounds,m.contactos,m.contactos_referencia,m.zonas,m.unidades,m.observados,m.exageracion_vertical,m.dpsh]);}
+  function adjustCanvas(){
+    if(!model?.exageracion_vertical){H=610;return;}
+    const b=model.bounds, dx=Math.max(b.xmax-b.xmin,.001),dy=Math.max(b.ymax-b.ymin,.001);
+    const desired=(W-M.l-M.r)*dy/dx*Number(model.exageracion_vertical)+M.t+M.b;
+    H=Math.max(360,Math.min(1200,desired));
+    const efectivo=(H-M.t-M.b)/(W-M.l-M.r)*dx/dy;
+    $('ev').textContent=`EV pantalla: ${efectivo.toFixed(2)}x`+(Math.abs(efectivo-Number(model.exageracion_vertical))>.05?' (limitada por tamano del editor)':'');
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    document.querySelector('.canvas-wrap').style.height=`${Math.round(svg.clientWidth*H/W)}px`;
+    setHeight();
+  }
+  function commit(){
+    pendingCommit=JSON.stringify(contacts);
+    dirty=false;
+    $('state').textContent=topologyDirty?'Calculando zonas para rellenar...':'Guardando interpretacion...';
+    $('state').className='';
+    setValue({action:'save',event_id:`${Date.now()}-${++commitSequence}`,contactos:clone(contacts),zonas:clone(zones),limpiar_interpretacion:clearedAll});
+  }
+  function initialize(m){model=m;contacts=clone(m.contactos||[]);zones=clone(m.zonas||[]);contacts.forEach(c=>{if(c.visible===undefined)c.visible=true;if(c.bloqueado===undefined)c.bloqueado=false;if(!c.evidencia)c.evidencia='interpretado';if(c.incertidumbre_m===undefined)c.incertidumbre_m=0;});initialBounds=clone(m.bounds);viewport=clone(m.bounds);adjustCanvas();selection=null;hover=null;history=[];future=[];dirty=false;topologyDirty=false;clearedAll=false;buildUnits();syncProperties();render();}
+  window.addEventListener('message',e=>{if(e.data.type!=='streamlit:render')return;const m=e.data.args.model,sig=signature(m);
+    if(pendingCommit&&JSON.stringify(m.contactos||[])===pendingCommit){
+      model=m;zones=clone(m.zonas||[]);topologyDirty=false;clearedAll=false;pendingCommit=null;dirty=false;
+      lastModelSignature=sig;selection=null;$('state').textContent='Zonas actualizadas';render();
+    }else if(!model||(!dirty&&!pendingCommit&&sig!==lastModelSignature)){
+      lastModelSignature=sig;initialize(m);
+    }
+    setHeight();
+  });send('streamlit:componentReady',{apiVersion:1});setHeight();
+  function buildUnits(){const s=$('unitSelect');s.innerHTML='';(model.unidades||[]).forEach(u=>{const o=document.createElement('option');o.value=u.unidad_id;o.textContent=u.nombre;s.appendChild(o);});}
+  function selectedContact(){return selection&&['contact','vertex'].includes(selection.type)?contacts[selection.ci]||null:null;} function selectedZone(){return selection?.type==='zone'?zones[selection.zi]:null;}
+  function snapshot(){return{contacts:clone(contacts),zones:clone(zones),topologyDirty,clearedAll,selection:clone(selection)};} function pushHistory(){history.push(snapshot());if(history.length>80)history.shift();future=[];} function restore(x){contacts=clone(x.contacts);zones=clone(x.zones);topologyDirty=!!x.topologyDirty;clearedAll=!!x.clearedAll;selection=clone(x.selection);dirty=true;syncProperties();render();}
+  function markDirty(geometry=false){dirty=true;if(geometry){topologyDirty=true;clearedAll=false;}$('state').textContent=topologyDirty?'Geometria pendiente de recalcular':'Cambios sin guardar';$('state').className='dirty';}
+  function sx(x){return M.l+(x-viewport.xmin)/(viewport.xmax-viewport.xmin)*(W-M.l-M.r);} function sy(y){return M.t+(viewport.ymax-y)/(viewport.ymax-viewport.ymin)*(H-M.t-M.b);} function dx(x){return viewport.xmin+(x-M.l)/(W-M.l-M.r)*(viewport.xmax-viewport.xmin);} function dy(y){return viewport.ymax-(y-M.t)/(H-M.t-M.b)*(viewport.ymax-viewport.ymin);}
+  // Convert from browser CSS pixels to actual SVG coordinates. The browser may letterbox the
+  // viewBox (preserveAspectRatio), resize the editor, or apply browser zoom: never use rect ratios.
+  function inPlot(p){return p.x>=M.l&&p.x<=W-M.r&&p.y>=M.t&&p.y<=H-M.b;}
+  function pointer(e){const m=svg.getScreenCTM();if(!m)throw Error('No se pudo calcular la transformacion del lienzo');const p=svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(m.inverse());}
+  function dataPoint(e){const p=pointer(e);return{s_m:dx(p.x),z_m:dy(p.y),origen:'interpretado',referencia:'',interfaz_id:''};}
+  function dataToClient(p){const m=svg.getScreenCTM();if(!m)return null;const q=svg.createSVGPoint();q.x=sx(p.s_m);q.y=sy(p.z_m);return q.matrixTransform(m);}
+  // Magnetic capture thresholds are expressed in real CSS pixels (same units as pointer events).
+  function screenDistance(a,b){const p=dataToClient(a),q=dataToClient(b);return p&&q?Math.hypot(p.x-q.x,p.y-q.y):Infinity;}
+  function projectedPoint(p,a,b){const px=sx(p.s_m),py=sy(p.z_m),ax=sx(a.s_m),ay=sy(a.z_m),bx=sx(b.s_m),by=sy(b.z_m),vx=bx-ax,vy=by-ay,l2=vx*vx+vy*vy,t=l2?Math.max(0,Math.min(1,((px-ax)*vx+(py-ay)*vy)/l2)):0;return{s_m:a.s_m+t*(b.s_m-a.s_m),z_m:a.z_m+t*(b.z_m-a.z_m),origen:'interpretado',referencia:'',interfaz_id:''};}
+  function snapped(p,bypass=false){if(!snap||bypass)return p;
+    // Always prefer a measured borehole boundary over a nearby interpreted segment.
+    const obs=nearestObserved(p);
+    if(obs){const q=model.observados[obs.oi];return{s_m:q.s_m,z_m:q.z_m,origen:'observado',referencia:q.referencia||'',interfaz_id:q.interfaz_id||''};}
+    let best=null,bd=SNAP_PX;
+    const vertices=contacts.flatMap((c,ci)=>c.visible===false||ci===selection?.ci?[]:(c.vertices||[]));
+    vertices.forEach(q=>{const d=screenDistance(q,p);if(d<bd){bd=d;best=q;}});
+    const lineas=[model.terreno||[],...contacts.filter((c,ci)=>c.visible!==false&&ci!==selection?.ci).map(c=>c.vertices||[])];
+    lineas.forEach(linea=>{for(let i=0;i<linea.length-1;i++){const q=projectedPoint(p,linea[i],linea[i+1]),d=screenDistance(q,p);if(d<bd){bd=d;best=q;}}});
+    return best?{s_m:best.s_m,z_m:best.z_m,origen:best.origen||'interpretado',referencia:best.referencia||'',interfaz_id:best.interfaz_id||''}:p;
+  }
+  function distanceSegment(p,a,b){return screenDistance(p,projectedPoint(p,a,b));}
+  function pointInPolygon(p,c){let inside=false;for(let i=0,j=c.length-1;i<c.length;j=i++){const xi=c[i][0],yi=c[i][1],xj=c[j][0],yj=c[j][1];if(((yi>p.z_m)!==(yj>p.z_m))&&(p.s_m<(xj-xi)*(p.z_m-yi)/(yj-yi)+xi))inside=!inside;}return inside;}
+  function hitTest(p){if(layers.contactos){for(let ci=contacts.length-1;ci>=0;ci--){const c=contacts[ci];if(c.visible===false)continue;for(let vi=c.vertices.length-1;vi>=0;vi--)if(screenDistance(p,c.vertices[vi])<=9)return{type:'vertex',ci,vi};}let best=null,bd=8;contacts.forEach((c,ci)=>{if(c.visible===false)return;for(let i=0;i<c.vertices.length-1;i++){const d=distanceSegment(p,c.vertices[i],c.vertices[i+1]);if(d<bd){bd=d;best={type:'contact',ci};}}});if(best)return best;}if(layers.zonas&&!topologyDirty){const order=zones.map((z,zi)=>({z,zi})).sort((a,b)=>(a.z.area_m2||Infinity)-(b.z.area_m2||Infinity));for(const x of order)if(pointInPolygon(p,x.z.coordenadas||[])&&!(x.z.huecos||[]).some(h=>pointInPolygon(p,h)))return{type:'zone',zi:x.zi};}return null;}
+  function nearestObserved(p){let best=null,bd=SNAP_PX;(model.observados||[]).forEach((q,oi)=>{const d=screenDistance(p,q);if(d<bd){bd=d;best={type:'observed',oi};}});return best;}
+  function render(){svg.innerHTML='';addDefs();drawGrid();if(layers.zonas)drawZones();drawTerrain();if(layers.sondeos)drawBoreholes();if(layers.dpsh)drawDpsh();if(layers.contactos){drawReference();drawContacts();}drawDraft();drawObservedHover();const c=selectedContact(),z=selectedZone();$('undoBtn').disabled=!history.length&&!draft.length;$('redoBtn').disabled=!future.length;$('finishBtn').disabled=!(['draw','lens'].includes(mode))||draft.length<(mode==='lens'?3:2);$('selection').textContent=selection?.type==='vertex'?`Vertice ${selection.vi+1} de ${c.nombre}`:selection?.type==='contact'?`${isClosed(c)?'Lentejon':'Contacto'}: ${c.nombre}`:selection?.type==='zone'?`Zona: ${z.etiqueta||z.zona_id}`:['paint','clearFill'].includes(mode)?'Seleccione una zona':['deleteContact','deleteLens'].includes(mode)?'Seleccione el elemento que desea borrar':'Sin seleccion';$('validation').textContent=validationMessage();}
+  function addDefs(){const defs=el('defs'),patterns={horizontal:'<path d="M0 5H12" stroke="#364152"/>',vertical:'<path d="M5 0V12" stroke="#364152"/>',diagonal_45:'<path d="M-2 12L12-2M4 14L14 4" stroke="#364152"/>',diagonal_135:'<path d="M-2 0L12 14M4-2L14 8" stroke="#364152"/>',cruzada:'<path d="M0 5H12M5 0V12" stroke="#364152"/>',puntos:'<circle cx="4" cy="4" r="1.2" fill="#364152"/>',grava:'<circle cx="3" cy="4" r="2" fill="none" stroke="#364152"/><circle cx="10" cy="10" r="2.5" fill="none" stroke="#364152"/>',roca:'<path d="M1 10L5 3L10 5L13 11Z" fill="none" stroke="#364152"/>'};Object.entries(patterns).forEach(([id,html])=>{const p=el('pattern',{id:`pat-${id}`,width:12,height:12,patternUnits:'userSpaceOnUse'});p.innerHTML=html;defs.appendChild(p);});svg.appendChild(defs);}
+  function drawGrid(){const g=el('g',{stroke:'#e1e5ea','stroke-width':1});for(let i=0;i<=10;i++){const x=M.l+i*(W-M.l-M.r)/10;g.appendChild(el('line',{x1:x,y1:M.t,x2:x,y2:H-M.b}));}for(let i=0;i<=6;i++){const y=M.t+i*(H-M.t-M.b)/6;g.appendChild(el('line',{x1:M.l,y1:y,x2:W-M.r,y2:y}));}svg.appendChild(g);const a=el('g',{'font-size':11,fill:'#65758b'});for(let i=0;i<=5;i++){const x=M.l+i*(W-M.l-M.r)/5,v=viewport.xmin+i*(viewport.xmax-viewport.xmin)/5,t=el('text',{x,y:H-18,'text-anchor':'middle'});t.textContent=v.toFixed(1);a.appendChild(t);}for(let i=0;i<=5;i++){const y=M.t+i*(H-M.t-M.b)/5,v=viewport.ymax-i*(viewport.ymax-viewport.ymin)/5,t=el('text',{x:M.l-8,y:y+4,'text-anchor':'end'});t.textContent=v.toFixed(1);a.appendChild(t);}svg.appendChild(a);}
+  function points(a){return a.map(p=>`${sx(p.s_m??p[0])},${sy(p.z_m??p[1])}`).join(' ');} function zonePath(z){return[z.coordenadas||[],...(z.huecos||[])].filter(r=>r.length).map(r=>`M ${r.map(p=>`${sx(p[0])} ${sy(p[1])}`).join(' L ')} Z`).join(' ');}
+  function drawZones(){if(topologyDirty)return;const g=el('g');zones.map((z,i)=>({z,i})).sort((a,b)=>(b.z.area_m2||0)-(a.z.area_m2||0)).forEach(({z,i})=>{const selected=selection?.type==='zone'&&selection.zi===i,hot=hover?.type==='zone'&&hover.zi===i,path=zonePath(z),stroke=selected?CORAL:hot?'#e88b8d':'#bac3cd';g.appendChild(el('path',{d:path,fill:z.color||'#d9dde2','fill-opacity':selected ? .72 : .55,stroke,'stroke-width':selected?2:hot?1.4:.7,'fill-rule':'evenodd'}));if(z.trama&&z.trama!=='sin_trama')g.appendChild(el('path',{d:path,fill:`url(#pat-${z.trama})`,'fill-opacity':.65,stroke:'none','fill-rule':'evenodd'}));if(z.centro_s_m!==undefined){const t=el('text',{x:sx(z.centro_s_m),y:sy(z.centro_z_m),'text-anchor':'middle','font-size':11,fill:'#243447','pointer-events':'none'});t.textContent=`${z.etiqueta||'Z'} ${z.unidad_id||'?'}`;g.appendChild(t);}});svg.appendChild(g);}
+  function drawTerrain(){svg.appendChild(el('polyline',{points:points(model.terreno||[]),fill:'none',stroke:'#0a2239','stroke-width':2.4}));}
+  function drawBoreholes(){const g=el('g');(model.sondeos||[]).forEach(r=>g.appendChild(el('rect',{x:sx(r.s0),y:sy(r.z1),width:Math.max(2,sx(r.s1)-sx(r.s0)),height:Math.max(1,sy(r.z0)-sy(r.z1)),fill:r.color,stroke:'white','stroke-width':.7})));const seen=new Set();(model.sondeos||[]).forEach(r=>{if(seen.has(r.sondeo_id))return;seen.add(r.sondeo_id);const t=el('text',{x:sx((r.s0+r.s1)/2),y:sy(r.z1)-7,'text-anchor':'middle','font-size':11,'font-weight':'700',fill:'#0a2239'});t.textContent=r.sondeo_id;g.appendChild(t);});(model.observados||[]).forEach(o=>g.appendChild(el('line',{x1:sx(o.s_m)-4,y1:sy(o.z_m),x2:sx(o.s_m)+4,y2:sy(o.z_m),stroke:'#5f7083','stroke-width':1.5})));svg.appendChild(g);}
+  function drawDpsh(){const g=el('g');(model.dpsh||[]).forEach(c=>{(c.tramos||[c.puntos||[]]).forEach(tramo=>{g.appendChild(el('polyline',{points:points(tramo),fill:'none',stroke:CORAL,'stroke-width':1.7}));tramo.forEach(p=>g.appendChild(el('circle',{cx:sx(p.s_m),cy:sy(p.z_m),r:2.2,fill:CORAL})));});});svg.appendChild(g);} function contactDash(c){return c.evidencia==='observado'?'':c.evidencia==='proyectado'?'3 3':'7 4';}
+  function drawReference(){const g=el('g');(model.contactos_referencia||[]).forEach(c=>g.appendChild(el('polyline',{points:points(c.vertices||[]),fill:'none',stroke:'#68798c','stroke-width':4,'stroke-opacity':.38,'stroke-dasharray':'2 5'})));svg.appendChild(g);}
+  function drawContacts(){const g=el('g');contacts.forEach((c,ci)=>{if(c.visible===false)return;const selected=selection&&selection.ci===ci&&['contact','vertex'].includes(selection.type),hot=hover&&hover.ci===ci&&['contact','vertex'].includes(hover.type),color=selected?CORAL:hot?'#e88b8d':c.color||'#334155';if(c.incertidumbre_m>0){const px=Math.max(2,c.incertidumbre_m/(viewport.ymax-viewport.ymin)*(H-M.t-M.b)*2);g.appendChild(el('polyline',{points:points(c.vertices||[]),fill:'none',stroke:color,'stroke-width':px,'stroke-opacity':.1}));}g.appendChild(el('polyline',{points:points(c.vertices||[]),fill:'none',stroke:color,'stroke-width':selected?3.2:hot?2.8:2,'stroke-dasharray':contactDash(c)}));if(selected)c.vertices.forEach((p,vi)=>{const vsel=selection.type==='vertex'&&selection.vi===vi;g.appendChild(el('circle',{cx:sx(p.s_m),cy:sy(p.z_m),r:vsel?7:5.5,fill:vsel?CORAL:p.origen==='observado'?'#0a2239':'white',stroke:vsel?CORAL:color,'stroke-width':2}));});if(c.bloqueado&&c.vertices.length){const p=c.vertices[0],t=el('text',{x:sx(p.s_m)+7,y:sy(p.z_m)-7,'font-size':11,fill:'#65758b'});t.textContent='[B]';g.appendChild(t);}});svg.appendChild(g);}
+  function drawDraft(){if(!draft.length)return;const p=mode==='lens'&&draft.length>2?[...draft,draft[0]]:draft;svg.appendChild(el('polyline',{points:points(p),fill:mode==='lens'?'#e4565812':'none',stroke:CORAL,'stroke-width':2,'stroke-dasharray':'6 4'}));draft.forEach(q=>svg.appendChild(el('circle',{cx:sx(q.s_m),cy:sy(q.z_m),r:5,fill:'white',stroke:CORAL,'stroke-width':2})));}
+  function drawObservedHover(){if(hover?.type!=='observed'){$('tooltip').style.display='none';return;}const o=model.observados[hover.oi],g=el('g');g.appendChild(el('circle',{cx:sx(o.s_m),cy:sy(o.z_m),r:11,fill:'#e4565820',stroke:CORAL}));g.appendChild(el('line',{x1:sx(o.s_m)-7,y1:sy(o.z_m)-7,x2:sx(o.s_m)+7,y2:sy(o.z_m)+7,stroke:CORAL,'stroke-width':2.5}));g.appendChild(el('line',{x1:sx(o.s_m)-7,y1:sy(o.z_m)+7,x2:sx(o.s_m)+7,y2:sy(o.z_m)-7,stroke:CORAL,'stroke-width':2.5}));svg.appendChild(g);const t=$('tooltip');t.textContent=`${o.referencia} | Profundidad: ${Number(o.profundidad_m).toFixed(2)} m | Cota: ${Number(o.z_m).toFixed(2)} m | ${o.unidad_superior} / ${o.unidad_inferior}`;const q=dataToClient(o),r=svg.getBoundingClientRect();if(q){t.style.left=`${Math.max(4,Math.min(q.x-r.left+12,r.width-200))}px`;t.style.top=`${Math.max(8,q.y-r.top-25)}px`;}t.style.display='block';}
+  function cross(a,b,c){return(b.s_m-a.s_m)*(c.z_m-a.z_m)-(b.z_m-a.z_m)*(c.s_m-a.s_m);} function segmentsCross(a,b,c,d){return cross(a,b,c)*cross(a,b,d)<0&&cross(c,d,a)*cross(c,d,b)<0;} function validationMessage(){let invalid=0;contacts.forEach(c=>{for(let i=0;i<c.vertices.length-1;i++)for(let j=i+2;j<c.vertices.length-1;j++)if(!(i===0&&j===c.vertices.length-2&&screenDistance(c.vertices[0],c.vertices.at(-1))<.1)&&segmentsCross(c.vertices[i],c.vertices[i+1],c.vertices[j],c.vertices[j+1]))invalid++;});return invalid?`${invalid} autointerseccion(es)`:topologyDirty?'Recalculando zonas para permitir rellenar':'';}
+  function isClosed(c){const v=c?.vertices||[];return v.length>=4&&Math.abs(v[0].s_m-v.at(-1).s_m)<1e-8&&Math.abs(v[0].z_m-v.at(-1).z_m)<1e-8;}
+  function setMode(next){mode=next;const botones={draw:'drawBtn',deleteContact:'deleteContactBtn',lens:'lensBtn',deleteLens:'deleteLensBtn',paint:'paintBtn',clearFill:'clearFillBtn'};Object.entries(botones).forEach(([m,id])=>$(id).classList.toggle('active',m===next));$('hint').textContent=next==='draw'?'Pulse para crear vertices; Enter finaliza':next==='lens'?'Dibuje el contorno del lentejon; se cerrara al finalizar':next==='deleteContact'?'Pulse sobre el contacto abierto que desea borrar':next==='deleteLens'?'Pulse sobre el lentejon cerrado que desea borrar':next==='paint'?'Seleccione una zona para asignar unidad y trama':next==='clearFill'?'Seleccione una zona para quitar su relleno':'Pase sobre una interfaz de sondeo para ajustar el contacto';render();}
+  function syncProperties(){const c=selectedContact();if(c?.unidad_inferior)$('unitSelect').value=c.unidad_inferior;}
+  function activeUnit(){return model.unidades.find(x=>x.unidad_id===$('unitSelect').value)||{};}
+  function finalizeDraft(){if(draft.length<(mode==='lens'?3:2))return;pushHistory();const lens=mode==='lens',id=`${lens?'lente':'contacto'}_${Date.now()}`,v=clone(draft),u=activeUnit();if(lens)v.push(clone(v[0]));contacts.push({contacto_id:id,nombre:lens?`Lentejon ${u.nombre||'interpretado'}`:`Contacto ${u.nombre||'interpretado'}`,unidad_superior:'',unidad_inferior:u.unidad_id||'',color:u.color||'#334155',vertices:v,visible:true,bloqueado:false,evidencia:'interpretado',incertidumbre_m:0});selection={type:'contact',ci:contacts.length-1};draft=[];markDirty(true);setMode('select');syncProperties();commit();}
+  function nearestSegmentIndex(c,p){let best={i:1,d:Infinity};for(let i=0;i<c.vertices.length-1;i++){const d=distanceSegment(p,c.vertices[i],c.vertices[i+1]);if(d<best.d)best={i:i+1,d};}return best.i;}
+  function deleteSelection(){const c=selectedContact();if(c?.bloqueado)return;if(selection?.type==='vertex'){pushHistory();if(c.vertices.length<=2){contacts.splice(selection.ci,1);selection=null;}else{c.vertices.splice(selection.vi,1);selection={type:'contact',ci:selection.ci};}markDirty(true);commit();}else if(selection?.type==='contact'){pushHistory();contacts.splice(selection.ci,1);selection=null;markDirty(true);commit();}else if(selection?.type==='zone'){pushHistory();const z=selectedZone();z.unidad_id='';z.trama='sin_trama';z.color='#D9DDE2';markDirty();commit();}syncProperties();render();}
+  svg.addEventListener('pointerdown',e=>{const sp=pointer(e),p=dataPoint(e);$('coord').textContent=`s: ${p.s_m.toFixed(2)} m | z: ${p.z_m.toFixed(2)} m`;if(e.button===1||e.shiftKey){pan={p:sp,view:clone(viewport)};svg.setPointerCapture(e.pointerId);return;}if(['draw','lens'].includes(mode)){if(e.detail>1||!inPlot(sp))return;draft.push(snapped(p,e.altKey));markDirty();render();return;}const hit=hitTest(p);if(mode==='paint'){if(hit?.type==='zone'){pushHistory();const u=activeUnit(),z=zones[hit.zi];z.unidad_id=u.unidad_id||'';z.color=u.color||'#D9DDE2';z.trama=$('hatchSelect').value;selection=hit;markDirty();commit();render();}else if(topologyDirty){$('state').textContent='Recalculando zonas. Espere a que vuelvan a mostrarse.';}return;}if(mode==='clearFill'){if(hit?.type==='zone'){pushHistory();const z=zones[hit.zi];z.unidad_id='';z.color='#D9DDE2';z.trama='sin_trama';selection=hit;markDirty();commit();render();}return;}if(['deleteContact','deleteLens'].includes(mode)){if(hit&&['contact','vertex'].includes(hit.type)){const c=contacts[hit.ci],expectedLens=mode==='deleteLens';if(isClosed(c)===expectedLens&&!c.bloqueado){pushHistory();contacts.splice(hit.ci,1);selection=null;markDirty(true);render();commit();}else{$('selection').textContent=expectedLens?'El elemento elegido no es un lentejon':'El elemento elegido es un lentejon';}}return;}selection=hit;if(hit?.type==='vertex'&&!contacts[hit.ci].bloqueado&&contacts[hit.ci].vertices[hit.vi].origen!=='observado'){pushHistory();drag={ci:hit.ci,vi:hit.vi};svg.setPointerCapture(e.pointerId);}syncProperties();render();});
+  svg.addEventListener('pointermove',e=>{const sp=pointer(e),p=dataPoint(e);$('coord').textContent=`s: ${p.s_m.toFixed(2)} m | z: ${p.z_m.toFixed(2)} m`;if(pan){const rx=(sp.x-pan.p.x)/(W-M.l-M.r)*(pan.view.xmax-pan.view.xmin),ry=(sp.y-pan.p.y)/(H-M.t-M.b)*(pan.view.ymax-pan.view.ymin);viewport={xmin:pan.view.xmin-rx,xmax:pan.view.xmax-rx,ymin:pan.view.ymin+ry,ymax:pan.view.ymax+ry};render();return;}if(drag){contacts[drag.ci].vertices[drag.vi]=snapped(p,e.altKey);markDirty(true);render();return;}const next=(!snap||e.altKey?null:nearestObserved(p))||hitTest(p);if(JSON.stringify(next)!==JSON.stringify(hover)){hover=next;render();}});svg.addEventListener('pointerleave',()=>{if(!drag&&!pan){hover=null;render();}});svg.addEventListener('pointerup',()=>{const moved=!!drag;drag=null;pan=null;render();if(moved)commit();});
+  svg.addEventListener('dblclick',e=>{e.preventDefault();if(['draw','lens'].includes(mode)){finalizeDraft();return;}if(mode!=='select')return;const p=dataPoint(e),hit=hitTest(p);if(!hit||!['contact','vertex'].includes(hit.type)||contacts[hit.ci].bloqueado)return;pushHistory();const q=snapped(p,e.altKey),idx=nearestSegmentIndex(contacts[hit.ci],q);contacts[hit.ci].vertices.splice(idx,0,q);selection={type:'vertex',ci:hit.ci,vi:idx};markDirty(true);syncProperties();render();commit();});svg.addEventListener('wheel',e=>{e.preventDefault();const p=dataPoint(e),f=e.deltaY>0?1.15:.87;viewport={xmin:p.s_m+(viewport.xmin-p.s_m)*f,xmax:p.s_m+(viewport.xmax-p.s_m)*f,ymin:p.z_m+(viewport.ymin-p.z_m)*f,ymax:p.z_m+(viewport.ymax-p.z_m)*f};render();},{passive:false});
+  $('drawBtn').onclick=()=>{draft=[];selection=null;setMode('draw');};$('deleteContactBtn').onclick=()=>{draft=[];selection=null;setMode('deleteContact');};$('lensBtn').onclick=()=>{draft=[];selection=null;setMode('lens');};$('deleteLensBtn').onclick=()=>{draft=[];selection=null;setMode('deleteLens');};$('paintBtn').onclick=()=>setMode('paint');$('clearFillBtn').onclick=()=>setMode('clearFill');$('finishBtn').onclick=finalizeDraft;$('fitBtn').onclick=()=>{viewport=clone(initialBounds);render();};$('snapBtn').onclick=()=>{snap=!snap;$('snapBtn').classList.toggle('active',snap);};
+  $('undoBtn').onclick=()=>{if(draft.length){draft.pop();render();return;}if(history.length){future.push(snapshot());restore(history.pop());commit();}};$('redoBtn').onclick=()=>{if(future.length){history.push(snapshot());restore(future.pop());commit();}};
+  $('clearBtn').onclick=()=>{if(!(contacts.length||zones.length)||!confirm('Se eliminaran todos los contactos y rellenos. Los sondeos y DPSH se conservaran.'))return;pushHistory();contacts=[];zones=[];selection=null;topologyDirty=false;clearedAll=true;markDirty();syncProperties();render();commit();};
+  $('saveBtn').onclick=commit;window.addEventListener('resize',()=>{if(model?.exageracion_vertical)adjustCanvas();render();});window.addEventListener('keydown',e=>{if(['INPUT','SELECT'].includes(document.activeElement?.tagName))return;if(e.key==='Delete'){e.preventDefault();deleteSelection();}else if(e.key==='Escape'){draft=[];setMode('select');}else if(e.key==='Enter'&&['draw','lens'].includes(mode))finalizeDraft();else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();$('undoBtn').click();}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();$('redoBtn').click();}});
+})();
+</script>
+</body>
+</html>

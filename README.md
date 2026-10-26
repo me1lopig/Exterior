@@ -1,180 +1,209 @@
-# 🌐 Exterior — Programas de visibilidad exterior (Geotecnia)
+# GeoPerfil 2D
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-See%20LICENSE-lightgrey)](./LICENSE)
+Aplicacion Streamlit para construir perfiles geologicos 2D a partir de sondeos y representar ensayos DPSH como polilineas `N20`-cota.
 
-## Qué es
-Colección de aplicaciones y utilidades en Python (principalmente interfaces Streamlit) para análisis geotécnico exterior: estabilidad de taludes, consolidación 1D, mejora con columnas de grava, asentamientos de zapatas (FEM), dimensionado de pilotes y utilidades de tablas/parametrización. Está orientado a uso académico, investigación y evaluaciones preliminares de diseño.
+La carpeta puede renombrarse libremente al desplegarla en Streamlit Cloud.
+En Streamlit Cloud seleccione `app.py` como archivo principal y mantenga `requirements.txt` en la misma carpeta.
 
-### Stack
-- Lenguaje(s): Python (100%)
-- Entorno / runtime: Streamlit (aplicaciones interactivas), scripts y módulos numéricos
-- Librerías destacadas: numpy, pandas, plotly / matplotlib, openpyxl, python-docx (y utilidades para exportar informes)
+## Version v0.6.0 - Revision de estabilidad (26/10/2026)
 
-## Organización del repositorio
-Estructura anotada (entradas de primer nivel relevantes):
+Esta version **no incorpora un CAD generalista**. Corrige y simplifica el flujo
+existente; sigue siendo un prototipo sometido a validacion geologica.
 
-```text
-.agent_files/           # plantillas y estilos generados (JSON) para informes
-AsientosZapata/         # Aplicaciones FEM para cálculo de asientos de zapatas
-ColumnasGrava/          # App Streamlit + motor (método Priebe) + generación de informes
-Consolidacion/          # Simulador 1D de consolidación (Terzaghi) + Streamlit
-Losas/                  # Módulos FEM/mesher/postprocessing para losas (esqueleto)
-MMC_tensores/           # Herramientas para operaciones con tensores (MMC)
-PilotesCTE/             # Scripts para dimensionado/análisis de pilotes (CTE)
-TaludesTemporales/      # Recursos y app de taludes temporales; incluye documentación AUDIT
-ZapatasGCOC/            # App y scripts de zapatas (GCOC) — interfaz e implementación
-expansividad/           # App para análisis de expansividad del terreno
-slope_stability_app/    # App principal de estabilidad de taludes (GeoSlope) y módulos internos
-spt/                    # Interpretación SPT / herramienta SPT
-tablas/                 # Generador y librería de tablas/parametrización (engines)
-tests/                  # Suite pytest (geometría, validación de entradas, sensibilidad, estabilidad)
-LICENSE                 # Licencia del proyecto
-README.md               # Este archivo
+### Cambios funcionales
+
+- Se retira **Generar borrador orientativo** de la interfaz. La geologia se interpreta
+  solo dibujando contactos abiertos y lentejones cerrados.
+- Al finalizar, borrar o modificar una geometria, el MiniCAD guarda la operacion y
+  solicita automaticamente a Python el recalculo de zonas. Tras actualizarse las
+  zonas, **Rellenar** se puede utilizar sin un guardado manual intermedio.
+- Deshacer/rehacer y el borrado de rellenos solicitan su persistencia; el proyecto
+  JSON conserva los datos y las zonas actualizados recibidos de MiniCAD.
+- Al dividir una zona previamente clasificada, las nuevas zonas quedan **sin
+  unidad asignada** hasta que el tecnico las clasifique. Solo se conserva el
+  relleno si la geometria permanece esencialmente identica.
+- Las interfaces observadas estan protegidas frente al arrastre y frente a edicion
+  numerica no autorizada; Python verifica sus coordenadas al recibir el MiniCAD.
+- Cambios de eje, importacion de Excel y restablecimiento que descarten geometria
+  requieren confirmacion explicita; editar sondeos/intervalos ya no borra los
+  contactos silenciosamente.
+- Guardado JSON con metadatos de columnas de las tablas, compatible tambien con
+  proyectos anteriores cuando no contenian ensayos DPSH.
+- Validaciones adicionales de datos finitos, colores, identificadores, profundidad
+  final, lecturas DPSH y contactos fuera de los valores observados.
+- DPSH con lagunas se representa por tramos independientes en MiniCAD, Plotly y PDF.
+- Tratamiento de huecos de poligonos en MiniCAD, Plotly y PDF; polilineas DXF
+  cerradas identificadas como tales.
+- Control H/V en Proyecto. La relacion se aplica en el perfil Plotly y en el PDF;
+  el MiniCAD adapta el alto del lienzo y muestra el factor visual efectivo si
+  los limites de altura del editor impiden mostrar exactamente la relacion pedida.
+- El MiniCAD trata los textos de los sondeos como texto, no como HTML activo.
+
+### Uso recomendado
+
+1. Importe Excel y revise los avisos de validacion.
+2. Configure eje y exageracion vertical.
+3. Entre en MiniCAD y dibuje **Introducir contacto** o **Introducir lentejon**.
+4. Termine con el boton **Finalizar**, Enter o doble clic; tras recalcular zonas,
+   pulse **Rellenar** y asigne unidad/trama a cada cara.
+5. Descargue el proyecto JSON como respaldo. Abra el JSON y compruebe que se han
+   recuperado contactos y rellenos antes de considerar validada la sesion.
+6. Revise la coincidencia del PDF/DXF con el perfil interpretado.
+
+### Validacion
+
+En el entorno de desarrollo se han superado 37 tests: 17 de nucleo anteriores,
+6 del cursor mediante Chromium, 10 nuevos de regresion y 4 de dibujo/guardado/
+relleno bajo distintas escalas, tambien con Chromium. Se ha ensayado un proyecto
+Excel sintetico complejo, su persistencia JSON, y exportaciones PDF/DXF.
+**No se ha realizado una prueba manual completa de Streamlit sobre macOS ni una
+validacion geologica independiente**; por ello se suministra como version de
+pruebas de estabilizacion y no como producto aprobado para uso profesional.
+
+### Limitaciones conocidas
+
+- El terreno se interpola a partir de las bocas de sondeo, no de un MDT.
+- El trazado libre de contactos entre sondeos representa una hipotesis del tecnico.
+- Los extremos abiertos que no cierran una cara no pueden rellenarse.
+- Los huecos en la vista Plotly usan relleno liso, aunque las demas caras
+  pueden representar las tramas seleccionadas.
+- La escala H/V define la relacion geometrica visual; no convierte por si sola
+  una impresion en papel a una escala fisica certificada.
+- Si aparecen contactos observados desactualizados, deben revisarse explicitamente.
+
+### Pruebas
+
+```
+python -m pytest -q tests
+python -m compileall -q .
+streamlit run app.py
 ```
 
-Cómo encaja (resumen)
-- Cada carpeta suele ser una aplicación o módulo independiente: entrada de parámetros → motor numérico (cálculo) → visualización (Streamlit / Plotly) → exportación (Excel/Word).
-- Los módulos reutilizables (por ejemplo motores de cálculo, generación de informes, tablas de parámetros) están organizados dentro de cada carpeta para mantener cohesión por dominio.
+Para pruebas en navegador se necesita Playwright y Chromium instalados. Si no
+estan disponibles, esas pruebas se omiten; el nucleo Python se ejecuta igualmente.
 
-## Resumen de carpetas y programas principales
-(qué hace cada programa, archivos clave y notas de ejecución)
+El Excel `ejemplos/caso_complejo_topografia_unidades.xlsx` contiene solo datos
+**sinteticos** y sirve para probar geometrias complejas y multiples DPSH.
 
-- AsientosZapata/
-  - app_asientos_FEM_4.py, app_asientos_FEM_4_0.py
-    - Aplicaciones que usan un solver FEM para estimar asientos de zapatas. Manejan la interfaz de parámetros, generación de mallado y llamadas al motor numérico.
-  - funciones_asientos.py, funciones_asientos_0.py
-    - Motor y utilidades FEM: ensamblaje de matrices, condiciones de contorno, resolución y postprocesado de asientos.
-  - requirements.txt
-    - Dependencias locales (instalar con `pip install -r AsientosZapata/requirements.txt`).
+---
 
-- ColumnasGrava/
-  - app.py
-    - Interfaz Streamlit que aplica el método de Priebe para columnas de grava: geometría, cálculo de Ac/A, parámetros equivalentes y análisis de sensibilidad.
-  - funciones_grava.py
-    - Cálculos numéricos (área de columna, relación de sustitución, coeficientes intermedios).
-  - informes.py
-    - Exportadores a Excel (.xlsx) y Word (.docx) (usa openpyxl / python-docx).
-  - README.md (detallado): explica metodología, fórmulas y ejemplos.
-  - Ejecución: `streamlit run ColumnasGrava/app.py`
+## Correccion de precision v0.5.1
 
-- Consolidacion/
-  - consolidacion_streamlit_3.py
-    - Simulador 1D basado en la ecuación de Terzaghi. Implementa métodos explícito e implícito (FDM), condiciones de contorno, cálculo de isócronas y exporte de resultados.
-  - README.md (completo): teoría, ejemplos de uso y generación de informes.
-  - Ejecución: `streamlit run Consolidacion/consolidacion_streamlit_3.py`
+Descripcion historica de la mejora del cursor introducida en v0.5.1:
 
-- Losas/
-  - fem_engine.py, mesher.py, postprocessing.py, app.py (esqueleto)
-    - Conjunto orientado al análisis por elementos finitos de losas: generación de mallado, motor FEM (ensamblado) y postprocesado. Algunos ficheros son plantillas o módulos reutilizables.
-  - Ejecución: revisar `Losas/requirements.txt` y lanzar la app o integrar el motor en un script.
+- Conversion del raton a coordenadas SVG mediante la matriz real del navegador
+  (`getScreenCTM().inverse()`) para evitar desfases por ajuste de ancho,
+  margenes del `viewBox`, zoom o cambio de tamano de ventana.
+- Distancias de captura medidas en pixeles reales de pantalla.
+- Un mismo radio para resaltar y capturar las interfaces observadas.
+- Las interfaces observadas tienen prioridad sobre lineas interpretadas proximas.
+- No se arrastran accidentalmente vertices clasificados como observados.
+- Se impide crear nuevos puntos fuera del area de trazado.
+- Tooltip de interfaces posicionado con la transformacion real.
 
-- MMC_tensores/
-  - app.py
-    - Interfaz/ejemplo para operaciones tensoriales relevantes en mecánica de medios continuos.
-  - tensor_operations.py
-    - Funciones para manipulaciones y transformaciones de tensores (contracciones, invariantes, etc.).
+Verificacion efectuada: 17 pruebas del nucleo y 6 pruebas con Chromium
+con diferentes anchos, cambio de tamano, zoom y captura magnetica.
+En entornos sin Playwright/Chromium las pruebas del navegador se omiten.
+Estas comprobaciones NO cierran el resto de hallazgos de la auditoria v0.5.
 
-- PilotesCTE/
-  - PilotesCTE_2.py
-    - Script de cálculo y dimensionado de pilotes conforme a criterios de la normativa (CTE). Incluye rutinas de comprobación y salida de resultados.
-  - README.md: explicación de uso y ejemplos.
+Para reproducir las pruebas de interfaz (opcional):
 
-- ZapatasGCOC/
-  - app.py, zapatas_GCOC_1.py, README.md
-    - Herramientas orientadas al cálculo de zapatas según criterios GCOC: cálculo geométrico, comprobaciones y tablas de resultados.
-
-- TaludesTemporales/
-  - README.md y AUDIT.md
-    - Documentación extensa, listas de verificación y notas de auditoría. Puede integrar componentes de `slope_stability_app`.
-
-- slope_stability_app/
-  - app.py (GeoSlope)
-    - Aplicación para estabilidad de taludes por equilibrio límite (Fellenius, Bishop simplificado). Estructura modular:
-      - calculations/ — funciones de cálculo
-      - models/       — clases de dominio (perfil, capas)
-      - services/     — utilidades (IO, export)
-      - visualization/— renderizado y gráficas
-    - Ejecución: `streamlit run slope_stability_app/app.py`
-
-- spt/
-  - app.py, README.md
-    - Herramienta SPT: entrada de ensayos, interpretación y tablas de correlación.
-
-- tablas/
-  - app.py, build_data.py, soil_params_engine.py
-    - Librería y app para construir y servir tablas de parámetros de suelos. `build_data.py` genera las fuentes de datos internas.
-  - Ejecución: `streamlit run tablas/app.py` o importar `tablas.soil_params_engine`.
-
-- expansividad/
-  - app.py
-    - App para analizar riesgos y efectos asociados a suelos expansivos.
-
-- agent_files/
-  - estilos_informes_geotecnicos.json
-    - Plantilla/estilos en JSON para la generación automatizada de informes (empleada por módulos de informes).
-
-- tests/
-  - test_geometry.py, test_input_validation.py, test_sensitivity_and_report.py, test_stability.py
-    - Suite pytest que cubre geometría, validación de entradas, sensibilidad de parámetros y estabilidad numérica.
-
-## Cómo ejecutarlo
-Ruta mínima desde clonación hasta ejecutar una app
-
-1. Clonar el repositorio:
 ```bash
-git clone https://github.com/me1lopig/Exterior.git
-cd Exterior
+pip install playwright pytest
+python -m playwright install chromium
+pytest -q tests/test_minicad_browser.py
 ```
 
-2. Crear y activar entorno virtual:
+## Alcance de la version 0.5
+
+- Importacion y edicion de sondeos, intervalos, unidades y DPSH.
+- Ejes rectos o poligonales en coordenadas XY.
+- Proyeccion por minima distancia y control de corredor.
+- MiniCAD SVG simplificado con herramientas para introducir o borrar contactos
+  abiertos y lentejones cerrados, rellenar o vaciar zonas y limpiar toda la
+  interpretacion.
+- Resaltado al pasar el cursor y marcador en aspa sobre interfaces observadas, con profundidad y unidades contiguas.
+- Dibujo de contactos abiertos y lentes cerradas para intercalaciones locales y acunamientos.
+- Seleccion implicita, movimiento de vertices e insercion mediante doble clic,
+  sin recargar la barra principal con operaciones CAD avanzadas.
+- Borrado diferenciado de contactos y lentejones; vaciado de rellenos y limpieza
+  completa de bordes y zonas con confirmacion.
+- Ajuste magnetico a interfaces observadas y vertices existentes, anulable temporalmente con `Alt`.
+- Deshacer, rehacer, zoom, encuadre y desplazamiento del lienzo.
+- Avisos de autointerseccion, cruces, extremos abiertos y zonas de area anormalmente pequena.
+- Vinculos estables con interfaces de sondeo y actualizacion explicita si cambian los datos originales.
+- Hipotesis alternativas persistentes, recuperables y superponibles como referencia grafica.
+- El generador de borradores permanece como funcion heredada interna para compatibilidad, pero no esta disponible en la interfaz v0.6.
+- Deteccion de intercalaciones locales A-B-A y propuesta de lente cerrada cuando ambos sondeos contiguos confirman la ausencia de B.
+- Tratamiento independiente y con identificadores unicos de unidades alternantes
+  repetidas, por ejemplo A-B-A-B-A.
+- Aviso sin cierre automatico cuando falta cobertura vertical o control lateral suficiente.
+- Acunamientos provisionales a media distancia, siempre identificados como interpretados y editables.
+- Polygonizacion topologica de lentes, intercalaciones y pinzamientos.
+- Asignacion de unidad, color y trama a cada zona cerrada.
+- DPSH representado mediante puntos unidos por segmentos rectos.
+- Separacion segura de tramos DPSH con lagunas de lectura, conservando su
+  estructura tabular para la representacion.
+- Exportacion a JSON, Excel, HTML, CSV, DXF y PDF.
+
+Los DPSH se representan sin convertirlos a SPT, sin clasificar el terreno y sin modificar los contactos. La correlacion geologica y la asignacion de zonas siguen siendo decisiones tecnicas del usuario.
+
+## Instalacion
+
+Entre en la carpeta descomprimida `perfil_geologico` y ejecute:
+
 ```bash
 python -m venv .venv
-# macOS / Linux
+```
+
+En Windows:
+
+```powershell
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+streamlit run app.py
+```
+
+En Linux:
+
+```bash
 source .venv/bin/activate
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+streamlit run app.py
 ```
 
-3. Instalar dependencias por módulo (recomendado — cada app mantiene su requirements):
+## Convenciones
+
+- Coordenadas horizontales y cotas en metros.
+- Cota `z` positiva hacia arriba.
+- Profundidad positiva hacia abajo.
+- La abscisa `s` aumenta con el orden de los vertices del eje.
+- La distancia lateral es positiva a la izquierda del eje orientado.
+- El DXF se exporta en coordenadas locales `X=s`, `Y=z`.
+
+## Formato Excel
+
+La propia aplicacion permite descargar una plantilla con datos demostrativos. Las hojas obligatorias son:
+
+- `Sondeos`
+- `Intervalos`
+- `Unidades`
+- `Ensayos_DPSH`
+- `Lecturas_DPSH`
+
+La hoja `Eje` es opcional durante la importacion, aunque debe definirse antes de generar el perfil.
+
+## Pruebas
+
 ```bash
-pip install -r ColumnasGrava/requirements.txt
-pip install -r Consolidacion/requirements.txt
-# repetir por cada carpeta que se vaya a usar
+cd ..
+python -m unittest discover -s perfil_geologico/tests -v
+python -m compileall -q perfil_geologico
 ```
 
-4. Ejecutar una app Streamlit (ejemplos):
-```bash
-# GeoSlope (estabilidad de taludes)
-streamlit run slope_stability_app/app.py
+## Limitaciones conocidas
 
-# Consolidación 1D
-streamlit run Consolidacion/consolidacion_streamlit_3.py
-
-# Columnas de grava (Priebe)
-streamlit run ColumnasGrava/app.py
-
-# Zapatas (GCOC)
-streamlit run ZapatasGCOC/app.py
-```
-
-5. Ejecutar tests:
-```bash
-pytest -q
-```
-
-Requisitos
-- Python 3.8+ (algunos módulos pueden requerir 3.9+)
-- Instalar las dependencias que aparecen en `*/requirements.txt` antes de ejecutar cada app
-- Entorno virtual recomendado
-
-## Cómo encajan los módulos
-- Las apps comparten un patrón: `app.py` (Streamlit) importa el motor de cálculo y los módulos de export (`informes.py` / `motor_calculo.py`).
-- Los resultados se visualizan con Plotly/Matplotlib y pueden exportarse a Excel/Word mediante openpyxl/python-docx.
-- `tablas/` actúa como fuente común de parámetros de suelo que otras apps pueden reutilizar.
-
-## Propuestas y siguientes pasos
-1. ¿Quieres que cree una rama y abra un PR con esta traducción para revisión antes de dejarlo en `main`?
-2. ¿Prefieres que añada un script `setup.sh` o un Makefile para instalar dependencias por módulo automáticamente?
-3. ¿Deseas que agregue badges de CI (pytest) y un workflow básico en `.github/workflows`?
-
+- La superficie del terreno se obtiene de las cotas de boca de los sondeos.
+- No se representan todavia fallas ni pliegues volcados.
+- Los extremos de los contactos deben alcanzar el contorno o coincidir con otro contacto para dividir una zona.
+- La comprobacion topologica no sustituye la revision geologica del tecnico responsable.
