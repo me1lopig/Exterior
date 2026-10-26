@@ -5,6 +5,33 @@ Aplicacion Streamlit para construir perfiles geologicos 2D a partir de sondeos y
 La carpeta puede renombrarse libremente al desplegarla en Streamlit Cloud.
 En Streamlit Cloud seleccione `app.py` como archivo principal y mantenga `requirements.txt` en la misma carpeta.
 
+## Correccion de precision v0.5.1
+
+Esta revision es una correccion puntual sobre v0.5, no la estabilizacion integral v0.6:
+
+- Conversion del raton a coordenadas SVG mediante la matriz real del navegador
+  (`getScreenCTM().inverse()`) para evitar desfases por ajuste de ancho,
+  margenes del `viewBox`, zoom o cambio de tamano de ventana.
+- Distancias de captura medidas en pixeles reales de pantalla.
+- Un mismo radio para resaltar y capturar las interfaces observadas.
+- Las interfaces observadas tienen prioridad sobre lineas interpretadas proximas.
+- No se arrastran accidentalmente vertices clasificados como observados.
+- Se impide crear nuevos puntos fuera del area de trazado.
+- Tooltip de interfaces posicionado con la transformacion real.
+
+Verificacion efectuada: 17 pruebas del nucleo y 6 pruebas con Chromium
+con diferentes anchos, cambio de tamano, zoom y captura magnetica.
+En entornos sin Playwright/Chromium las pruebas del navegador se omiten.
+Estas comprobaciones NO cierran el resto de hallazgos de la auditoria v0.5.
+
+Para reproducir las pruebas de interfaz (opcional):
+
+```bash
+pip install playwright pytest
+python -m playwright install chromium
+pytest -q tests/test_minicad_browser.py
+```
+
 ## Alcance de la version 0.5
 
 - Importacion y edicion de sondeos, intervalos, unidades y DPSH.
