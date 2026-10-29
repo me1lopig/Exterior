@@ -19,7 +19,7 @@ def test_conversion_modulo_confinado():
 
 
 def test_asiento_positivo_y_menor_fuera_de_la_huella():
-    resultado = calcular_caso(Cimentacion(2.0, 3.0, 150.0, 1.0), capas_uniformes(), "E_nu", 2.0, 10.0, 301)
+    resultado = calcular_caso(Cimentacion(2.0, 3.0, 150.0, 1.0), capas_uniformes(), "E_nu", 2.0, 10.0, 0.10)
     resumen = resultado.resumen_puntos.set_index("Punto")
     assert resumen.loc["Centro", "asiento_base_mm"] > 0.0
     assert resumen.loc["Centro", "asiento_base_mm"] > resumen.loc["Exterior B", "asiento_base_mm"]
@@ -29,10 +29,21 @@ def test_asiento_positivo_y_menor_fuera_de_la_huella():
 def test_area_extensa_reproduce_compresion_unidimensional():
     capas = capas_uniformes()
     cimentacion = Cimentacion(1000.0, 1000.0, 100.0, 0.0)
-    resultado = calcular_caso(cimentacion, capas, "M", 50.0, 2.0, 401)
+    resultado = calcular_caso(cimentacion, capas, "M", 50.0, 2.0, 0.01)
     calculado = resultado.resumen_puntos.set_index("Punto").loc["Centro", "asiento_base_mm"]
     esperado = 100.0 / (33.65 * 1000.0) * 2.0 * 1000.0
     assert np.isclose(calculado, esperado, rtol=2e-4)
+
+
+def test_paso_adoptado_y_control_refinado():
+    resultado = calcular_caso(
+        Cimentacion(2.0, 3.0, 150.0, 1.0),
+        capas_uniformes(), "E_nu", 2.0, 10.0, 0.10,
+    )
+    assert resultado.paso_adoptado_m == 0.10
+    assert resultado.paso_control_m == 0.05
+    assert resultado.intervalos_adoptados == 100
+    assert resultado.intervalos_control == 200
 
 
 def test_validacion_de_tres_estratos_contiguos():

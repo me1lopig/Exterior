@@ -20,6 +20,10 @@ class ResultadoCalculo:
     malla_larga: dict[str, NDArray[np.float64]]
     error_discretizacion_pct: float
     contribucion_tramo_final_pct: float
+    paso_adoptado_m: float
+    paso_control_m: float
+    intervalos_adoptados: int
+    intervalos_control: int
 
 
 PUNTOS_CONTROL = {
@@ -47,8 +51,16 @@ def _indices_estratos(profundidad_terreno_m: NDArray[np.float64], estratos: pd.D
     return np.clip(indices, 0, len(estratos) - 1)
 
 
-def _malla_profundidad(z_max_m: float, n_puntos: int, df_m: float, estratos: pd.DataFrame) -> NDArray[np.float64]:
-    base = np.linspace(0.0, z_max_m, n_puntos)
+def _malla_profundidad(z_max_m: float, paso_m: float, df_m: float, estratos: pd.DataFrame) -> NDArray[np.float64]:
+    """Genera una malla uniforme, cerrada en z_max, e inserta interfaces."""
+    if paso_m <= 0.0:
+        raise ValueError("El paso vertical debe ser positivo.")
+    n_completos = int(np.floor(z_max_m / paso_m))
+    base = paso_m * np.arange(n_completos + 1, dtype=float)
+    if base.size == 0 or not np.isclose(base[-1], z_max_m, atol=1e-12, rtol=1e-12):
+        base = np.append(base, z_max_m)
+    else:
+        base[-1] = z_max_m
     interfaces = estratos["z_inf_m"].to_numpy(dtype=float) - df_m
     interfaces = interfaces[(interfaces > 0.0) & (interfaces < z_max_m)]
     return np.unique(np.concatenate([base, interfaces]))
@@ -157,13 +169,17 @@ def calcular_caso(
     modo_modulo: ModoModulo,
     nivel_freatico_m: float,
     z_max_m: float,
-    n_puntos: int = 601,
+    paso_m: float = 0.10,
 ) -> ResultadoCalculo:
     """Ejecuta el cálculo multicapa de tensiones y asiento elástico."""
-    if z_max_m <= 0 or n_puntos < 80:
-        raise ValueError("La profundidad debe ser positiva y se requieren al menos 80 puntos.")
+    if z_max_m <= 0 or paso_m <= 0:
+        raise ValueError("La profundidad y el paso vertical deben ser positivos.")
+    if paso_m >= z_max_m:
+        raise ValueError("El paso vertical debe ser menor que la profundidad analizada.")
+    if int(np.ceil(z_max_m / paso_m)) > 20_000:
+        raise ValueError("El paso genera más de 20 000 intervalos; adopte un valor mayor.")
     m_capas = modulo_confinado_kpa(estratos, modo_modulo)
-    z = _malla_profundidad(z_max_m, n_puntos, cimentacion.df_m, estratos)
+    z = _malla_profundidad(z_max_m, paso_m, cimentacion.df_m, estratos)
 
     perfiles: list[pd.DataFrame] = []
     for nombre, (rx, ry) in PUNTOS_CONTROL.items():
@@ -193,7 +209,8 @@ def calcular_caso(
     centro = tabla_perfiles[tabla_perfiles["Punto"] == "Centro"].reset_index(drop=True)
     resumen_estratos = _resumen_por_estrato(centro, estratos)
 
-    z_refinado = _malla_profundidad(z_max_m, 2 * n_puntos - 1, cimentacion.df_m, estratos)
+    paso_control = paso_m / 2.0
+    z_refinado = _malla_profundidad(z_max_m, paso_control, cimentacion.df_m, estratos)
     centro_refinado = _perfil_punto(
         "Centro", 0.0, 0.0, z_refinado, cimentacion, estratos, m_capas, nivel_freatico_m
     )
@@ -215,4 +232,8 @@ def calcular_caso(
         malla_larga=_malla_bulbo(cimentacion, z_max_m, "L"),
         error_discretizacion_pct=error,
         contribucion_tramo_final_pct=proporcion_final,
+        paso_adoptado_m=paso_m,
+        paso_control_m=paso_control,
+        intervalos_adoptados=len(z) - 1,
+        intervalos_control=len(z_refinado) - 1,
     )

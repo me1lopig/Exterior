@@ -49,9 +49,19 @@ def crear_excel(
     salida = BytesIO()
     resumen_caso = pd.DataFrame(
         {
-            "Parámetro": ["B", "L", "q neta", "Df", "Nivel freático", "Profundidad analizada", "Modo de rigidez", "Error discretización", "Aporte último 10 %"],
-            "Valor": [cimentacion.b_m, cimentacion.l_m, cimentacion.q_neta_kpa, cimentacion.df_m, nivel_freatico_m, z_max_m, modo_modulo, resultado.error_discretizacion_pct, resultado.contribucion_tramo_final_pct],
-            "Unidad": ["m", "m", "kPa", "m", "m", "m", "-", "%", "%"],
+            "Parámetro": [
+                "B", "L", "q neta", "Df", "Nivel freático", "Profundidad analizada",
+                "Modo de rigidez", "Paso adoptado", "Intervalos adoptados", "Paso de control",
+                "Intervalos de control", "Error discretización", "Aporte último 10 %",
+            ],
+            "Valor": [
+                cimentacion.b_m, cimentacion.l_m, cimentacion.q_neta_kpa, cimentacion.df_m,
+                nivel_freatico_m, z_max_m, modo_modulo, resultado.paso_adoptado_m,
+                resultado.intervalos_adoptados, resultado.paso_control_m,
+                resultado.intervalos_control, resultado.error_discretizacion_pct,
+                resultado.contribucion_tramo_final_pct,
+            ],
+            "Unidad": ["m", "m", "kPa", "m", "m", "m", "-", "m", "-", "m", "-", "%", "%"],
         }
     )
     with pd.ExcelWriter(salida, engine="openpyxl") as writer:

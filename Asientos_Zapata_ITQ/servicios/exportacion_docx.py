@@ -217,6 +217,10 @@ def crear_informe_docx(
             ["Presión neta", cimentacion.q_neta_kpa, "kPa"], ["Profundidad Df", cimentacion.df_m, "m"],
             ["Nivel freático", nivel_freatico_m, "m desde superficie"],
             ["Profundidad analizada", z_max_m, "m bajo base"], ["Rigidez", modo_modulo, "-"],
+            ["Paso vertical adoptado", resultado.paso_adoptado_m, "m"],
+            ["Intervalos adoptados", resultado.intervalos_adoptados, "-"],
+            ["Paso vertical de control", resultado.paso_control_m, "m"],
+            ["Intervalos de control", resultado.intervalos_control, "-"],
         ], columns=["Parámetro", "Valor", "Unidad"]
     )
     _tabla(doc, entrada)
@@ -226,6 +230,7 @@ def crear_informe_docx(
         "plasticidad ni redistribución de presiones por rigidez de la cimentación."
     )
 
+    doc.add_page_break()
     _titulo(doc, "PARÁMETROS DEL TERRENO")
     _tabla(doc, estratos)
 
@@ -234,7 +239,8 @@ def crear_informe_docx(
     doc.add_paragraph(
         f"El asiento elástico calculado bajo el centro es {asiento_centro:.2f} mm para el límite "
         f"inferior situado a {z_max_m:.2f} m bajo la base. El error relativo al duplicar la "
-        f"discretización es {resultado.error_discretizacion_pct:.3f} %."
+        f"discretización, reduciendo el paso de {resultado.paso_adoptado_m:.3f} m a "
+        f"{resultado.paso_control_m:.3f} m, es {resultado.error_discretizacion_pct:.3f} %."
     )
     _tabla(doc, resultado.resumen_puntos)
     _titulo(doc, "APORTE POR ESTRATO", nivel=2)
@@ -248,7 +254,9 @@ def crear_informe_docx(
     doc.add_paragraph(
         "El incremento de tensión se obtiene integrando la solución de Boussinesq sobre el área "
         "rectangular. El asiento se calcula como la integral de Δσz/M respecto a la profundidad. "
-        "Cuando se selecciona E y ν, el módulo confinado es M = E(1−ν)/[(1+ν)(1−2ν)]."
+        "La integral se aproxima mediante una suma evaluada en el punto medio de cada intervalo, "
+        "insertando exactamente las interfaces. Cuando se selecciona E y ν, el módulo confinado "
+        "es M = E(1−ν)/[(1+ν)(1−2ν)]."
     )
     doc.add_paragraph(
         "La distribución de tensiones corresponde a un semiespacio homogéneo; la estratificación "

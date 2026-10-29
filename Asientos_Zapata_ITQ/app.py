@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -48,7 +49,6 @@ tabs = st.tabs(
     [
         "Proyecto y geometría",
         "Terreno",
-        "Cálculo",
         "Resultados",
         "Bulbo de influencia",
         "Informe y datos",
@@ -76,6 +76,50 @@ with tabs[0]:
         else:
             st.success(f"Geometría comprobada · L/B = {l_m / b_m:.2f}")
         st.info("q se interpreta como presión neta uniforme en la base; la excavación no se descuenta de nuevo.")
+
+    st.divider()
+    st.subheader("Dominio y discretización")
+    st.caption("El programa propone el paso a partir de B; el calculista puede adoptar un nivel predefinido o introducir un valor propio.")
+    d1, d2, d3, d4 = st.columns([1.0, 1.15, 1.0, 1.0])
+    z_max_m = d1.number_input(
+        "Profundidad bajo la base (m)", min_value=0.50,
+        value=max(8.0, 4.0 * b_m), step=0.50, format="%.2f",
+    )
+    nivel_paso = d2.selectbox(
+        "Nivel de discretización",
+        ["Normal · B/20", "Preliminar · B/10", "Refinado · B/40", "Personalizado"],
+    )
+    pasos_predefinidos = {
+        "Preliminar · B/10": b_m / 10.0,
+        "Normal · B/20": b_m / 20.0,
+        "Refinado · B/40": b_m / 40.0,
+    }
+    paso_recomendado_m = b_m / 20.0
+    if nivel_paso == "Personalizado":
+        valor_personalizado = min(max(round(paso_recomendado_m, 3), 0.001), z_max_m * 0.50)
+        if "paso_personalizado_m" not in st.session_state:
+            st.session_state.paso_personalizado_m = valor_personalizado
+        elif st.session_state.paso_personalizado_m >= z_max_m * 0.99:
+            st.session_state.paso_personalizado_m = valor_personalizado
+        paso_m = d3.number_input(
+            "Paso vertical adoptado Δz (m)", min_value=0.001,
+            max_value=float(z_max_m * 0.99), step=0.01, format="%.3f",
+            key="paso_personalizado_m",
+        )
+    else:
+        paso_m = pasos_predefinidos[nivel_paso]
+        d3.metric("Paso vertical adoptado", f"{paso_m:.3f} m")
+    intervalos_estimados = int(np.ceil(z_max_m / paso_m))
+    d4.metric("Intervalos estimados", f"{intervalos_estimados}")
+    st.caption(
+        f"Paso normal recomendado B/20 = {paso_recomendado_m:.3f} m · "
+        "las interfaces de los estratos se insertarán exactamente y pueden aumentar el número final de intervalos."
+    )
+    if paso_m > b_m / 10.0:
+        st.warning("El paso adoptado es mayor que B/10. Se recomienda comprobar el caso con Δz ≤ B/20.")
+    st.markdown("**Puntos de control**")
+    st.write("Centro, centros de los bordes B y L, esquina y dos puntos exteriores situados a una distancia B o L del centro.")
+    st.warning("La distribución de tensiones corresponde a un semiespacio homogéneo; la estratificación se aplica al módulo de deformación.")
 
 with tabs[1]:
     st.subheader("Perfil estratigráfico")
@@ -111,23 +155,29 @@ with tabs[1]:
                 "Se han introducido valores de ν próximos a 0.5. El módulo confinado crece con rapidez "
                 "y este modelo de compresión vertical no representa adecuadamente una respuesta casi incompresible."
             )
-
-with tabs[2]:
-    st.subheader("Dominio y discretización")
-    st.caption("El límite inferior es una hipótesis del modelo y debe comprobarse mediante su contribución residual al asiento.")
-    c1, c2, c3 = st.columns(3)
-    z_max_m = c1.number_input("Profundidad bajo la base (m)", min_value=0.50, value=max(8.0, 4.0 * b_m), step=0.50, format="%.2f")
-    n_puntos = c2.slider("Puntos en profundidad", min_value=201, max_value=1601, value=601, step=200)
-    c3.metric("Profundidad relativa", f"{z_max_m / b_m:.2f} B")
-    st.markdown("**Puntos de control**")
-    st.write("Centro, centros de los bordes B y L, esquina y dos puntos exteriores situados a una distancia B o L del centro.")
-    st.warning("El método usa la distribución de tensiones de un semiespacio homogéneo y aplica la estratificación al módulo de deformación. No es una solución elástica multicapa exacta.")
+    espesores_utiles = []
+    for _, capa in estratos_editados.iterrows():
+        try:
+            espesor = max(
+                0.0,
+                min(float(capa["z_inf_m"]), df_m + z_max_m)
+                - max(float(capa["z_sup_m"]), df_m),
+            )
+            if espesor > 0.0:
+                espesores_utiles.append(espesor)
+        except (TypeError, ValueError):
+            pass
+    if espesores_utiles and paso_m > min(espesores_utiles) / 3.0:
+        st.warning(
+            f"El estrato más delgado dentro del dominio tiene {min(espesores_utiles):.3f} m. "
+            "El paso adoptado genera menos de tres intervalos en ese espesor."
+        )
 
 cimentacion = Cimentacion(b_m=b_m, l_m=l_m, q_neta_kpa=q_kpa, df_m=df_m)
 proyecto = {"proyecto": proyecto_nombre, "localizacion": localizacion, "autor": autor, "observaciones": observaciones}
 payload = {
     "b": b_m, "l": l_m, "q": q_kpa, "df": df_m, "nf": nivel_freatico_m,
-    "zmax": z_max_m, "n": n_puntos, "modo": modo_modulo,
+    "zmax": z_max_m, "paso": paso_m, "nivel_paso": nivel_paso, "modo": modo_modulo,
     "proyecto": proyecto,
 }
 firma_actual = firma_caso(payload, estratos_editados)
@@ -150,13 +200,17 @@ with st.sidebar:
             estratos_editados, modo_modulo, df_m + z_max_m
         )
         errores.extend(errores_capas)
+        if paso_m >= z_max_m:
+            errores.append("El paso vertical debe ser menor que la profundidad analizada.")
+        if int(np.ceil(z_max_m / paso_m)) > 20_000:
+            errores.append("El paso vertical genera más de 20 000 intervalos.")
         if errores:
             st.session_state.errores = errores
             st.session_state.pop("resultado", None)
         else:
             with st.spinner("Integrando tensiones y deformaciones..."):
                 st.session_state.resultado = calcular_caso(
-                    cimentacion, capas, modo_modulo, nivel_freatico_m, z_max_m, n_puntos
+                    cimentacion, capas, modo_modulo, nivel_freatico_m, z_max_m, paso_m
                 )
                 st.session_state.capas_calculadas = capas
                 st.session_state.firma_resultado = firma_actual
@@ -194,7 +248,7 @@ with st.sidebar:
 resultado = st.session_state.get("resultado")
 resultado_vigente = resultado is not None and st.session_state.get("firma_resultado") == firma_actual
 
-with tabs[3]:
+with tabs[2]:
     st.subheader("Resultados del cálculo")
     if not resultado_vigente:
         st.info("Calcule el caso o actualice los resultados después de modificar las entradas.")
@@ -207,6 +261,10 @@ with tabs[3]:
         m2.metric("Asiento bajo la esquina", f"{asiento_esquina:.2f} mm")
         m3.metric("Error de discretización", f"{resultado.error_discretizacion_pct:.3f} %")
         m4.metric("Aporte del último 10 %", f"{resultado.contribucion_tramo_final_pct:.2f} %")
+        st.caption(
+            f"Δz adoptado = {resultado.paso_adoptado_m:.3f} m ({resultado.intervalos_adoptados} intervalos) · "
+            f"control con Δz/2 = {resultado.paso_control_m:.3f} m ({resultado.intervalos_control} intervalos)."
+        )
         if resultado.contribucion_tramo_final_pct > 2.0:
             st.warning("El tramo final mantiene una contribución apreciable. Amplíe la profundidad y compruebe la estabilización del asiento.")
         c1, c2 = st.columns(2)
@@ -220,7 +278,7 @@ with tabs[3]:
         st.markdown("**Contribución por estrato bajo el centro**")
         st.dataframe(resultado.resumen_estratos, use_container_width=True, hide_index=True)
 
-with tabs[4]:
+with tabs[3]:
     st.subheader("Entorno del bulbo de influencia")
     if not resultado_vigente:
         st.info("Los mapas estarán disponibles después de calcular el caso.")
@@ -230,7 +288,7 @@ with tabs[4]:
         st.plotly_chart(figura_bulbo(malla, cimentacion, st.session_state.capas_calculadas), use_container_width=True)
         st.caption("Las isolíneas representan Δσz/q. Las líneas horizontales discontinuas indican interfaces estratigráficas bajo la base.")
 
-with tabs[5]:
+with tabs[4]:
     st.subheader("Informe y datos")
     st.caption("Los archivos reproducen exactamente el caso calculado y mantienen unidades explícitas.")
     if not resultado_vigente:
@@ -251,7 +309,7 @@ with tabs[5]:
         )
         st.caption("El informe incluye las principales figuras y tablas. El Excel contiene perfiles completos y mallas de tensión en las direcciones B y L.")
 
-with tabs[6]:
+with tabs[5]:
     st.subheader("Formulación utilizada")
     st.caption("Convención: compresión positiva; z se mide desde la base de la cimentación.")
     st.markdown("**Incremento de tensión bajo la esquina de un rectángulo**")
@@ -261,6 +319,8 @@ with tabs[6]:
     st.markdown("**Módulo confinado y deformación vertical**")
     st.latex(r"M=\frac{E(1-\nu)}{(1+\nu)(1-2\nu)},\qquad \varepsilon_z(z)=\frac{\Delta\sigma_z(z)}{M(z)}")
     st.latex(r"s(x,y)=\int_0^{z_{\max}}\frac{\Delta\sigma_z(x,y,z)}{M(z)}\,dz")
+    st.latex(r"s(x,y)\approx\sum_i \frac{\Delta\sigma_z(x,y,z_{m,i})}{M_i}\,\Delta z_i")
+    st.write("La suma se evalúa en el punto medio de cada intervalo. Las interfaces de estrato se incorporan como nodos exactos y el control se repite con Δz/2.")
     st.markdown("**Tensiones geostáticas**")
     st.latex(r"\sigma_{v0}(z)=\int_0^z\gamma(\zeta)\,d\zeta,\qquad u(z)=\gamma_w\max(z-z_w,0),\qquad \sigma'_{v0}=\sigma_{v0}-u")
     st.markdown("**Alcance**")

@@ -14,7 +14,7 @@ def _caso():
         columns=["Estrato", "z_sup_m", "z_inf_m", "gamma_ap_kN_m3", "gamma_sat_kN_m3", "E_MPa", "nu", "M_MPa"],
     )
     cimiento = Cimentacion(2.0, 3.0, 120.0, 1.0)
-    resultado = calcular_caso(cimiento, capas, "E_nu", 2.0, 8.0, 201)
+    resultado = calcular_caso(cimiento, capas, "E_nu", 2.0, 8.0, 0.10)
     capas["M_calculo_MPa"] = 40.38
     return cimiento, capas, resultado
 
