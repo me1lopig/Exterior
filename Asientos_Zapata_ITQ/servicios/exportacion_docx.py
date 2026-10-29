@@ -15,6 +15,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt, RGBColor
 
 from calculos.asientos import ResultadoCalculo
+from calculos.steinbrenner import ResultadoSteinbrenner
 from modelos.datos import Cimentacion
 
 
@@ -164,6 +165,21 @@ def _figura_bulbo(resultado: ResultadoCalculo, cimentacion: Cimentacion) -> Byte
     return salida
 
 
+def _figura_steinbrenner(resultado: ResultadoSteinbrenner) -> BytesIO:
+    fig, ax = plt.subplots(figsize=(6.0, 4.0), dpi=180)
+    for nombre, grupo in resultado.perfiles.groupby("Punto", sort=False):
+        ax.plot(
+            grupo["desplazamiento_mm"], grupo["z_bajo_base_m"],
+            marker="o", markersize=3.5, label=nombre,
+        )
+    ax.invert_yaxis(); ax.grid(alpha=0.25); ax.legend(frameon=False, fontsize=7, ncol=2)
+    ax.set_xlabel("Desplazamiento Steinbrenner (mm)")
+    ax.set_ylabel("Profundidad bajo la base (m)")
+    fig.tight_layout()
+    salida = BytesIO(); fig.savefig(salida, format="png", bbox_inches="tight"); plt.close(fig); salida.seek(0)
+    return salida
+
+
 def _insertar_figura(doc: Document, imagen: BytesIO, pie: str) -> None:
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -179,10 +195,10 @@ def crear_informe_docx(
     proyecto: dict[str, Any],
     cimentacion: Cimentacion,
     estratos: pd.DataFrame,
-    modo_modulo: str,
     nivel_freatico_m: float,
     z_max_m: float,
     resultado: ResultadoCalculo,
+    resultado_steinbrenner: ResultadoSteinbrenner,
 ) -> bytes:
     """Crea una memoria de cálculo DOCX con estilo geotécnico corporativo."""
     doc = Document()
@@ -216,7 +232,8 @@ def crear_informe_docx(
             ["Ancho B", cimentacion.b_m, "m"], ["Longitud L", cimentacion.l_m, "m"],
             ["Presión neta", cimentacion.q_neta_kpa, "kPa"], ["Profundidad Df", cimentacion.df_m, "m"],
             ["Nivel freático", nivel_freatico_m, "m desde superficie"],
-            ["Profundidad analizada", z_max_m, "m bajo base"], ["Rigidez", modo_modulo, "-"],
+            ["Profundidad analizada", z_max_m, "m bajo base"],
+            ["Parámetros elásticos", "E y ν; M derivado", "-"],
             ["Paso vertical adoptado", resultado.paso_adoptado_m, "m"],
             ["Intervalos adoptados", resultado.intervalos_adoptados, "-"],
             ["Paso vertical de control", resultado.paso_control_m, "m"],
@@ -234,7 +251,7 @@ def crear_informe_docx(
     _titulo(doc, "PARÁMETROS DEL TERRENO")
     _tabla(doc, estratos)
 
-    _titulo(doc, "RESULTADOS")
+    _titulo(doc, "RESULTADOS POR INTEGRACIÓN VERTICAL")
     asiento_centro = float(resultado.resumen_puntos.loc[resultado.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
     doc.add_paragraph(
         f"El asiento elástico calculado bajo el centro es {asiento_centro:.2f} mm para el límite "
@@ -250,13 +267,40 @@ def crear_informe_docx(
     _insertar_figura(doc, _figura_bulbo(resultado, cimentacion), "Figura 3 Bulbo de incremento de tensión en la dirección B")
 
     doc.add_page_break()
+    _titulo(doc, "RESULTADOS MEDIANTE STEINBRENNER")
+    asiento_stein = float(
+        resultado_steinbrenner.resumen_puntos.loc[
+            resultado_steinbrenner.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"
+        ].iloc[0]
+    )
+    doc.add_paragraph(
+        f"El asiento elástico de Steinbrenner bajo el centro es {asiento_stein:.2f} mm para el "
+        f"límite inferior situado a {z_max_m:.2f} m bajo la base. Este cálculo utiliza directamente "
+        "E y ν y no depende del paso vertical adoptado para la integración."
+    )
+    _tabla(doc, resultado_steinbrenner.resumen_puntos)
+    _titulo(doc, "APORTE STEINBRENNER POR ESTRATO", nivel=2)
+    _tabla(doc, resultado_steinbrenner.resumen_estratos)
+    _insertar_figura(
+        doc, _figura_steinbrenner(resultado_steinbrenner),
+        "Figura 4 Desplazamiento mediante Steinbrenner en puntos de control",
+    )
+
+    doc.add_page_break()
     _titulo(doc, "FORMULACIÓN Y LIMITACIONES")
     doc.add_paragraph(
         "El incremento de tensión se obtiene integrando la solución de Boussinesq sobre el área "
         "rectangular. El asiento se calcula como la integral de Δσz/M respecto a la profundidad. "
         "La integral se aproxima mediante una suma evaluada en el punto medio de cada intervalo, "
-        "insertando exactamente las interfaces. Cuando se selecciona E y ν, el módulo confinado "
-        "es M = E(1−ν)/[(1+ν)(1−2ν)]."
+        "insertando exactamente las interfaces. El módulo confinado se deriva como "
+        "M = E(1−ν)/[(1+ν)(1−2ν)]."
+    )
+    doc.add_paragraph(
+        "El cálculo de Steinbrenner se realiza independientemente con los factores I1 e I2, E y ν. "
+        "La contribución de cada capa se obtiene como diferencia entre la compresión acumulada en "
+        "sus límites superior e inferior. Se aplica superposición rectangular desde el plano de apoyo "
+        "con la presión neta, sin factor adicional de empotramiento. Los dos resultados no se combinan "
+        "ni se comparan."
     )
     doc.add_paragraph(
         "La distribución de tensiones corresponde a un semiespacio homogéneo; la estratificación "

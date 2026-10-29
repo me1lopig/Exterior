@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from calculos.asientos import ResultadoCalculo
+from calculos.steinbrenner import ResultadoSteinbrenner
 from modelos.datos import Cimentacion
 
 
@@ -118,6 +119,40 @@ def figura_aporte_estratos(resultado: ResultadoCalculo) -> go.Figure:
         font=dict(family="Open Sans, Arial", color=AZUL, size=12), showlegend=False,
     )
     fig.update_xaxes(title="Aporte al asiento bajo el centro (mm)", gridcolor="#E8ECF1")
+    fig.update_yaxes(title="", autorange="reversed")
+    return fig
+
+
+def figura_asientos_steinbrenner(resultado: ResultadoSteinbrenner) -> go.Figure:
+    fig = go.Figure()
+    colores = [AZUL_CLARO, ROJO, VERDE, "#8A5CA8", "#D18C1D", GRIS]
+    for color, (nombre, df) in zip(colores, resultado.perfiles.groupby("Punto", sort=False)):
+        fig.add_trace(
+            go.Scatter(
+                x=df["desplazamiento_mm"], y=df["z_bajo_base_m"],
+                mode="lines+markers", name=nombre,
+                line=dict(color=color, width=2.2), marker=dict(size=5),
+            )
+        )
+    return _estilo_base(
+        fig, "Desplazamiento elástico Steinbrenner (mm)", "Profundidad bajo la base (m)"
+    )
+
+
+def figura_aporte_steinbrenner(resultado: ResultadoSteinbrenner) -> go.Figure:
+    df = resultado.resumen_estratos
+    fig = go.Figure(
+        go.Bar(
+            x=df["asiento_mm"], y=df["Estrato"], orientation="h",
+            marker_color=VERDE,
+            text=df["asiento_mm"].map(lambda v: f"{v:.2f} mm"), textposition="outside",
+        )
+    )
+    fig.update_layout(
+        template="plotly_white", margin=dict(l=25, r=35, t=25, b=25),
+        font=dict(family="Open Sans, Arial", color=AZUL, size=12), showlegend=False,
+    )
+    fig.update_xaxes(title="Aporte Steinbrenner bajo el centro (mm)", gridcolor="#E8ECF1")
     fig.update_yaxes(title="", autorange="reversed")
     return fig
 

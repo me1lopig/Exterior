@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
-
 import numpy as np
 import pandas as pd
-
-
-ModoModulo = Literal["E_nu", "M"]
 
 
 @dataclass(frozen=True)
@@ -42,7 +37,6 @@ COLUMNAS_ESTRATOS = [
     "gamma_sat_kN_m3",
     "E_MPa",
     "nu",
-    "M_MPa",
 ]
 
 
@@ -50,9 +44,9 @@ def estratos_ejemplo() -> pd.DataFrame:
     """Caso inicial editable; sus valores no constituyen recomendaciones de proyecto."""
     return pd.DataFrame(
         [
-            ["Relleno", 0.0, 2.0, 18.0, 20.0, 15.0, 0.30, 20.2],
-            ["Arena", 2.0, 8.0, 19.0, 21.0, 35.0, 0.28, 43.7],
-            ["Sustrato", 8.0, 25.0, 20.0, 22.0, 80.0, 0.25, 96.0],
+            ["Relleno", 0.0, 2.0, 18.0, 20.0, 15.0, 0.30],
+            ["Arena", 2.0, 8.0, 19.0, 21.0, 35.0, 0.28],
+            ["Sustrato", 8.0, 25.0, 20.0, 22.0, 80.0, 0.25],
         ],
         columns=COLUMNAS_ESTRATOS,
     )
@@ -60,7 +54,6 @@ def estratos_ejemplo() -> pd.DataFrame:
 
 def validar_estratos(
     tabla: pd.DataFrame,
-    modo_modulo: ModoModulo,
     profundidad_requerida_m: float,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Normaliza y valida una tabla de capas horizontales contiguas."""
@@ -76,8 +69,9 @@ def validar_estratos(
     numericas = [c for c in COLUMNAS_ESTRATOS if c != "Estrato"]
     for columna in numericas:
         capas[columna] = pd.to_numeric(capas[columna], errors="coerce")
-    requeridas = ["z_sup_m", "z_inf_m", "gamma_ap_kN_m3", "gamma_sat_kN_m3"]
-    requeridas.extend(["E_MPa", "nu"] if modo_modulo == "E_nu" else ["M_MPa"])
+    requeridas = [
+        "z_sup_m", "z_inf_m", "gamma_ap_kN_m3", "gamma_sat_kN_m3", "E_MPa", "nu"
+    ]
     if capas[requeridas].isna().any().any():
         errores.append("La tabla contiene celdas vacías o valores no numéricos.")
         return capas, errores
@@ -107,15 +101,9 @@ def validar_estratos(
     if (capas["gamma_sat_kN_m3"] < capas["gamma_ap_kN_m3"]).any():
         errores.append("Debe cumplirse gamma_sat >= gamma_ap en cada estrato.")
 
-    if modo_modulo == "E_nu":
-        if (capas["E_MPa"] <= 0).any():
-            errores.append("E debe ser positivo en todos los estratos.")
-        if ((capas["nu"] <= 0.10) | (capas["nu"] >= 0.499)).any():
-            errores.append("Se exige 0.10 < nu < 0.499 en todos los estratos.")
-    elif modo_modulo == "M":
-        if (capas["M_MPa"] <= 0).any():
-            errores.append("M debe ser positivo en todos los estratos.")
-    else:
-        errores.append("Modo de módulo no reconocido.")
+    if (capas["E_MPa"] <= 0).any():
+        errores.append("E debe ser positivo en todos los estratos.")
+    if ((capas["nu"] <= 0.10) | (capas["nu"] >= 0.499)).any():
+        errores.append("Se exige 0.10 < nu < 0.499 en todos los estratos.")
     return capas, errores
 

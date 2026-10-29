@@ -7,6 +7,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from calculos.asientos import ResultadoCalculo
+from calculos.steinbrenner import ResultadoSteinbrenner
 from modelos.datos import Cimentacion
 
 
@@ -40,10 +41,10 @@ def _formatear_hoja(ws, congelar: str = "A2") -> None:
 def crear_excel(
     cimentacion: Cimentacion,
     estratos: pd.DataFrame,
-    modo_modulo: str,
     nivel_freatico_m: float,
     z_max_m: float,
     resultado: ResultadoCalculo,
+    resultado_steinbrenner: ResultadoSteinbrenner,
 ) -> bytes:
     """Genera un libro auditable con entradas y resultados numéricos."""
     salida = BytesIO()
@@ -51,25 +52,31 @@ def crear_excel(
         {
             "Parámetro": [
                 "B", "L", "q neta", "Df", "Nivel freático", "Profundidad analizada",
-                "Modo de rigidez", "Paso adoptado", "Intervalos adoptados", "Paso de control",
-                "Intervalos de control", "Error discretización", "Aporte último 10 %",
             ],
             "Valor": [
                 cimentacion.b_m, cimentacion.l_m, cimentacion.q_neta_kpa, cimentacion.df_m,
-                nivel_freatico_m, z_max_m, modo_modulo, resultado.paso_adoptado_m,
-                resultado.intervalos_adoptados, resultado.paso_control_m,
-                resultado.intervalos_control, resultado.error_discretizacion_pct,
-                resultado.contribucion_tramo_final_pct,
+                nivel_freatico_m, z_max_m,
             ],
-            "Unidad": ["m", "m", "kPa", "m", "m", "m", "-", "m", "-", "m", "-", "%", "%"],
+            "Unidad": ["m", "m", "kPa", "m", "m", "m"],
+        }
+    )
+    control_integracion = pd.DataFrame(
+        {
+            "Parámetro": ["Paso adoptado", "Intervalos adoptados", "Paso de control", "Intervalos de control", "Error discretización", "Aporte último 10 %"],
+            "Valor": [resultado.paso_adoptado_m, resultado.intervalos_adoptados, resultado.paso_control_m, resultado.intervalos_control, resultado.error_discretizacion_pct, resultado.contribucion_tramo_final_pct],
+            "Unidad": ["m", "-", "m", "-", "%", "%"],
         }
     )
     with pd.ExcelWriter(salida, engine="openpyxl") as writer:
-        resumen_caso.to_excel(writer, sheet_name="Resumen", index=False, startrow=0)
-        resultado.resumen_puntos.to_excel(writer, sheet_name="Resumen", index=False, startrow=len(resumen_caso) + 3)
+        resumen_caso.to_excel(writer, sheet_name="Resumen", index=False)
         estratos.to_excel(writer, sheet_name="Estratos", index=False)
-        resultado.resumen_estratos.to_excel(writer, sheet_name="Aporte por estrato", index=False)
-        resultado.perfiles.to_excel(writer, sheet_name="Perfiles", index=False)
+        control_integracion.to_excel(writer, sheet_name="Integración - Control", index=False)
+        resultado.resumen_puntos.to_excel(writer, sheet_name="Integración - Puntos", index=False)
+        resultado.resumen_estratos.to_excel(writer, sheet_name="Integración - Estratos", index=False)
+        resultado.perfiles.to_excel(writer, sheet_name="Integración - Perfiles", index=False)
+        resultado_steinbrenner.resumen_puntos.to_excel(writer, sheet_name="Steinbrenner - Puntos", index=False)
+        resultado_steinbrenner.resumen_estratos.to_excel(writer, sheet_name="Steinbrenner - Estratos", index=False)
+        resultado_steinbrenner.perfiles.to_excel(writer, sheet_name="Steinbrenner - Perfiles", index=False)
 
         for nombre, malla in [("Bulbo eje B", resultado.malla_corta), ("Bulbo eje L", resultado.malla_larga)]:
             datos = pd.DataFrame(malla["delta_sigma_kPa"], index=malla["z_m"], columns=malla["x_m"])
@@ -78,15 +85,5 @@ def crear_excel(
 
         for ws in writer.book.worksheets:
             _formatear_hoja(ws)
-        ws = writer.book["Resumen"]
-        segunda_cabecera = len(resumen_caso) + 4
-        for celda in ws[segunda_cabecera]:
-            if celda.value is not None:
-                celda.fill = PatternFill("solid", fgColor=AZUL)
-                celda.font = Font(name="Arial", size=10, bold=True, color=BLANCO)
-        ws.merge_cells(start_row=len(resumen_caso) + 2, start_column=1, end_row=len(resumen_caso) + 2, end_column=5)
-        titulo = ws.cell(len(resumen_caso) + 2, 1, "Asientos en puntos de control")
-        titulo.fill = PatternFill("solid", fgColor=AZUL_SUAVE)
-        titulo.font = Font(name="Arial", bold=True, color=AZUL_OSCURO)
     return salida.getvalue()
 

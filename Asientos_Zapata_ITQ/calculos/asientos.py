@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 
 from calculos.boussinesq import incremento_tension_rectangular
 from calculos.geostatica import integrar_peso_especifico
-from modelos.datos import Cimentacion, ModoModulo
+from modelos.datos import Cimentacion
 
 
 @dataclass(frozen=True)
@@ -36,10 +36,8 @@ PUNTOS_CONTROL = {
 }
 
 
-def modulo_confinado_kpa(estratos: pd.DataFrame, modo: ModoModulo) -> NDArray[np.float64]:
-    """Devuelve M en kPa para cada fila de la tabla de estratos."""
-    if modo == "M":
-        return estratos["M_MPa"].to_numpy(dtype=float) * 1000.0
+def modulo_confinado_kpa(estratos: pd.DataFrame) -> NDArray[np.float64]:
+    """Calcula M en kPa a partir de E y nu para cada estrato."""
     e_kpa = estratos["E_MPa"].to_numpy(dtype=float) * 1000.0
     nu = estratos["nu"].to_numpy(dtype=float)
     return e_kpa * (1.0 - nu) / ((1.0 + nu) * (1.0 - 2.0 * nu))
@@ -166,7 +164,6 @@ def _malla_bulbo(cimentacion: Cimentacion, z_max_m: float, eje: str) -> dict[str
 def calcular_caso(
     cimentacion: Cimentacion,
     estratos: pd.DataFrame,
-    modo_modulo: ModoModulo,
     nivel_freatico_m: float,
     z_max_m: float,
     paso_m: float = 0.10,
@@ -178,7 +175,7 @@ def calcular_caso(
         raise ValueError("El paso vertical debe ser menor que la profundidad analizada.")
     if int(np.ceil(z_max_m / paso_m)) > 20_000:
         raise ValueError("El paso genera más de 20 000 intervalos; adopte un valor mayor.")
-    m_capas = modulo_confinado_kpa(estratos, modo_modulo)
+    m_capas = modulo_confinado_kpa(estratos)
     z = _malla_profundidad(z_max_m, paso_m, cimentacion.df_m, estratos)
 
     perfiles: list[pd.DataFrame] = []

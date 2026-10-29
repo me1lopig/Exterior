@@ -8,13 +8,16 @@ import pandas as pd
 import streamlit as st
 
 from calculos.asientos import calcular_caso, modulo_confinado_kpa
-from modelos.datos import Cimentacion, estratos_ejemplo, validar_estratos
+from calculos.steinbrenner import calcular_steinbrenner
+from modelos.datos import COLUMNAS_ESTRATOS, Cimentacion, estratos_ejemplo, validar_estratos
 from servicios.exportacion_docx import crear_informe_docx
 from servicios.exportacion_excel import crear_excel
 from utiles.estilos import CSS_APP
 from visualizacion.graficos import (
     figura_aporte_estratos,
+    figura_aporte_steinbrenner,
     figura_asientos,
+    figura_asientos_steinbrenner,
     figura_bulbo,
     figura_deformacion,
     figura_tensiones,
@@ -124,23 +127,21 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("Perfil estratigráfico")
     st.caption("Las cotas de las capas y del nivel freático se miden hacia abajo desde la superficie del terreno.")
-    t1, t2, t3 = st.columns([1.0, 1.0, 1.35])
-    modo_label = t1.radio("Rigidez de cálculo", ["Usar E y ν", "Usar M directo"], horizontal=False)
-    modo_modulo = "E_nu" if modo_label == "Usar E y ν" else "M"
-    nivel_freatico_m = t2.number_input("Nivel freático (m)", min_value=0.0, value=2.50, step=0.10, format="%.2f")
-    t3.info("γap se usa sobre el nivel freático y γsat por debajo. La presión intersticial se calcula con γw = 9.81 kN/m³.")
+    t1, t2 = st.columns([1.0, 2.0])
+    nivel_freatico_m = t1.number_input("Nivel freático (m)", min_value=0.0, value=2.50, step=0.10, format="%.2f")
+    t2.info("Introduzca E y ν para cada estrato. M se calcula automáticamente. γap se usa sobre el nivel freático y γsat por debajo.")
     columnas = {
         "Estrato": st.column_config.TextColumn("Estrato", required=True, width="medium"),
         "z_sup_m": st.column_config.NumberColumn("z sup (m)", min_value=0.0, format="%.2f", required=True),
         "z_inf_m": st.column_config.NumberColumn("z inf (m)", min_value=0.0, format="%.2f", required=True),
         "gamma_ap_kN_m3": st.column_config.NumberColumn("γap (kN/m³)", min_value=0.1, format="%.2f", required=True),
         "gamma_sat_kN_m3": st.column_config.NumberColumn("γsat (kN/m³)", min_value=0.1, format="%.2f", required=True),
-        "E_MPa": st.column_config.NumberColumn("E (MPa)", min_value=0.001, format="%.2f", required=modo_modulo == "E_nu", disabled=modo_modulo == "M"),
-        "nu": st.column_config.NumberColumn("ν (-)", min_value=0.101, max_value=0.498, format="%.3f", required=modo_modulo == "E_nu", disabled=modo_modulo == "M"),
-        "M_MPa": st.column_config.NumberColumn("M (MPa)", min_value=0.001, format="%.2f", required=modo_modulo == "M", disabled=modo_modulo == "E_nu"),
+        "E_MPa": st.column_config.NumberColumn("E (MPa)", min_value=0.001, format="%.2f", required=True),
+        "nu": st.column_config.NumberColumn("ν (-)", min_value=0.101, max_value=0.498, format="%.3f", required=True),
     }
+    tabla_entrada = st.session_state.estratos.reindex(columns=COLUMNAS_ESTRATOS)
     estratos_editados = st.data_editor(
-        st.session_state.estratos,
+        tabla_entrada,
         column_config=columnas,
         use_container_width=True,
         hide_index=True,
@@ -148,13 +149,25 @@ with tabs[1]:
         key="editor_estratos",
     )
     st.session_state.estratos = estratos_editados
-    if modo_modulo == "E_nu":
-        nu_editado = pd.to_numeric(estratos_editados.get("nu"), errors="coerce")
-        if (nu_editado >= 0.45).any():
-            st.warning(
-                "Se han introducido valores de ν próximos a 0.5. El módulo confinado crece con rapidez "
-                "y este modelo de compresión vertical no representa adecuadamente una respuesta casi incompresible."
-            )
+    nu_editado = pd.to_numeric(estratos_editados.get("nu"), errors="coerce")
+    e_editado = pd.to_numeric(estratos_editados.get("E_MPa"), errors="coerce")
+    if (nu_editado >= 0.45).any():
+        st.warning(
+            "Se han introducido valores de ν próximos a 0.5. M crece con rapidez y el método "
+            "de integración vertical pierde representatividad para respuesta casi incompresible."
+        )
+    denominador = (1.0 + nu_editado) * (1.0 - 2.0 * nu_editado)
+    m_derivado = e_editado * (1.0 - nu_editado) / denominador
+    tabla_modulos = pd.DataFrame(
+        {
+            "Estrato": estratos_editados["Estrato"],
+            "E (MPa)": e_editado,
+            "ν (-)": nu_editado,
+            "M derivado (MPa)": m_derivado,
+        }
+    )
+    with st.expander("Módulos derivados", expanded=False):
+        st.dataframe(tabla_modulos, use_container_width=True, hide_index=True)
     espesores_utiles = []
     for _, capa in estratos_editados.iterrows():
         try:
@@ -177,7 +190,7 @@ cimentacion = Cimentacion(b_m=b_m, l_m=l_m, q_neta_kpa=q_kpa, df_m=df_m)
 proyecto = {"proyecto": proyecto_nombre, "localizacion": localizacion, "autor": autor, "observaciones": observaciones}
 payload = {
     "b": b_m, "l": l_m, "q": q_kpa, "df": df_m, "nf": nivel_freatico_m,
-    "zmax": z_max_m, "paso": paso_m, "nivel_paso": nivel_paso, "modo": modo_modulo,
+    "zmax": z_max_m, "paso": paso_m, "nivel_paso": nivel_paso,
     "proyecto": proyecto,
 }
 firma_actual = firma_caso(payload, estratos_editados)
@@ -192,12 +205,13 @@ with st.sidebar:
     if limpiar:
         st.session_state.estratos = estratos_ejemplo()
         st.session_state.pop("resultado", None)
+        st.session_state.pop("resultado_steinbrenner", None)
         st.rerun()
 
     if calcular:
         errores = cimentacion.validar()
         capas, errores_capas = validar_estratos(
-            estratos_editados, modo_modulo, df_m + z_max_m
+            estratos_editados, df_m + z_max_m
         )
         errores.extend(errores_capas)
         if paso_m >= z_max_m:
@@ -207,23 +221,29 @@ with st.sidebar:
         if errores:
             st.session_state.errores = errores
             st.session_state.pop("resultado", None)
+            st.session_state.pop("resultado_steinbrenner", None)
         else:
             with st.spinner("Integrando tensiones y deformaciones..."):
                 st.session_state.resultado = calcular_caso(
-                    cimentacion, capas, modo_modulo, nivel_freatico_m, z_max_m, paso_m
+                    cimentacion, capas, nivel_freatico_m, z_max_m, paso_m
+                )
+                st.session_state.resultado_steinbrenner = calcular_steinbrenner(
+                    cimentacion, capas, z_max_m
                 )
                 st.session_state.capas_calculadas = capas
                 st.session_state.firma_resultado = firma_actual
                 st.session_state.errores = []
                 capas_exportacion = capas.copy()
-                capas_exportacion["M_calculo_MPa"] = modulo_confinado_kpa(capas, modo_modulo) / 1000.0
+                capas_exportacion["M_calculo_MPa"] = modulo_confinado_kpa(capas) / 1000.0
                 st.session_state.docx_resultado = crear_informe_docx(
-                    proyecto, cimentacion, capas_exportacion, modo_label,
+                    proyecto, cimentacion, capas_exportacion,
                     nivel_freatico_m, z_max_m, st.session_state.resultado,
+                    st.session_state.resultado_steinbrenner,
                 )
                 st.session_state.xlsx_resultado = crear_excel(
-                    cimentacion, capas_exportacion, modo_label,
+                    cimentacion, capas_exportacion,
                     nivel_freatico_m, z_max_m, st.session_state.resultado,
+                    st.session_state.resultado_steinbrenner,
                 )
 
     st.divider()
@@ -242,41 +262,73 @@ with st.sidebar:
                 resultado_sidebar.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"
             ].iloc[0]
             st.metric("Asiento central", f"{s_centro:.2f} mm")
+            s_stein = st.session_state.resultado_steinbrenner.resumen_puntos.loc[
+                st.session_state.resultado_steinbrenner.resumen_puntos["Punto"] == "Centro",
+                "asiento_base_mm",
+            ].iloc[0]
+            st.metric("Steinbrenner central", f"{s_stein:.2f} mm")
     else:
         st.info("Caso pendiente de cálculo")
 
 resultado = st.session_state.get("resultado")
-resultado_vigente = resultado is not None and st.session_state.get("firma_resultado") == firma_actual
+resultado_steinbrenner = st.session_state.get("resultado_steinbrenner")
+resultado_vigente = (
+    resultado is not None
+    and resultado_steinbrenner is not None
+    and st.session_state.get("firma_resultado") == firma_actual
+)
 
 with tabs[2]:
     st.subheader("Resultados del cálculo")
     if not resultado_vigente:
         st.info("Calcule el caso o actualice los resultados después de modificar las entradas.")
     else:
-        resumen = resultado.resumen_puntos
-        asiento_centro = float(resumen.loc[resumen["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
-        asiento_esquina = float(resumen.loc[resumen["Punto"] == "Esquina", "asiento_base_mm"].iloc[0])
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Asiento bajo el centro", f"{asiento_centro:.2f} mm")
-        m2.metric("Asiento bajo la esquina", f"{asiento_esquina:.2f} mm")
-        m3.metric("Error de discretización", f"{resultado.error_discretizacion_pct:.3f} %")
-        m4.metric("Aporte del último 10 %", f"{resultado.contribucion_tramo_final_pct:.2f} %")
-        st.caption(
-            f"Δz adoptado = {resultado.paso_adoptado_m:.3f} m ({resultado.intervalos_adoptados} intervalos) · "
-            f"control con Δz/2 = {resultado.paso_control_m:.3f} m ({resultado.intervalos_control} intervalos)."
+        tab_integracion, tab_steinbrenner = st.tabs(
+            ["Integración vertical Δσz/M", "Steinbrenner E–ν"]
         )
-        if resultado.contribucion_tramo_final_pct > 2.0:
-            st.warning("El tramo final mantiene una contribución apreciable. Amplíe la profundidad y compruebe la estabilización del asiento.")
-        c1, c2 = st.columns(2)
-        c1.plotly_chart(figura_tensiones(resultado), use_container_width=True)
-        c2.plotly_chart(figura_asientos(resultado), use_container_width=True)
-        c3, c4 = st.columns(2)
-        c3.plotly_chart(figura_deformacion(resultado), use_container_width=True)
-        c4.plotly_chart(figura_aporte_estratos(resultado), use_container_width=True)
-        st.markdown("**Asientos en puntos de control**")
-        st.dataframe(resumen, use_container_width=True, hide_index=True)
-        st.markdown("**Contribución por estrato bajo el centro**")
-        st.dataframe(resultado.resumen_estratos, use_container_width=True, hide_index=True)
+        with tab_integracion:
+            resumen = resultado.resumen_puntos
+            asiento_centro = float(resumen.loc[resumen["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
+            asiento_esquina = float(resumen.loc[resumen["Punto"] == "Esquina", "asiento_base_mm"].iloc[0])
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Asiento bajo el centro", f"{asiento_centro:.2f} mm")
+            m2.metric("Asiento bajo la esquina", f"{asiento_esquina:.2f} mm")
+            m3.metric("Error de discretización", f"{resultado.error_discretizacion_pct:.3f} %")
+            m4.metric("Aporte del último 10 %", f"{resultado.contribucion_tramo_final_pct:.2f} %")
+            st.caption(
+                f"Δz adoptado = {resultado.paso_adoptado_m:.3f} m ({resultado.intervalos_adoptados} intervalos) · "
+                f"control con Δz/2 = {resultado.paso_control_m:.3f} m ({resultado.intervalos_control} intervalos)."
+            )
+            if resultado.contribucion_tramo_final_pct > 2.0:
+                st.warning("El tramo final mantiene una contribución apreciable. Amplíe la profundidad y compruebe la estabilización del asiento.")
+            c1, c2 = st.columns(2)
+            c1.plotly_chart(figura_tensiones(resultado), use_container_width=True)
+            c2.plotly_chart(figura_asientos(resultado), use_container_width=True)
+            c3, c4 = st.columns(2)
+            c3.plotly_chart(figura_deformacion(resultado), use_container_width=True)
+            c4.plotly_chart(figura_aporte_estratos(resultado), use_container_width=True)
+            st.markdown("**Asientos en puntos de control**")
+            st.dataframe(resumen, use_container_width=True, hide_index=True)
+            st.markdown("**Contribución por estrato bajo el centro**")
+            st.dataframe(resultado.resumen_estratos, use_container_width=True, hide_index=True)
+
+        with tab_steinbrenner:
+            stein = st.session_state.resultado_steinbrenner
+            resumen_stein = stein.resumen_puntos
+            centro_stein = float(resumen_stein.loc[resumen_stein["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
+            esquina_stein = float(resumen_stein.loc[resumen_stein["Punto"] == "Esquina", "asiento_base_mm"].iloc[0])
+            s1, s2, s3 = st.columns(3)
+            s1.metric("Asiento bajo el centro", f"{centro_stein:.2f} mm")
+            s2.metric("Asiento bajo la esquina", f"{esquina_stein:.2f} mm")
+            s3.metric("Estratos calculados", f"{len(stein.resumen_estratos)}")
+            st.caption("Cálculo independiente mediante E y ν; no utiliza M ni el paso vertical Δz.")
+            sc1, sc2 = st.columns(2)
+            sc1.plotly_chart(figura_asientos_steinbrenner(stein), use_container_width=True)
+            sc2.plotly_chart(figura_aporte_steinbrenner(stein), use_container_width=True)
+            st.markdown("**Asientos en puntos de control**")
+            st.dataframe(resumen_stein, use_container_width=True, hide_index=True)
+            st.markdown("**Contribución por estrato bajo el centro**")
+            st.dataframe(stein.resumen_estratos, use_container_width=True, hide_index=True)
 
 with tabs[3]:
     st.subheader("Entorno del bulbo de influencia")
@@ -323,10 +375,17 @@ with tabs[5]:
     st.write("La suma se evalúa en el punto medio de cada intervalo. Las interfaces de estrato se incorporan como nodos exactos y el control se repite con Δz/2.")
     st.markdown("**Tensiones geostáticas**")
     st.latex(r"\sigma_{v0}(z)=\int_0^z\gamma(\zeta)\,d\zeta,\qquad u(z)=\gamma_w\max(z-z_w,0),\qquad \sigma'_{v0}=\sigma_{v0}-u")
+    st.markdown("**Steinbrenner**")
+    st.latex(r"s=\frac{qB'(1-\nu^2)}{E}\left[I_1+\frac{1-2\nu}{1-\nu}I_2\right]")
+    st.latex(r"m_r=\frac{L'}{B'},\qquad n_r=\frac{H}{B'}")
+    st.latex(r"\begin{aligned} I_1=\frac{1}{\pi}\Bigg[&m_r\ln\left(\frac{(1+\sqrt{m_r^2+1})\sqrt{m_r^2+n_r^2}}{m_r(1+\sqrt{m_r^2+n_r^2+1})}\right)\\ &+\ln\left(\frac{(m_r+\sqrt{m_r^2+1})\sqrt{1+n_r^2}}{m_r+\sqrt{m_r^2+n_r^2+1}}\right)\Bigg] \end{aligned}")
+    st.latex(r"I_2=\frac{n_r}{2\pi}\tan^{-1}\left(\frac{m_r}{n_r\sqrt{m_r^2+n_r^2+1}}\right)")
+    st.write("Cada capa se obtiene por diferencia entre la compresión acumulada en sus límites. Bajo puntos arbitrarios se aplica superposición de rectángulos. El cálculo se ejecuta de forma independiente y no emplea M ni Δz.")
     st.markdown("**Alcance**")
     st.write(
         "Cimentación flexible, presión neta uniforme, elasticidad lineal y compresión vertical confinada. "
         "No se consideran consolidación, deformación secundaria, plasticidad, anisotropía ni interacción rígida suelo estructura. "
-        "La solución de tensiones no corrige la redistribución causada por contrastes de rigidez entre capas."
+        "La solución de tensiones no corrige la redistribución causada por contrastes de rigidez entre capas. "
+        "Steinbrenner se aplica sobre el plano de apoyo con q neta, sin un factor adicional de empotramiento."
     )
 
