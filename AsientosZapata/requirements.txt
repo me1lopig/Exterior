@@ -1,6 +1,7 @@
-streamlit
-numpy
-pandas
-matplotlib
-openseespy
-python-docx
+numpy>=1.26,<3
+pandas>=2.1,<4
+matplotlib>=3.8,<4
+streamlit>=1.40,<2
+openseespy>=3.7,<4
+python-docx>=1.1,<2
+openpyxl>=3.1,<4

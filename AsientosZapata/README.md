@@ -1,119 +1,54 @@
-# 🏗️ Asientos elásticos de cimentaciones rectangulares
+# Aplicación de asientos elásticos
 
-Herramienta Streamlit para la estimación del asiento ELÁSTICO inmediato de zapatas rectangulares mediante:
+Aplicación Streamlit para calcular el asiento elástico inmediato de una cimentación rectangular mediante Steinbrenner multicapa y un modelo tridimensional elástico de OpenSeesPy.
 
-- ✅ Método analítico de Steinbrenner (integración capa a capa).
-- ✅ Modelo tridimensional por Elementos Finitos (OpenSeesPy) para comparación.
+## Alcance
 
-Descripción: la aplicación calcula y compara asientos inmediatos (elásticos) de una cimentación superficial rectangular bajo presión neta de servicio. Genera una memoria de cálculo en formato Word (.docx) con tablas, gráficos y comprobaciones según criterios prácticos y el criterio de profundidad de influencia del Eurocódigo 7.
+- Carga vertical centrada y presión neta de servicio.
+- Terreno elástico lineal e isótropo por estratos.
+- Cimentación flexible o rígida y lisa.
+- Asiento inmediato. No incluye consolidación, fluencia, plasticidad ni capacidad portante.
+- La evaluación de distorsión angular se ha eliminado completamente.
 
----
+### Cautelas del método clásico
 
-## ✨ Características principales
+- Las expresiones de Holl y Steinbrenner se han contrastado con integración numérica independiente de Boussinesq.
+- La suma multicapa es una aproximación por semiespacios homogéneos equivalentes; no reproduce la redistribución de tensiones entre estratos.
+- El punto característico `(0.37·B, 0.37·L)` es orientativo para zapatas rígidas en perfiles estratificados.
+- El criterio `delta_sigma_z <= 0.20 sigma'_v0` define una profundidad convencional; debe comprobarse la sensibilidad aumentando `z_max`.
+- El factor de Mayne-Poulos aplicado a rectángulos multicapa mediante diámetro equivalente es una extensión aproximada.
 
-- 📐 Cálculo multicapa integrando propiedades (E, ν, espesor) por estrato.
-- 🔍 Evaluación de la profundidad de influencia (criterio EC7: Δσz ≤ 0.20·σ'v0).
-- 🌐 Modelo 3D MEF (OpenSeesPy) con hexaedros bbarBrick y cuarto de dominio para reducir coste computacional.
-- 📝 Generación automática de informe Word con tablas, comparativa y bulbo de presiones.
-- ⚖️ Comprobación en Estado Límite de Servicio frente a un asiento admisible configurado.
+## Instalación
 
----
-
-## ⚠️ Alcance y limitaciones
-
-- El resultado corresponde al asiento ELÁSTICO (inmediato). No incluye consolidación primaria, fluencia ni efectos viscoelásticos.
-- El MEF modela la excavación geométrica, pero no simula contacto lateral ni secuencias constructivas o estado geostático completo.
-- Para ejecutar el MEF 3D es necesario disponer de OpenSeesPy; si no está disponible la aplicación ofrece la solución analítica y marca la indisponibilidad del motor FE.
-- Valores de ν = 0.5 se normalizan internamente a ν = 0.499 para evitar singularidades numéricas.
-
----
-
-## 🚀 Instalación rápida
-
-Recomendado: usar un entorno virtual (venv, conda...).
+Se recomienda Python 3.11 o 3.12 en un entorno virtual.
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Contenido mínimo de requirements.txt (ya presente en el directorio):
-- streamlit
-- numpy
-- pandas
-- matplotlib
-- openseespy
-- python-docx
+En Windows, la activación se realiza con `.venv\\Scripts\\activate`.
 
----
-
-## ▶️ Ejecución
-
-Iniciar la interfaz Streamlit:
+## Ejecución
 
 ```bash
-streamlit run app_asientos_FEM_4.py
+streamlit run app.py
 ```
 
-Comandos útiles en desarrollo:
-- Ejecutar pruebas unitarias:
+## Controles técnicos incorporados
+
+- La aplicación combinada exige `0 <= nu < 0.5` por el FEM; la rutina clásica admite el límite analítico `nu = 0.5`.
+- La comprobación queda bloqueada si el perfil termina antes de alcanzar `delta_sigma_z <= 0.20 sigma'_v0`.
+- Para ELS se exige `z_max >= z_i`.
+- El fondo del dominio MEF se sitúa por debajo de `z_max` mediante `factor_prof`.
+- El veredicto ELS requiere sensibilidad de malla, extensión lateral y profundidad dentro de la tolerancia adoptada.
+- En zapatas rígidas, Steinbrenner no extrapola el campo de asientos fuera del área cargada.
+
+## Pruebas
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
----
-
-## 🧾 Entradas (qué debe proporcionar el usuario)
-
-- Dimensiones de la zapata: Ancho B (m) × Longitud L (m).
-- Presión neta de trabajo p (kPa) — presión en servicio.
-- Nivel freático NF (m) respecto a la superficie.
-- Estratigrafía: tabla con filas desde la superficie indicando Descripción, Espesor (m), E (kPa), ν, Peso Esp. (kN/m³) y Peso Esp. Sat (kN/m³).
-- Parámetros del MEF: tamaño de malla, factor de extensión del dominio y profundidad de corte z_max.
-
----
-
-## 📤 Salidas
-
-- Informe Word (informe_comparativo.docx) que incluye:
-  - Ficha identificativa (obra, autor, referencia).
-  - Estratigrafía y parámetros de cálculo.
-  - Resultados Steinbrenner y MEF 3D (asiento por estrato y total).
-  - Bulbo de presiones y profundidad de influencia EC7.
-  - Comprobación frente a asiento admisible (ELS).
-- Visualizaciones en Streamlit: tablas, métricas y gráficos.
-
----
-
-## 🔬 Validación y pruebas
-
-- El código incorpora pruebas unitarias (tests/) que cubren: normalización de ν, validación de estratigrafía, criterio de profundidad de influencia, conservación de carga en MEF y comprobaciones básicas del MEF frente a la solución analítica.
-- En caso de error numérico en OpenSeesPy el motor MEF lanza una excepción controlada para evitar resultados no fiables.
-
----
-
-## 🧾 Notas técnicas y buenas prácticas
-
-- El dominio FE se construye como un cuarto aprovechando simetría, con elementos bbarBrick (8 nodos) y condiciones de contorno que impiden el desplazamiento normal en simetrías y empotran la base en z_max·factor_prof.
-- Ajuste de la malla: aumente el tamaño_malla para reducir tiempo de cálculo; ver indicadores en la barra lateral sobre número de nodos/elementos.
-- Compruebe siempre el equilibrio carga ↔ reacciones devuelto por el MEF; el código verifica y exige un error relativo bajo tolerancia.
-
----
-
-## 📚 Referencias
-
-- Steinbrenner / Bowles — solución analítica para asiento de zapatas (expresiones φ₁, φ₂).
-- Eurocódigo 7 — criterio de profundidad de influencia (Δσz ≤ 0.20·σ'v0).
-- OpenSeesPy — biblioteca de elementos finitos empleada en el modelo 3D.
-
----
-
-## ✉️ Contacto / Autor
-
-Dpto. Geotecnia — repositorio: me1lopig/Exterior · Directorio: AsientosZapata
-
-Para dudas o sugerencias, abra una issue en el repositorio o contacte al autor indicado en la interfaz de la aplicación.
-
----
-
-© 2026 — Licencia: consulte el repositorio principal para detalles de licencia.
+La ejecución de las pruebas analíticas no sustituye la calibración de los parámetros geotécnicos ni la revisión del modelo por el proyectista.
