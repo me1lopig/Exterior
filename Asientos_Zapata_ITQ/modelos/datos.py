@@ -92,7 +92,10 @@ def validar_estratos(
     if (espesores <= 0).any():
         errores.append("Todos los estratos deben tener espesor positivo.")
     if len(capas) > 1:
-        saltos = capas.loc[1:, "z_sup_m"].to_numpy() - capas.loc[:-2, "z_inf_m"].to_numpy()
+        saltos = (
+            capas["z_sup_m"].iloc[1:].to_numpy(dtype=float)
+            - capas["z_inf_m"].iloc[:-1].to_numpy(dtype=float)
+        )
         if not np.allclose(saltos, 0.0, atol=1e-6):
             errores.append("Los estratos deben ser contiguos, sin huecos ni solapes.")
     if float(capas.iloc[-1]["z_inf_m"]) + 1e-8 < profundidad_requerida_m:
