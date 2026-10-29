@@ -1,53 +1,138 @@
-# Asientos de zapata rectangular flexible
+# 🏗️ Asientos de zapata rectangular flexible
 
-Aplicación Streamlit para calcular incrementos de tensión de Boussinesq y asientos elásticos por compresión vertical confinada en un terreno multicapa.
+Aplicación desarrollada en Python con Streamlit para evaluar asentamientos elásticos en cimentaciones superficiales, considerando una zapata rectangular flexible apoyada sobre terreno estratificado y sometida a carga neta uniforme.
 
-## Alcance técnico
+El programa integra la distribución de tensiones de Boussinesq, el módulo de deformación por capas y la comparación con un cálculo independiente basado en la formulación de Steinbrenner. Su objetivo es apoyar la verificación geotécnica de asentamientos bajo la base de cimentación, con visualización gráfica y exportación de resultados.
 
-- Zapata rectangular flexible con `B <= L` y presión neta uniforme.
-- Capas horizontales definidas desde la superficie del terreno.
-- Rigidez introducida mediante `E` y `nu`; `M` se calcula de forma derivada.
-- Cálculo simultáneo e independiente por integración vertical `delta_sigma/M` y por Steinbrenner.
-- Paso vertical controlado mediante `B/10`, `B/20`, `B/40` o un valor personalizado.
-- Inserción exacta de interfaces y control automático de convergencia con `delta_z/2`.
-- Tensiones geostáticas totales y efectivas considerando el nivel freático.
-- Perfiles bajo el centro, bordes, esquina y puntos exteriores.
-- Bulbos de tensión en las direcciones `B` y `L`.
-- Exportación de memoria DOCX y datos XLSX.
+## 🎯 Objetivo del programa
 
-El método no es una solución elástica multicapa exacta: la distribución de tensiones se obtiene para un semiespacio homogéneo y la estratificación se introduce en la relación `epsilon_z = delta_sigma_z / M`.
+El software permite:
 
-El cálculo de Steinbrenner utiliza directamente `E` y `nu`, obtiene la contribución de cada capa por diferencia entre sus límites y se presenta de forma independiente. No se aplica un factor adicional de empotramiento; la presión neta actúa en el plano de apoyo.
+- Calcular asentamientos verticales bajo puntos de control de una zapata rectangular flexible.
+- Modelar suelos estratificados con propiedades variables en profundidad.
+- Evaluar la influencia del nivel freático y de la variación de módulo del terreno.
+- Analizar la distribución de tensiones y deformaciones bajo la cimentación.
+- Comparar dos metodologías de cálculo: integración vertical y Steinbrenner.
+- Generar informes DOCX y datos XLSX para documentación técnica.
 
-## Instalación
+## ✨ Funcionalidades principales
+
+- Cálculo de asentamientos por integración vertical de Δσz/M.
+- Cálculo alternativo según Steinbrenner con E y ν.
+- Definición de geometría de cimentación y suelo multicapa.
+- Control de profundidad, paso de discretización y validación geométrica.
+- Representación del bulbo de influencia y perfiles de tensión.
+- Generación de gráficos de resultados y contribución por estrato.
+- Exportación de informes y datos en formatos profesionales.
+
+## 📁 Estructura del proyecto
+
+```text
+Asientos_Zapata_ITQ/
+├── app.py                          # Punto de entrada principal de la interfaz Streamlit
+├── requirements.txt                # Dependencias del proyecto
+├── README.md                      # Documentación del proyecto
+├── calculos/                      # Módulos de cálculo geotécnico
+│   ├── __init__.py
+│   ├── asientos.py                # Cálculo principal de asentamientos
+│   ├── boussinesq.py              # Fórmulas de Boussinesq
+│   ├── geostatica.py              # Tensiones geostáticas y nivel freático
+│   └── steinbrenner.py            # Cálculo de Steinbrenner
+├── modelos/                       # Definiciones de datos y validación del caso
+│   ├── __init__.py
+│   └── datos.py                   # Estructuras, estratos de ejemplo y validación
+├── servicios/                     # Exportación de resultados
+│   ├── __init__.py
+│   ├── exportacion_docx.py        # Generación de informe DOCX
+│   └── exportacion_excel.py       # Generación de hoja XLSX
+├── utiles/                        # Utilidades y estilos visuales
+│   ├── __init__.py
+│   └── estilos.py                 # CSS personalizado de la aplicación
+├── visualizacion/                 # Generación de gráficos y visualizaciones
+│   ├── __init__.py
+│   └── graficos.py                # Figuras con Plotly
+├── tests/                         # Pruebas unitarias del programa
+│   ├── test_asientos.py
+│   ├── test_boussinesq.py
+│   ├── test_exportaciones.py
+│   ├── test_geostatica.py
+│   └── test_steinbrenner.py
+└── .venv/                         # Entorno virtual local (si se crea en el equipo)
+```
+
+## 🧮 Cometido del programa
+
+La aplicación está orientada a la ingeniería geotécnica y permite realizar una evaluación práctica de asentamientos en cimentaciones superficiales bajo condiciones de carga vertical y terreno estratificado. En concreto, el sistema:
+
+- analiza una zapata rectangular flexible con geometría B × L,
+- considera presión neta uniforme sobre la base,
+- integra la variación de tensiones con la profundidad,
+- modela el comportamiento del terreno mediante módulos deformacionales por capa,
+- incorpora efectos del nivel freático y de la estratigrafía,
+- compara soluciones mediante dos enfoques de cálculo,
+- presenta resultados numéricos y gráficos para toma de decisiones técnicas.
+
+## ⚙️ Requisitos
+
+- Python 3.10 o superior
+- Entorno virtual recomendado
+- Paquetes indicados en `requirements.txt`
+
+Instalación:
 
 ```bash
 python -m venv .venv
+
 # Linux/macOS
 source .venv/bin/activate
+
 # Windows PowerShell
 # .venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
 ```
 
-## Ejecución
+## ▶️ Ejecución
 
 ```bash
 streamlit run app.py
 ```
 
-## Pruebas
+La aplicación abrirá la interfaz web para definir geometría, estratos del terreno, condiciones de carga y revisar resultados.
+
+## 🧪 Validación
+
+Se incluye una batería de pruebas automatizadas con `pytest` para verificar:
+
+- cálculo de asentamientos,
+- distribución de tensiones de Boussinesq,
+- condiciones geostáticas,
+- formulación de Steinbrenner,
+- exportación de resultados.
+
+Ejecución:
 
 ```bash
 pytest -q
 ```
 
-## Convenciones
+## 📌 Convenciones del cálculo
 
 - Longitudes en metros.
-- Tensiones y presiones en kPa o kN/m².
+- Tensiones en kPa o kN/m².
 - Módulos de entrada en MPa y conversión interna a kPa.
-- Asientos mostrados en mm.
+- Asientos mostrados en milímetros.
 - Profundidad positiva hacia abajo.
-- Compresión positiva.
+- Compresión como valor positivo.
 
+## 🧭 Nota técnica
+
+La solución implementada es una aproximación de ingeniería para terrenos estratificados y no sustituye un análisis geotécnico completo cuando se requiere modelado avanzado de consolidación, plasticidad, anisotropía o interacción suelo-estructura.
+
+## 📎 Licencia y uso
+
+Proyecto orientado a uso técnico y académico dentro del contexto de análisis de cimentaciones superficiales. Se recomienda revisar y validar los resultados frente a exigencias específicas de cada proyecto, normativa local y criterio del ingeniero responsable.
+
+---
+
+Desarrollado para análisis de asientos de zapata flexible en terreno multicapa.
