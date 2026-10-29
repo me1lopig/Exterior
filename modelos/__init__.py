@@ -1,5 +1,2 @@
-"""Modelos de dominio de GeoPerfil 2D."""
+"""Modelos de datos y validación de la aplicación."""
 
-from .dominio import Contacto, Proyecto, VerticeContacto
-
-__all__ = ["Contacto", "Proyecto", "VerticeContacto"]

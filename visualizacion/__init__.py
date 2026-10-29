@@ -1,2 +1,2 @@
-"""Graficos interactivos y planos."""
+"""Gráficos interactivos de resultados."""
 
