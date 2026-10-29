@@ -237,7 +237,7 @@ def _veredicto(doc, filas):
 
 def generar_word(ctx):
     ci, res_st, res_mef = ctx["ci"], ctx["res_st"], ctx["res_mef"]
-    meta, mp = ctx["meta"], res_mef.parametros
+    meta, mp = ctx["meta"], (res_mef.parametros if res_mef is not None else None)
     mef_validado = bool(ctx.get("mef_validado", False))
     sensibilidad = ctx.get("sensibilidad_mef")
     B, L, p, D, NF, z_max, zi = ci["B"], ci["L"], ci["p"], ci["D"], ci["NF"], ci["z_max"], ci["zi"]
@@ -250,10 +250,11 @@ def generar_word(ctx):
     autor = meta.get("autor") or "Dpto. Geotecnia"
     revision = meta.get("revision") or "00 — Emisión inicial"
 
-    s_st, s_mef = res_st.total * 1000.0, res_mef.total * 1000.0
-    dif_mef_st = abs(s_mef - s_st) / max(abs(s_st), 1e-9) * 100.0
+    s_st = res_st.total * 1000.0
+    s_mef = res_mef.total * 1000.0 if res_mef is not None else None
+    dif_mef_st = abs(s_mef - s_st) / max(abs(s_st), 1e-9) * 100.0 if res_mef is not None else None
     lim_els = float(ctx["s_adm"])
-    cumple_els = mef_validado and s_mef <= lim_els
+    cumple_els = (mef_validado and s_mef <= lim_els) if res_mef is not None else (s_st <= lim_els)
 
     doc = Document()
     for sec in doc.sections:
@@ -272,7 +273,7 @@ def generar_word(ctx):
     pt = doc.add_paragraph(); pt.alignment = WD_ALIGN_PARAGRAPH.CENTER
     rt = pt.add_run('MEMORIA DE CÁLCULO DE ASIENTOS'); rt.bold = True; rt.font.size = Pt(24); rt.font.color.rgb = AZUL
     ps = doc.add_paragraph(); ps.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    rs = ps.add_run(f'Cimentación superficial {tipo} · Método analítico y MEF 3D')
+    rs = ps.add_run(f'Cimentación superficial {tipo} · Método Steinbrenner' + (' y MEF 3D' if res_mef is not None else ''))
     rs.font.size = Pt(13); rs.font.color.rgb = GRIS
     doc.add_paragraph(); doc.add_paragraph()
     _tabla_kv(doc, [('Obra / Proyecto', obra), ('Peticionario', peticionario), ('Referencia', referencia),
@@ -283,11 +284,11 @@ def generar_word(ctx):
     doc.add_heading('1. Objeto y alcance', level=1)
     _h2(doc, '1.1 Objeto')
     _body(doc, f"El presente documento recoge el cálculo del asiento de una cimentación superficial rectangular "
-               f"{tipo} sometida a carga vertical centrada, mediante dos formulaciones independientes: el método "
-               f"de Steinbrenner y un modelo tridimensional de elementos finitos (OpenSeesPy). Se evalúan además la "
-               f"distribución de asientos en la cota de apoyo.")
+               f"{tipo} sometida a carga vertical centrada mediante Steinbrenner"
+               + (" y un modelo MEF 3D OpenSeesPy" if res_mef is not None else "")
+               + ". Se evalúa además la distribución de asientos en la cota de apoyo.")
     _h2(doc, '1.2 Alcance: asiento elástico / inmediato')
-    _body(doc, "Ambos métodos parten de la teoría de la elasticidad lineal. El resultado corresponde al ASIENTO "
+    _body(doc, "El cálculo se basa en la teoría de la elasticidad lineal. El resultado corresponde al ASIENTO "
                "ELÁSTICO (inmediato). No incluye la consolidación primaria ni la secundaria.")
     doc.add_page_break()
 
@@ -300,7 +301,7 @@ def generar_word(ctx):
         "Steinbrenner / Bowles: solución elástica aproximada del asiento de un estrato de espesor finito.",
         "Grasshoff: punto característico para el asiento de cimentaciones rígidas.",
         "Mayne y Poulos (1999): factor de corrección por empotramiento I_E.",
-        "OpenSeesPy: elementos finitos; hexaedro de 8 nodos con formulación B-bar (bbarBrick).",
+        *(["OpenSeesPy: elementos finitos; hexaedro de 8 nodos con formulación B-bar (bbarBrick)."] if res_mef is not None else []),
     ])
     doc.add_page_break()
 
@@ -325,19 +326,19 @@ def generar_word(ctx):
     # ── 4. HIPÓTESIS
     doc.add_heading('4. Hipótesis y modelo de cálculo', level=1)
     _h2(doc, '4.1 Base común: elasticidad lineal')
-    _body(doc, "Ambos métodos asumen un terreno elástico lineal e isótropo, caracterizado por (E, ν) en cada estrato.")
+    _body(doc, "Se asume un terreno elástico lineal e isótropo, caracterizado por (E, ν) en cada estrato.")
     _h2(doc, '4.2 Hipótesis de cada método')
     _bullets(doc, [
         "Steinbrenner: solución aproximada que supone la distribución de tensiones del semiespacio homogéneo; no "
         "recoge la redistribución de tensiones por contraste de rigidez entre estratos ni la base rígida."
         + (" El asiento de la zapata rígida se evalúa en el punto característico (0,37·B; 0,37·L)." if rigida else
            " Se evalúa el asiento del centro de la zapata flexible."),
-        "MEF 3D (OpenSees): continuo tridimensional con hexaedros bbarBrick, cuarto de dominio por doble simetría y "
+        *(["MEF 3D (OpenSees): continuo tridimensional con hexaedros bbarBrick, cuarto de dominio por doble simetría y "
         f"base rígida a {mp['factor_prof']:.2f}·z_max bajo la cota de apoyo."
         + (" Zapata rígida y lisa: los nodos cargados comparten el desplazamiento vertical." if rigida else
            " Zapata flexible: presión uniforme.")
         + (f" Se modela el terreno lateral por encima de la cota de apoyo (D = {D:.2f} m) con la excavación vaciada."
-           if D > 0 else ""),
+           if D > 0 else "")] if res_mef is not None else []),
     ])
     doc.add_page_break()
 
@@ -378,68 +379,77 @@ def generar_word(ctx):
     r = tot1.add_run(f'Asiento Steinbrenner: {s_st:.3f} mm'); r.bold = True; r.font.color.rgb = AZUL
     doc.add_page_break()
 
-    # ── 7. MEF
-    doc.add_heading('7. Método 2 — MEF 3D (OpenSees)', level=1)
-    _h2(doc, '7.1 Descripción del modelo')
-    _body(doc, "Hexaedros de 8 nodos con formulación B-bar (bbarBrick), adecuada para ν próximos a 0,5. Cuarto de "
-               "dominio por doble simetría. En los planos de simetría y en las fronteras laterales se impide el "
-               f"desplazamiento normal; la base se sitúa a {mp['factor_prof']:.2f}·z_max y se empotran sus tres grados "
-               "de libertad. El asiento informado se evalúa entre la cota de apoyo y z_max.")
-    _bullets(doc, [
-        f"Malla {'graduada' if mp['graduada'] else 'uniforme'}: tamaño bajo la zapata {mp['tamaño_malla']:.2f} m"
-        + (f", crecimiento ×{mp['ratio']:.2f} por elemento hasta {mp['tamaño_max']:.2f} m" if mp['graduada'] else "")
-        + ".",
-        f"Extensión lateral: ×{mp['factor_dominio']:.0f} (B/2, L/2) → {res_mef.extension_x:.2f} m × "
-        f"{res_mef.extension_y:.2f} m en el cuarto modelado.",
-        f"Profundidad del fondo MEF: {mp['factor_prof']:.2f}·z_max = {mp['factor_prof'] * z_max:.2f} m bajo apoyo.",
-        "Si el fondo MEF rebasa la estratigrafía definida, el último estrato se prolonga hasta la base del dominio.",
-        f"Tamaño del modelo: {res_mef.n_nodos:,} nodos y {res_mef.n_elementos:,} elementos "
-        f"(resuelto en {res_mef.tiempo:.1f} s).",
-        "Carga: " + ("zapata rígida y lisa (nodos cargados con igual desplazamiento vertical, equalDOF)." if rigida
-                     else "presión uniforme repartida en fuerzas nodales por áreas tributarias."),
-    ] + ([f"Empotramiento: terreno lateral modelado entre la superficie y la cota de apoyo (D = {D:.2f} m), con la "
-          f"excavación ocupada por la zapata vaciada."] if D > 0 else []))
-    _figura(doc, _fig_bytes(fig_malla(ci, mp)), "Sección y = 0 de la malla de elementos finitos.", 15)
-    _add_styled_table(doc, res_mef.tabla, '7.2 Asiento por estrato (eje central)')
-    tot3 = doc.add_paragraph(); tot3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    r = tot3.add_run(f'Asiento MEF 3D: {s_mef:.3f} mm'); r.bold = True; r.font.color.rgb = ROJO
-    doc.add_page_break()
+    if res_mef is not None:
+        # ── 7. MEF
+        doc.add_heading('7. Método 2 — MEF 3D (OpenSees)', level=1)
+        _h2(doc, '7.1 Descripción del modelo')
+        _body(doc, "Hexaedros de 8 nodos con formulación B-bar (bbarBrick), adecuada para ν próximos a 0,5. Cuarto de "
+                   "dominio por doble simetría. En los planos de simetría y en las fronteras laterales se impide el "
+                   f"desplazamiento normal; la base se sitúa a {mp['factor_prof']:.2f}·z_max y se empotran sus tres grados "
+                   "de libertad. El asiento informado se evalúa entre la cota de apoyo y z_max.")
+        _bullets(doc, [
+            f"Malla {'graduada' if mp['graduada'] else 'uniforme'}: tamaño bajo la zapata {mp['tamaño_malla']:.2f} m"
+            + (f", crecimiento ×{mp['ratio']:.2f} por elemento hasta {mp['tamaño_max']:.2f} m" if mp['graduada'] else "")
+            + ".",
+            f"Extensión lateral: ×{mp['factor_dominio']:.0f} (B/2, L/2) → {res_mef.extension_x:.2f} m × "
+            f"{res_mef.extension_y:.2f} m en el cuarto modelado.",
+            f"Profundidad del fondo MEF: {mp['factor_prof']:.2f}·z_max = {mp['factor_prof'] * z_max:.2f} m bajo apoyo.",
+            "Si el fondo MEF rebasa la estratigrafía definida, el último estrato se prolonga hasta la base del dominio.",
+            f"Tamaño del modelo: {res_mef.n_nodos:,} nodos y {res_mef.n_elementos:,} elementos "
+            f"(resuelto en {res_mef.tiempo:.1f} s).",
+            "Carga: " + ("zapata rígida y lisa (nodos cargados con igual desplazamiento vertical, equalDOF)." if rigida
+                         else "presión uniforme repartida en fuerzas nodales por áreas tributarias."),
+        ] + ([f"Empotramiento: terreno lateral modelado entre la superficie y la cota de apoyo (D = {D:.2f} m), con la "
+              f"excavación ocupada por la zapata vaciada."] if D > 0 else []))
+        _figura(doc, _fig_bytes(fig_malla(ci, mp)), "Sección y = 0 de la malla de elementos finitos.", 15)
+        _add_styled_table(doc, res_mef.tabla, '7.2 Asiento por estrato (eje central)')
+        tot3 = doc.add_paragraph(); tot3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        r = tot3.add_run(f'Asiento MEF 3D: {s_mef:.3f} mm'); r.bold = True; r.font.color.rgb = ROJO
+        doc.add_page_break()
 
-    # ── 8. COMPARATIVA
-    doc.add_heading('8. Resultados y comparativa', level=1)
-    _veredicto(doc, [('Steinbrenner', 'OpenSees 3D', 'Diferencia'),
-                     (f'{s_st:.2f} mm', f'{s_mef:.2f} mm', f'{dif_mef_st:.1f} %')])
-    _add_styled_table(doc, tabla_comparativa(res_st.tabla, res_mef.tabla), '8.1 Comparativa por estrato')
-    _h2(doc, '8.2 Interpretación')
-    _body(doc, "En perfiles estratificados es esperable cierta diferencia entre ambos métodos y no constituye por sí "
-               "misma un error: Steinbrenner supone la distribución de tensiones del semiespacio homogéneo, mientras "
-               "que el MEF recoge la redistribución de tensiones por contraste de rigidez entre estratos y la base "
-               "rígida. Diferencias elevadas en perfiles casi homogéneos aconsejan revisar la malla y la extensión "
-               "lateral del dominio.")
-    doc.add_page_break()
+        # ── 8. COMPARATIVA
+        doc.add_heading('8. Resultados y comparativa', level=1)
+        _veredicto(doc, [('Steinbrenner', 'OpenSees 3D', 'Diferencia'),
+                         (f'{s_st:.2f} mm', f'{s_mef:.2f} mm', f'{dif_mef_st:.1f} %')])
+        _add_styled_table(doc, tabla_comparativa(res_st.tabla, res_mef.tabla), '8.1 Comparativa por estrato')
+        _h2(doc, '8.2 Interpretación')
+        _body(doc, "En perfiles estratificados es esperable cierta diferencia entre ambos métodos y no constituye por sí "
+                   "misma un error: Steinbrenner supone la distribución de tensiones del semiespacio homogéneo, mientras "
+                   "que el MEF recoge la redistribución de tensiones por contraste de rigidez entre estratos y la base "
+                   "rígida. Diferencias elevadas en perfiles casi homogéneos aconsejan revisar la malla y la extensión "
+                   "lateral del dominio.")
+        doc.add_page_break()
 
-    # ── 9. SENSIBILIDAD NUMÉRICA
-    doc.add_heading('9. Sensibilidad numérica del MEF', level=1)
-    if sensibilidad is not None:
-        _add_styled_table(doc, sensibilidad, '9.1 Variación respecto al modelo base')
-        _body(doc, "Resultado de sensibilidad: " + ("ACEPTABLE." if mef_validado else "NO ACEPTABLE."), bold=True)
-    else:
-        _body(doc, "No se ha ejecutado el estudio de sensibilidad de malla, dominio lateral y profundidad. El resultado "
-                   "MEF se considera informativo y no habilita un veredicto ELS.", bold=True)
-    doc.add_page_break()
+        # ── 9. SENSIBILIDAD NUMÉRICA
+        doc.add_heading('9. Sensibilidad numérica del MEF', level=1)
+        if sensibilidad is not None:
+            _add_styled_table(doc, sensibilidad, '9.1 Variación respecto al modelo base')
+            _body(doc, "Resultado de sensibilidad: " + ("ACEPTABLE." if mef_validado else "NO ACEPTABLE."), bold=True)
+        else:
+            _body(doc, "No se ha ejecutado el estudio de sensibilidad de malla, dominio lateral y profundidad. El resultado "
+                       "MEF se considera informativo y no habilita un veredicto ELS.", bold=True)
+        doc.add_page_break()
 
-    # ── 10. ELS ASIENTO TOTAL
+    # ── COMPROBACIÓN ELS: método elegido / ejecutado
     doc.add_heading('10. Comprobación de asiento total (ELS)', level=1)
-    _body(doc, f"Se compara el asiento MEF 3D con el asiento admisible adoptado ({lim_els:.0f} mm). El veredicto solo "
-               "se emite cuando el estudio de sensibilidad es aceptable.")
-    _veredicto(doc, [('Comprobación', 'Obtenido', 'Admisible', 'Veredicto'),
-                     ('Asiento total (MEF 3D)', f'{s_mef:.2f} mm', f'{lim_els:.0f} mm',
-                      ('CUMPLE' if cumple_els else ('REVISAR' if mef_validado else 'NO EVALUADO')))])
-    if mef_validado:
-        _body(doc, f"Aprovechamiento: {s_mef / lim_els * 100:.0f} % del asiento admisible.", gray=True, size=9)
+    if res_mef is None:
+        _body(doc, f"Comprobación del asiento estimado mediante Steinbrenner frente al límite adoptado de {lim_els:.0f} mm. "
+                   "Es una estimación elástica multicapa aproximada; requiere juicio geotécnico y verificar la "
+                   "sensibilidad a la profundidad de integración. No se ha realizado análisis MEF.")
+        _veredicto(doc, [('Comprobación', 'Obtenido', 'Admisible', 'Veredicto'),
+                         ('Asiento Steinbrenner', f'{s_st:.2f} mm', f'{lim_els:.0f} mm',
+                          'CUMPLE' if cumple_els else 'REVISAR')])
+        _body(doc, f"Aprovechamiento analítico: {s_st / lim_els * 100:.0f} % del asiento admisible.", gray=True, size=9)
     else:
-        _body(doc, "No se emite aprovechamiento ni cumplimiento ELS porque la sensibilidad numérica no está validada.",
-              gray=True, size=9)
+        _body(doc, f"Se compara el asiento MEF 3D con el admisible ({lim_els:.0f} mm). "
+                   "El veredicto requiere sensibilidad numérica aceptable.")
+        _veredicto(doc, [('Comprobación', 'Obtenido', 'Admisible', 'Veredicto'),
+                         ('Asiento MEF 3D', f'{s_mef:.2f} mm', f'{lim_els:.0f} mm',
+                          'CUMPLE' if cumple_els else ('REVISAR' if mef_validado else 'NO EVALUADO'))])
+        if mef_validado:
+            _body(doc, f"Aprovechamiento: {s_mef / lim_els * 100:.0f} % del asiento admisible.", gray=True, size=9)
+        else:
+            _body(doc, "No se emite veredicto ELS porque la sensibilidad MEF no está validada.", gray=True, size=9)
     doc.add_page_break()
 
     # ── 11. DISTRIBUCIÓN DE ASIENTOS
@@ -447,7 +457,8 @@ def generar_word(ctx):
     _add_styled_table(doc, tabla_puntos(ctx["puntos_st"], res_mef), '11.1 Asientos en puntos notables (cota de apoyo)')
     _figura(doc, _fig_bytes(fig_perfiles(ci, ctx["perf_st"], res_mef)),
             "Perfiles de asiento a la cota de apoyo según los ejes de la zapata. Para cimentación rígida, "
-            "Steinbrenner solo se representa bajo la zapata; el campo exterior se obtiene del MEF.", 16)
+            + ("Steinbrenner solo se representa bajo la zapata; el campo exterior se obtiene del MEF."
+             if res_mef is not None else "Distribución aproximada de asientos según Steinbrenner."), 16)
     doc.add_page_break()
 
     # ── 12. BULBO
@@ -494,7 +505,7 @@ if 'df_terreno' not in st.session_state:
 # ══════════════════════════════════════════════════════════════════════════
 # BARRA LATERAL
 # ══════════════════════════════════════════════════════════════════════════
-st.set_page_config(page_title="Cálculo Asientos · MEF 3D", layout="wide", page_icon="🏗️")
+st.set_page_config(page_title="Cálculo Asientos · Steinbrenner y MEF opcional", layout="wide", page_icon="🏗️")
 st.sidebar.title("Navegación")
 modo = st.sidebar.radio("Vista:", ["🧮 Panel de Cálculo", "📋 Modelo Steinbrenner", "🌐 Modelo OpenSees",
                                    "📏 Distribución de asientos", "📉 Bulbo de Presiones",
@@ -561,38 +572,46 @@ asiento_adm = st.sidebar.number_input(
     help="Asiento total máximo admisible. Consulta la pestaña «📐 Asientos Admisibles» para referencias.")
 
 st.sidebar.markdown("---")
+activar_mef = st.sidebar.checkbox("Activar cálculo MEF (OpenSees 3D)", value=False,
+                                    on_change=reset_calculo,
+                                    help="Desactivado: solo Steinbrenner, sin OpenSees ni sensibilidad MEF.")
 st.sidebar.subheader("⚙️ Parámetros OpenSees MEF 3D")
-if not OPENSEES_DISPONIBLE:
+if activar_mef and not OPENSEES_DISPONIBLE:
     st.sidebar.warning("⚠️ Módulo OpenSeesPy no detectado.")
-graduada = st.sidebar.checkbox("Malla graduada", value=True, on_change=reset_calculo,
-                               help="Malla fina bajo la zapata que crece hacia los contornos.")
-factor_dominio = st.sidebar.slider("Extensión del dominio (×B/2, ×L/2)", min_value=3.0,
-                                   max_value=12.0 if graduada else 8.0, value=8.0 if graduada else 5.0, step=1.0,
-                                   on_change=reset_calculo)
-mesh_3d = st.sidebar.number_input("Tamaño de malla bajo la zapata [m]", min_value=0.1, max_value=1.0,
-                                  value=0.25 if graduada else 0.5, step=0.05, on_change=reset_calculo)
-factor_prof = st.sidebar.number_input(
-    "Profundidad del fondo MEF (×z_max)", min_value=1.5, max_value=4.0, value=2.0, step=0.25,
-    on_change=reset_calculo,
-    help="El fondo del dominio se separa de la profundidad z_max donde se evalúa el asiento.")
-st.sidebar.caption("Si el fondo MEF supera el perfil definido, se prolonga el último estrato; esta hipótesis debe justificarse.")
-validar_mef = st.sidebar.checkbox(
-    "Ejecutar sensibilidad MEF", value=True, on_change=reset_calculo,
-    help="Resuelve casos adicionales de malla, extensión lateral y profundidad. Sin esta comprobación no se emite ELS.")
-tolerancia_mef = st.sidebar.number_input(
-    "Tolerancia de sensibilidad [%]", min_value=1.0, max_value=10.0, value=5.0, step=0.5,
-    disabled=not validar_mef, on_change=reset_calculo)
-ratio, tam_max = 1.3, 2.0
-if graduada:
-    ratio = st.sidebar.slider("Razón de crecimiento", 1.1, 1.6, 1.3, 0.05, on_change=reset_calculo)
-    tam_max = st.sidebar.number_input("Tamaño máximo de elemento [m]", min_value=0.5, max_value=5.0, value=2.0,
-                                      step=0.25, on_change=reset_calculo)
-if factor_dominio < 4:
-    st.sidebar.warning("Con factor < 4 las fronteras laterales rigidizan el modelo y subestiman el asiento.")
+if activar_mef:
+    mef_panel = st.sidebar.expander("Configuración MEF", expanded=True)
+    graduada = mef_panel.checkbox("Malla graduada", value=True, on_change=reset_calculo,
+                                   help="Malla fina bajo la zapata que crece hacia los contornos.")
+    factor_dominio = mef_panel.slider("Extensión del dominio (×B/2, ×L/2)", min_value=3.0,
+                                       max_value=12.0 if graduada else 8.0, value=8.0 if graduada else 5.0, step=1.0,
+                                       on_change=reset_calculo)
+    mesh_3d = mef_panel.number_input("Tamaño de malla bajo la zapata [m]", min_value=0.1, max_value=1.0,
+                                      value=0.25 if graduada else 0.5, step=0.05, on_change=reset_calculo)
+    factor_prof = mef_panel.number_input(
+        "Profundidad del fondo MEF (×z_max)", min_value=1.5, max_value=4.0, value=2.0, step=0.25,
+        on_change=reset_calculo,
+        help="El fondo del dominio se separa de la profundidad z_max donde se evalúa el asiento.")
+    mef_panel.caption("Si el fondo MEF supera el perfil definido, se prolonga el último estrato; esta hipótesis debe justificarse.")
+    validar_mef = mef_panel.checkbox(
+        "Ejecutar sensibilidad MEF", value=True, on_change=reset_calculo,
+        help="Resuelve casos adicionales de malla, extensión lateral y profundidad. Sin esta comprobación no se emite ELS.")
+    tolerancia_mef = mef_panel.number_input(
+        "Tolerancia de sensibilidad [%]", min_value=1.0, max_value=10.0, value=5.0, step=0.5,
+        disabled=not validar_mef, on_change=reset_calculo)
+    ratio, tam_max = 1.3, 2.0
+    if graduada:
+        ratio = mef_panel.slider("Razón de crecimiento", 1.1, 1.6, 1.3, 0.05, on_change=reset_calculo)
+        tam_max = mef_panel.number_input("Tamaño máximo de elemento [m]", min_value=0.5, max_value=5.0, value=2.0,
+                                          step=0.25, on_change=reset_calculo)
+    if factor_dominio < 4:
+        mef_panel.warning("Con factor < 4 las fronteras laterales rigidizan el modelo y subestiman el asiento.")
+else:
+    graduada, factor_dominio, mesh_3d, factor_prof = True, 8.0, 0.25, 2.0
+    validar_mef, tolerancia_mef, ratio, tam_max = False, 5.0, 1.3, 2.0
 params_mef = dict(tamaño_malla=mesh_3d, factor_dominio=factor_dominio, factor_prof=factor_prof, D=D, rigida=rigida,
                   graduada=graduada, ratio=ratio, tamaño_max=tam_max)
 
-if calculo_habilitado:
+if calculo_habilitado and activar_mef:
     nodos_totales, elementos_totales = fa.dimensiones_malla_3d(
         B, L, df_ui, z_max_user, mesh_3d, factor_dominio, factor_prof, D, graduada, ratio, tam_max)
     if nodos_totales < 15000:
@@ -607,21 +626,24 @@ if st.sidebar.button("🚀 Calcular", type="primary", width="stretch", disabled=
     ci = {"B": B, "L": L, "p": p, "D": D, "NF": NF, "z_max": z_max_user, "zi": zi, "rigida": rigida,
           "df": df_ui.dropna(how="all").reset_index(drop=True).copy()}
     res_st = fa.calcular_steinbrenner_zapata(p, B, L, ci["df"], z_max_user, D, rigida, empotramiento)
-    try:
-        with st.spinner("Resolviendo el modelo MEF 3D…"):
-            res_mef = fa.calcular_opensees_3d(p, B, L, ci["df"], z_max_user, **params_mef)
-            sensibilidad_mef, mef_validado = (None, False)
-            if validar_mef:
-                sensibilidad_mef, mef_validado = ejecutar_sensibilidad_mef(
-                    p, B, L, ci["df"], z_max_user, params_mef, res_mef, tolerancia_mef)
-        st.session_state.mef_ok, st.session_state.mef_error = True, None
-    except ErrorMEF as e:
-        res_mef, sensibilidad_mef, mef_validado = None, None, False
-        st.session_state.mef_ok, st.session_state.mef_error = False, str(e)
-    except Exception as e:
-        res_mef, sensibilidad_mef, mef_validado = None, None, False
-        st.session_state.mef_ok = False
-        st.session_state.mef_error = f"Fallo no controlado en OpenSees: {type(e).__name__}: {e}"
+    res_mef, sensibilidad_mef, mef_validado = None, None, False
+    st.session_state.mef_ok, st.session_state.mef_error = False, None
+    if activar_mef:
+        try:
+            with st.spinner("Resolviendo el modelo MEF 3D…"):
+                res_mef = fa.calcular_opensees_3d(p, B, L, ci["df"], z_max_user, **params_mef)
+                sensibilidad_mef, mef_validado = (None, False)
+                if validar_mef:
+                    sensibilidad_mef, mef_validado = ejecutar_sensibilidad_mef(
+                        p, B, L, ci["df"], z_max_user, params_mef, res_mef, tolerancia_mef)
+            st.session_state.mef_ok, st.session_state.mef_error = True, None
+        except ErrorMEF as e:
+            res_mef, sensibilidad_mef, mef_validado = None, None, False
+            st.session_state.mef_ok, st.session_state.mef_error = False, str(e)
+        except Exception as e:
+            res_mef, sensibilidad_mef, mef_validado = None, None, False
+            st.session_state.mef_ok = False
+            st.session_state.mef_error = f"Fallo no controlado en OpenSees: {type(e).__name__}: {e}"
 
     if res_mef is not None:
         coords = {"x": res_mef.perfil_x["x [m]"].values, "y": res_mef.perfil_y["y [m]"].values}
@@ -652,8 +674,6 @@ calc_ok = st.session_state.calculo_realizado
 if not calc_ok:
     if not st.session_state.get("informe_stale", False):
         st.sidebar.info("Ejecuta el cálculo para poder generar el informe.")
-elif not st.session_state.mef_ok:
-    st.sidebar.error("El cálculo MEF no se ha ejecutado: no se puede generar el informe ni emitir la comprobación ELS.")
 elif st.sidebar.button("📝 Generar informe", width="stretch"):
     with st.spinner("Generando memoria de cálculo…"):
         st.session_state.word_buf = generar_word({
@@ -721,8 +741,17 @@ if modo == "🧮 Panel de Cálculo":
         else:
             c2.metric("🔴 OpenSees 3D", "—")
             c3.metric("📊 Dif (ST vs MEF)", "—")
-            st.error(f"⛔ **ELS NO EVALUADO** — {st.session_state.get('mef_error', 'El cálculo MEF no se ha ejecutado.')} "
-                     "El asiento de Steinbrenner se muestra solo a título informativo.")
+            if not activar_mef:
+                s_st_mm = res_st.total * 1000
+                if s_st_mm <= asiento_adm:
+                    st.success(f"✅ **ELS analítico: CUMPLE** — Steinbrenner {s_st_mm:.2f} mm ≤ "
+                               f"{asiento_adm:.0f} mm admisibles (estimación aproximada).")
+                else:
+                    st.error(f"⚠️ **ELS analítico: REVISAR** — Steinbrenner {s_st_mm:.2f} mm > "
+                             f"{asiento_adm:.0f} mm admisibles.")
+                st.caption("Verificar la sensibilidad a z_max y la idoneidad del modelo elástico multicapa.")
+            else:
+                st.warning(f"⚠️ **ELS NO EVALUADO** — {st.session_state.get('mef_error', 'El cálculo MEF no se ha ejecutado.')}")
 
         st.dataframe(tabla_comparativa(res_st.tabla, res_mef.tabla if mef_ok else None, con_cotas=True),
                      width="stretch", hide_index=True)
@@ -793,6 +822,8 @@ elif modo == "🌐 Modelo OpenSees":
     st.markdown("---")
     if not calc_ok:
         st.warning("⚠️ Ejecuta el cálculo en el panel izquierdo.")
+    elif not activar_mef:
+        st.info("El cálculo MEF está desactivado. Activa la casilla de la barra lateral para utilizar OpenSees.")
     elif not mef_ok:
         st.error(f"⛔ {st.session_state.get('mef_error', 'El cálculo MEF no se ha ejecutado.')}")
     else:

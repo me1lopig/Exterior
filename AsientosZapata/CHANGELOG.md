@@ -20,3 +20,8 @@
 - Corregida la discontinuidad del perfil flexible con empotramiento.
 - Limitado el perfil Steinbrenner rígido al área de la zapata.
 - Añadidas pruebas unitarias, requisitos y guía de instalación.
+
+## MEF opcional
+- Casilla MEF desactivada por defecto, Steinbrenner siempre activo.
+- Exportación Word y comprobación analítica ELS sin OpenSees.
+- Configuración y análisis de sensibilidad visibles solo al activar MEF.

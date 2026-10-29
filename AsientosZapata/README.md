@@ -2,6 +2,10 @@
 
 Aplicación Streamlit para calcular el asiento elástico inmediato de una cimentación rectangular mediante Steinbrenner multicapa y un modelo tridimensional elástico de OpenSeesPy.
 
+## Selección del método
+
+La casilla **Activar cálculo MEF (OpenSees 3D)** está desmarcada por defecto. Sin MEF se calculan Steinbrenner, la comprobación analítica ELS y el informe Word sin ejecutar OpenSees. Al activar MEF se muestran los parámetros de discretización, se resuelve OpenSees y, si se elige, se realiza sensibilidad numérica. Los resultados analíticos de Steinbrenner se mantienen en ambos modos. La comprobación ELS analítica no supone validar las hipótesis geotécnicas ni la sensibilidad a la profundidad de corte.
+
 ## Alcance
 
 - Carga vertical centrada y presión neta de servicio.
