@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import streamlit.components.v1 as components
 
-from perfil_geologico.calculos.zonas import linea_terreno
-from perfil_geologico.calculos.dpsh import curvas_dpsh
+from perfil_geologico.calculos.zonas import linea_terreno, base_dominio
+from perfil_geologico.calculos.dpsh import curvas_dpsh, distribucion_curvas
 from perfil_geologico.modelos.dominio import Contacto
 
 
@@ -74,24 +74,37 @@ def modelo_minicad(
     escala_dpsh: float = 0.12,
     contactos_referencia: list[Contacto] | None = None,
     exageracion_vertical: float | None = None,
+    terreno_puntos: pd.DataFrame | None = None,
+    capas: dict[str, bool] | None = None,
+    texto_general_pt: int = 10,
+    texto_ensayos_pt: int = 9,
 ) -> dict:
     """Convierte el proyecto al modelo JSON del lienzo."""
-    s_terreno, z_terreno = linea_terreno(sondeos)
+    s_terreno, z_terreno = linea_terreno(sondeos, terreno_puntos)
     rectangulos, observados = _rectangulos_sondeos(sondeos, intervalos, unidades)
-    base = float((sondeos["cota_boca_m"] - sondeos["profundidad_m"]).min()) - 2.0
-    zmax = float(max(sondeos["cota_boca_m"].max(), dpsh["cota_inicio_m"].max() if len(dpsh) else -np.inf)) + 1.5
+    base = base_dominio(sondeos, dpsh, terreno_puntos=terreno_puntos)
+    zmax = float(max(float(z_terreno.max()), float(sondeos["cota_boca_m"].max()),
+                     float(dpsh["cota_inicio_m"].max()) if len(dpsh) else -np.inf)) + 1.5
     xmin, xmax = float(s_terreno.min()), float(s_terreno.max())
     margen_x = max((xmax - xmin) * 0.04, 2.0)
+    escala_segura, sentidos = distribucion_curvas(dpsh, lecturas_dpsh, escala_dpsh,
+                                                   sondeos, (xmin,xmax))
     return {
-        "bounds": {"xmin": xmin - margen_x, "xmax": xmax + margen_x, "ymin": base, "ymax": zmax},
+        "bounds": {"xmin": xmin - margen_x, "xmax": xmax + margen_x, "ymin": base - 1.0, "ymax": zmax},
+        "dominio": {"xmin": xmin, "xmax": xmax, "base": base,
+                     "terreno": [{"s_m": float(s), "z_m": float(z)} for s,z in zip(s_terreno,z_terreno)]},
         "exageracion_vertical": exageracion_vertical,
+        "capas": dict(capas) if capas is not None else None,
+        "texto_general_pt": int(texto_general_pt),
+        "texto_ensayos_pt": int(texto_ensayos_pt),
         "terreno": [{"s_m": float(s), "z_m": float(z)} for s, z in zip(s_terreno, z_terreno)],
         "sondeos": rectangulos,
         "observados": observados,
         "contactos": [asdict(contacto) for contacto in contactos],
         "contactos_referencia": [asdict(contacto) for contacto in contactos_referencia or []],
         "zonas": zonas,
-        "dpsh": curvas_dpsh(dpsh, lecturas_dpsh, escala_dpsh),
+        "dpsh": curvas_dpsh(dpsh, lecturas_dpsh, escala_segura, sentidos),
+        "escala_penetracion_efectiva": escala_segura,
         "unidades": [
             {"unidad_id": str(fila.unidad_id), "nombre": str(fila.nombre), "color": str(fila.color)}
             for fila in unidades.itertuples(index=False)

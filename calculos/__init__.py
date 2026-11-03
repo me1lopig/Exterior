@@ -1,2 +1,2 @@
-"""Núcleo de cálculo geotécnico."""
+"""Motores de calculo geometrico."""
 

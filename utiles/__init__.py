@@ -1,2 +1,2 @@
-"""Utilidades transversales de presentación."""
+"""Utilidades transversales."""
 
