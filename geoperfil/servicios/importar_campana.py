@@ -180,8 +180,7 @@ def importar_campana(archivos: Mapping[str,bytes]) -> tuple[dict[str,pd.DataFram
         sondeos.append({'sondeo_id':idrec,'x_m':p['pk_m'],'y_m':0.0,
                         'cota_boca_m':p['cota_m'],'profundidad_m':prof,'descripcion':'Sondeo - BKFL'})
     if not sondeos: avisos.append('No se han importado intervalos BKFL; el perfil no tendra columnas litologicas.')
-    unidades=[{'unidad_id':codigo,'nombre':nombre,'orden':i,'color':PALETA[(i-1)%len(PALETA)],
-              'observaciones':'Codigo litologico observado en BKFL (no equivale a unidad UG).'}
+    unidades=[{'unidad_id':codigo,'nombre':nombre,'orden':i,'color':PALETA[(i-1)%len(PALETA)]}
              for i,(codigo,nombre) in enumerate(unidad_detalles.items(),start=1)]
     penetraciones={}
     lecturas=[]

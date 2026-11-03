@@ -39,12 +39,12 @@ def crear_datos_demo() -> dict[str, pd.DataFrame]:
     )
     unidades = pd.DataFrame(
         [
-            ["R", "Rellenos", 1, "#C8A977", "Sin interpretacion geotecnica"],
-            ["AL", "Arcilla limosa", 2, "#89A96B", "Unidad geologica-geotecnica"],
-            ["GA", "Grava arenosa", 3, "#E7C96B", "Unidad geologica-geotecnica"],
-            ["SR", "Sustrato alterado", 4, "#8B9098", "Base del perfil"],
+            ["R", "Rellenos", 1, "#C8A977"],
+            ["AL", "Arcilla limosa", 2, "#89A96B"],
+            ["GA", "Grava arenosa", 3, "#E7C96B"],
+            ["SR", "Sustrato alterado", 4, "#8B9098"],
         ],
-        columns=["unidad_id", "nombre", "orden", "color", "observaciones"],
+        columns=["unidad_id", "nombre", "orden", "color"],
     )
     dpsh = pd.DataFrame(
         [

@@ -43,6 +43,9 @@ def proyecto_desde_json(origen: bytes | BytesIO) -> tuple[Proyecto, dict[str, pd
             raise ValueError(f"El proyecto no contiene la tabla {nombre}.")
         columnas = columnas_guardadas.get(nombre, list(tabla_modelo.columns))
         datos[nombre] = pd.DataFrame(almacen[nombre], columns=columnas)
+    # Los proyectos antiguos pueden contener esta columna de presentacion, ya retirada.
+    if "Unidades" in datos:
+        datos["Unidades"] = datos["Unidades"].drop(columns=["observaciones"], errors="ignore")
     # Conserva todas las tablas adicionales de campana, incluidas las vacias.
     for nombre, registros in almacen.items():
         if nombre not in datos:

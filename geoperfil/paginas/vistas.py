@@ -193,6 +193,7 @@ def _acciones_proyecto() -> None:
                 st.session_state.zonas = []
                 st.session_state.avisos_importacion = []
                 st.session_state.hipotesis_referencia = ""
+                st.session_state.revision_datos += 1
                 _limpiar_preferencias_widgets()
                 for clave in ("campana_pendiente", "campana_huella_pendiente",
                               "campana_avisos_pendientes", "pagina_principal"):
@@ -211,6 +212,7 @@ def _acciones_proyecto() -> None:
                     st.session_state.zonas = nuevo.zonas
                     st.session_state.datos = datos
                     st.session_state.hipotesis_referencia = ""
+                    st.session_state.revision_datos += 1
                     st.session_state.avisos_importacion = []
                     _limpiar_preferencias_widgets()
                     st.rerun()
@@ -231,7 +233,7 @@ def _cabecera() -> None:
       <div class="gp-logo">◈</div>
       <div class="gp-brand-name">GeoPerfil <span>2D</span></div>
       <div class="gp-brand-subtitle">Interpretación geológica y geotécnica</div>
-      <div class="gp-brand-version">v0.8.4 · Bordes y penetraciones</div>
+      <div class="gp-brand-version">v0.8.5 · Unidades, guitarra y correcciones</div>
     </div>""", unsafe_allow_html=True)
     _acciones_proyecto()
 
@@ -296,6 +298,7 @@ def vista_datos() -> None:
             confirmar_campana=st.checkbox("Confirmo la sustitucion de datos y el descarte de la interpretacion actual", key="confirmar-campana")
             if st.button("Aplicar campana validada", type="primary", disabled=not confirmar_campana):
                 st.session_state.datos = pendiente
+                st.session_state.revision_datos += 1
                 st.session_state.contactos = []
                 st.session_state.zonas = []
                 st.session_state.proyecto.contactos = []
@@ -409,16 +412,50 @@ def vista_trazado() -> None:
 
 
 def vista_unidades() -> None:
-    """Leyenda y materiales de campaña sin introducir una segunda fuente de datos."""
+    """Edicion de nombres y colores de las unidades interpretadas; el codigo BKFL no cambia."""
     st.header("Unidades geológicas")
-    st.caption("Colores y códigos importados de BKFL; la correlación entre sondeos se define manualmente.")
+    st.caption("Personalice nombres y colores. Se conserva el código de estrato original "
+               "para que los intervalos y contactos sigan vinculados a la misma unidad.")
     tabla = st.session_state.datos["Unidades"]
     if tabla.empty:
-        st.info("Cargue un libro BKFL para consultar las unidades geológicas.")
+        st.info("Cargue un libro BKFL para definir las unidades geológicas.")
         return
-    st.dataframe(tabla, hide_index=True, use_container_width=True)
-    st.caption("La asignación de material y trama a los polígonos se realiza desde Interpretación. "
-               "Para modificar las descripciones de origen, corrija el Excel de campaña y vuelva a importarlo.")
+    from perfil_geologico.calculos.estilos_unidades import aplicar_edicion_unidades
+
+    revision = int(st.session_state.revision_datos)
+    cambios = {}
+    with st.form("personalizar-unidades", border=True):
+        for fila in tabla.sort_values("orden").itertuples(index=False):
+            unidad_id = str(fila.unidad_id)
+            izquierda, centro, derecha = st.columns([1.2, 4.5, 2.3], vertical_alignment="bottom")
+            with izquierda:
+                st.text_input("Código", value=unidad_id, disabled=True,
+                              key=f"unidad-id-{revision}-{unidad_id}")
+            with centro:
+                nombre = st.text_input("Nombre", value=str(fila.nombre),
+                                      key=f"unidad-nombre-{revision}-{unidad_id}")
+            with derecha:
+                color = st.color_picker("Color seleccionado", value=str(fila.color),
+                                        key=f"unidad-color-{revision}-{unidad_id}")
+                st.caption(f"{color.upper()}")
+            cambios[unidad_id] = {"nombre": nombre, "color": color}
+            st.divider()
+        confirmar = st.form_submit_button("Guardar nombres y colores", type="primary", use_container_width=True)
+    if confirmar:
+        try:
+            nuevas_unidades, nuevas_zonas = aplicar_edicion_unidades(
+                tabla, st.session_state.zonas, cambios)
+        except ValueError as exc:
+            st.error(f"No se pudieron actualizar las unidades: {exc}")
+        else:
+            st.session_state.datos["Unidades"] = nuevas_unidades
+            st.session_state.zonas = nuevas_zonas
+            st.session_state.proyecto.zonas = nuevas_zonas
+            st.session_state.revision_datos += 1
+            st.success("Nombres y colores actualizados en el perfil, MiniCAD y exportaciones.")
+            st.rerun()
+    st.caption("La litología original permanece en BKFL/Intervalos y Fuentes. "
+               "Las tramas de las zonas se asignan desde Interpretación.")
 
 
 def _contactos_desde_cad(datos: list[dict]) -> list[Contacto]:
@@ -567,7 +604,6 @@ def vista_interpretacion() -> None:
         contactos_referencia=contactos_referencia,
         exageracion_vertical=st.session_state.proyecto.exageracion_vertical,
         terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
-                    dpsh=dpsh,
         capas=st.session_state.proyecto.capas,
         texto_general_pt=st.session_state.proyecto.texto_general_pt,
         texto_ensayos_pt=st.session_state.proyecto.texto_ensayos_pt,

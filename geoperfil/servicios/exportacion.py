@@ -157,18 +157,19 @@ def contactos_a_dxf(
         # La guitarra se sitúa bajo el último reconocimiento: Y son cotas CAD locales.
         base=float((sondeos['cota_boca_m']-sondeos['profundidad_m']).min())-10.0
         alto=max(1.5, (float(sondeos['cota_boca_m'].max())-float(sondeos['cota_boca_m'].min()))*0.06)
-        for h in range(4) if proyecto.capas.get('guitarra',True) else []:
+        for h in range(5) if proyecto.capas.get('guitarra',True) else []:
             y=base-h*alto
             linea([(inicio,y),(fin,y)],'GUITARRA')
         for marca in guitarra['marcas'] if proyecto.capas.get('guitarra',True) else []:
             pk=float(marca['pk_m'])
-            linea([(pk,base),(pk,base-3*alto)],'GUITARRA')
+            linea([(pk,base),(pk,base-4*alto)],'GUITARRA')
             texto(f'{pk:g}',pk,base-.7*alto,max(0.7,alto*.30),'GUITARRA')
             z=marca['terreno_m']
             texto(f'{z:.2f}' if z is not None else '-',pk,base-1.7*alto,max(0.7,alto*.30),'GUITARRA')
         for rec in guitarra['reconocimientos'] if proyecto.capas.get('guitarra',True) else []:
-            texto(rec['nombre'],rec['pk_m'],base-2.7*alto,max(0.7,alto*.30),'GUITARRA')
-        for n,etiqueta in enumerate(('PK (m)','Cota (m)','Reconoc.')) if proyecto.capas.get('guitarra',True) else []:
+            altura = 2.7 if rec['tipo'] == 'Sondeo' else 3.7
+            texto(rec['nombre'],rec['pk_m'],base-altura*alto,max(0.7,alto*.30),'GUITARRA')
+        for n,etiqueta in enumerate(('PK (m)','Cota (m)','Sondeos','Penetrómetros')) if proyecto.capas.get('guitarra',True) else []:
             texto(etiqueta,inicio-max((fin-inicio)*.10,5),base-(n+.7)*alto,max(.7,alto*.35),'GUITARRA')
     # Las anotaciones de ensayo son texto CAD real, en capas independientes.
     if sondeos is not None and not sondeos.empty:
@@ -389,23 +390,25 @@ def _figura_perfil_documento(
     guitarra = preparar_guitarra(sondeos_proyectados,dpsh_proyectados,(x_min,x_max),
                                  float(getattr(proyecto,'guitarra_paso_m',50.0)), terreno_puntos=terreno_puntos)
     ax_g.set_xlim(x_min,x_max)
-    ax_g.set_ylim(0,3)
+    ax_g.set_ylim(0,4)
     ax_g.set_yticks([])
     ax_g.tick_params(axis='x', bottom=False,labelbottom=False)
-    for y in (0,1,2,3) if proyecto.capas.get('guitarra',True) else []:
+    for y in (0,1,2,3,4) if proyecto.capas.get('guitarra',True) else []:
         ax_g.hlines(y,x_min,x_max,color='#8C9BA8',linewidth=.75)
     for m in guitarra['marcas'] if proyecto.capas.get('guitarra',True) else []:
         pk=m['pk_m']
-        ax_g.vlines(pk,0,3,color='#CBD4DF',linewidth=.75)
-        ax_g.text(pk,2.5,f'{pk:.1f}' if abs(pk-round(pk))>1e-4 else f'{pk:.0f}',ha='center',va='center',fontsize=8)
+        ax_g.vlines(pk,0,4,color='#CBD4DF',linewidth=.75)
+        ax_g.text(pk,3.5,f'{pk:.1f}' if abs(pk-round(pk))>1e-4 else f'{pk:.0f}',ha='center',va='center',fontsize=8)
         cot=m['terreno_m']
-        ax_g.text(pk,1.5,f'{cot:.2f}' if cot is not None else '—',ha='center',va='center',fontsize=8)
+        ax_g.text(pk,2.5,f'{cot:.2f}' if cot is not None else '—',ha='center',va='center',fontsize=8)
     for item in guitarra['reconocimientos'] if proyecto.capas.get('guitarra',True) else []:
-        ax_g.text(item['pk_m'],.5,item['nombre'],ha='center',va='center',fontsize=7.5,
-                  rotation=25, color='#B6383B' if item['tipo']=='DPSH' else '#0A5E80')
+        altura = 1.5 if item['tipo'] == 'Sondeo' else 0.5
+        ax_g.text(item['pk_m'],altura,item['nombre'],ha='center',va='center',
+                  fontsize=proyecto.texto_guitarra_pt,rotation=25,
+                  color='#B6383B' if item['tipo']=='DPSH' else '#0A5E80')
     from matplotlib.transforms import blended_transform_factory
     left_axes=blended_transform_factory(ax_g.transAxes,ax_g.transData)
-    for y,texto in ((2.5,'PK (m)'),(1.5,'Cota (m)'),(.5,'Reconoc.')) if proyecto.capas.get('guitarra',True) else []:
+    for y,texto in ((3.5,'PK (m)'),(2.5,'Cota (m)'),(1.5,'Sondeos'),(.5,'Penetrómetros')) if proyecto.capas.get('guitarra',True) else []:
         ax_g.text(-.008,y,texto,transform=left_axes,ha='right',va='center',fontsize=8,clip_on=False)
     ax_g.set_xlabel('Distancia sobre el perfil / PK (m)',fontsize=9)
     ax.tick_params(axis='x', bottom=False, labelbottom=False)

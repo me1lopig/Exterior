@@ -268,29 +268,30 @@ def crear_figura_perfil(
                                  float(paso_guitarra or getattr(proyecto, 'guitarra_paso_m', 50.0)),
                                  terreno_puntos=terreno_puntos)
     if capas.get("guitarra",True):
-        for y in (0.0, 1.0, 2.0, 3.0):
+        for y in (0.0, 1.0, 2.0, 3.0, 4.0):
             figura.add_trace(go.Scatter(
                 x=[inicio, fin], y=[y, y], mode='lines', xaxis='x2', yaxis='y2',
                 line={'color':'#7B8793', 'width':0.8}, hoverinfo='skip', showlegend=False))
         for marca in guitarra['marcas']:
             pk = marca['pk_m']
             figura.add_trace(go.Scatter(
-                x=[pk, pk], y=[0,3], mode='lines', xaxis='x2', yaxis='y2',
+                x=[pk, pk], y=[0,4], mode='lines', xaxis='x2', yaxis='y2',
                 line={'color':'#CFD6DE', 'width':0.8}, hoverinfo='skip', showlegend=False))
             figura.add_trace(go.Scatter(
-                x=[pk], y=[2.5], text=[f'{pk:.1f}' if abs(pk-round(pk))>1e-4 else f'{pk:.0f}'], mode='text', xaxis='x2', yaxis='y2',
+                x=[pk], y=[3.5], text=[f'{pk:.1f}' if abs(pk-round(pk))>1e-4 else f'{pk:.0f}'], mode='text', xaxis='x2', yaxis='y2',
                 textfont={'size':proyecto.texto_guitarra_pt,'color':'#283849'}, hoverinfo='skip',showlegend=False))
             cota = marca['terreno_m']
             figura.add_trace(go.Scatter(
-                x=[pk], y=[1.5], text=[f'{cota:.2f}' if cota is not None else '—'],
+                x=[pk], y=[2.5], text=[f'{cota:.2f}' if cota is not None else '—'],
                 mode='text', xaxis='x2', yaxis='y2',
                 textfont={'size':proyecto.texto_guitarra_pt,'color':'#283849'}, hoverinfo='skip',showlegend=False))
         for rec in guitarra['reconocimientos']:
+            altura = 1.5 if rec['tipo'] == 'Sondeo' else 0.5
             figura.add_trace(go.Scatter(
-                x=[rec['pk_m']], y=[0.45], mode='text', text=[rec['nombre']],
+                x=[rec['pk_m']], y=[altura], mode='text', text=[rec['nombre']],
                 xaxis='x2', yaxis='y2', textfont={'size':proyecto.texto_guitarra_pt,'color':'#0A5E80' if rec['tipo']=='Sondeo' else '#B6383B'},
                 hovertemplate=f"{rec['tipo']} {rec['nombre']} - PK {rec['pk_m']:.2f} m<extra></extra>",showlegend=False))
-        for altura, nombre in ((2.5,'PK (m)'),(1.5,'Cota (m)'),(0.5,'Reconoc.')):
+        for altura, nombre in ((3.5,'PK (m)'),(2.5,'Cota (m)'),(1.5,'Sondeos'),(0.5,'Penetrómetros')):
             figura.add_annotation(xref='paper',yref='y2',x=0,y=altura,
                                   xanchor='right',xshift=-7,showarrow=False,
                                   text=nombre,font={'size':proyecto.texto_guitarra_pt,'color':'#344960'})
@@ -321,7 +322,7 @@ def crear_figura_perfil(
         },
         xaxis2={"visible":capas.get("guitarra",True),"anchor":"y2", "domain":[0,1], "matches":"x", "range":[inicio,fin],
                 "title":"Distancia sobre el perfil / PK (m)","showgrid":False,"zeroline":False},
-        yaxis2={"visible":capas.get("guitarra",True),"anchor":"x2", "domain":[0,0.22], "range":[-0.05,3.05],
+        yaxis2={"visible":capas.get("guitarra",True),"anchor":"x2", "domain":[0,0.22], "range":[-0.05,4.05],
                 "showticklabels":False,"showgrid":False,"zeroline":False,"fixedrange":True},
         modebar={"bgcolor": "rgba(255,255,255,0.85)"},
     )

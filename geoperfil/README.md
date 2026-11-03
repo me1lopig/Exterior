@@ -1,4 +1,4 @@
-# GeoPerfil 2D v0.8.4 — Ajuste de curvas N20 y contactos a bordes del perfil
+# GeoPerfil 2D v0.8.5 — Correccion MiniCAD, guitarra y personalizacion de unidades
 
 Aplicacion Python/Streamlit para dibujar perfiles geologicos manualmente a partir de sondeos y ensayos de campo. La geologia se interpreta mediante contactos y lentejones en el MiniCAD; los ensayos no generan correlaciones geologicas automaticas.
 
@@ -17,14 +17,14 @@ Aplicacion Python/Streamlit para dibujar perfiles geologicos manualmente a parti
 - Exportaciones HTML, PNG, SVG, PDF y DXF comparten estas capas. En DXF, los SPT, muestras y laboratorio son textos editables en capas CAD especificas.
 - **Solo existe la entrada multifichero**. Se han retirado la plantilla Excel unica, la edicion de tablas de entrada y el inicio automatico con datos demostrativos. Los proyectos JSON guardados siguen siendo recuperables.
 
-## Interfaz v0.8.3
+## Interfaz v0.8.5
 
 - Cabecera azul oscuro con operaciones **Nuevo**, **Abrir** (proyecto JSON) y **Guardar** (descarga del proyecto). Nuevo y Abrir solicitan confirmación antes de sustituir trabajo existente. El guardado MiniCAD se mantiene independiente de la descarga del JSON.
 - Pestañas superiores en este orden: **Datos**, **Trazado**, **Perfil**, **Unidades**, **Interpretación** y **Exportar**. Los metadatos y las escalas del proyecto están en un apartado desplegable de **Datos**.
 - Panel **izquierdo** contextual: capas geológicas, capas de ensayos, guitarra y tres tamaños de letra (general, ensayos y guitarra). El perfil y sus exportaciones usan estas preferencias. Las preferencias se restauran correctamente al abrir otro proyecto.
 - Barra horizontal de herramientas del MiniCAD **encima del lienzo**, agrupada en Dibujo, Rellenos y Vista. Incluye seleccionar, dibujar/borrar contacto, dibujar/borrar lentejón, finalizar, rellenar/quitar relleno, limpiar, deshacer/rehacer, mover, encuadrar y ajuste magnético. El desplazamiento con la mano es adicional a **Mayús+arrastrar** y al botón central; el zoom con rueda sigue disponible.
 - Los puntos **STA solo aportan PK/cota a la superficie**: no se dibujan símbolos ni etiquetas STA en el trazado, en el MiniCAD, en el perfil ni en la guitarra. La topografía sigue incluyendo esos datos de forma exacta.
-- **Unidades** muestra la tabla de colores/códigos importados, sin introducir una segunda fuente editable. La clasificación de polígonos sigue siendo manual en Interpretación.
+- **Unidades** permite cambiar **nombre** y **color** con selector visual. El codigo BKFL (`unidad_id`) permanece fijo y permite seguir vinculando intervalos y contactos. Se ha retirado la columna Observaciones de Unidades. Los cambios se guardan en el proyecto JSON y actualizan las zonas clasificadas. La clasificación de polígonos sigue siendo manual en Interpretación.
 - Las modificaciones estéticas no cambian el motor de contactos, cotas, SPT, lectura DPRG, construcción de zonas ni las coordenadas de exportación.
 
 ## Instalacion
@@ -48,7 +48,7 @@ En Windows, active `.venv\Scripts\activate` y ejecute `python -m pip install -r 
 4. Pulse **Aplicar campana validada**. Las tablas derivadas quedan bloqueadas para impedir inconsistencias con PERFIL1. Para corregir datos, modifique el original y vuelva a importar. La interpretacion anterior se descarta solo tras confirmacion.
 5. En **Trazado**, revise el eje de PK acumulados y la guitarra. El eje es de solo lectura para una campana importada por PK.
 6. En **Interpretación**, utilice la barra MiniCAD horizontal (selección, contactos, lentejones, rellenos, desplazamiento y ajuste magnético).
-7. En **Perfil**, active las capas y ajuste los tamaños de letra desde el panel lateral izquierdo; cambie la escala gráfica de golpes en la zona central.
+7. En **Unidades**, edite los nombres y seleccione los colores a su gusto; guarde para actualizar zonas y leyendas. En **Perfil**, active las capas y ajuste los tamaños de letra desde el panel lateral izquierdo; cambie la escala gráfica de golpes en la zona central.
 8. En **Exportar**, descargue PDF, PNG, SVG, DXF, HTML, Excel o proyecto JSON. Guarde el JSON para poder reabrir la campana y su interpretacion.
 
 La carpeta `ejemplos/campana_multifichero_sintetica/` contiene cinco libros inventados expresamente para probar el importador. No se entrega ninguna plantilla de entrada unica.
@@ -68,7 +68,7 @@ python3 -m pytest -q perfil_geologico/tests
 python3 -m compileall -q perfil_geologico
 ```
 
-La versión **v0.8.4 ha superado 88 pruebas automatizadas** (incluidas las 79 anteriores). Incluye regresiones del importador, topografia con STA, guardado, capas y DXF, ademas de pruebas de navegador del MiniCAD y una prueba integral con los cinco libros aportados en esta conversacion. El DXF fue releido con `ezdxf`; las imagenes fueron generadas y revisadas. No se pudo ejecutar una sesión completa de Streamlit aquí porque Streamlit no estaba instalado. Se comprobó el MiniCAD en Chromium mediante Playwright, incluyendo que las bocas y puntos de inicio estén sobre la línea del terreno, pero no toda la interfaz Streamlit. Debe validarse localmente en macOS antes de usarlo en un trabajo real; la apertura del DXF en AutoCAD sigue pendiente.
+La versión **v0.8.5 ha superado 97 pruebas automatizadas** (incluidas las 88 anteriores). Incluye regresiones del importador, topografia con STA, guardado, capas y DXF, ademas de pruebas de navegador del MiniCAD y una prueba integral con los cinco libros aportados en esta conversacion. El DXF fue releido con `ezdxf`; las imagenes fueron generadas y revisadas. No se pudo ejecutar una sesión completa de Streamlit aquí porque Streamlit no estaba instalado y no se pudo descargar sin acceso de red. La regresión específica construye el modelo de MiniCAD con la misma firma de la interfaz mediante un adaptador simulado, y comprueba que no vuelve a darse el TypeError del argumento duplicado. Se comprobó el MiniCAD en Chromium mediante Playwright, incluyendo que las bocas y puntos de inicio estén sobre la línea del terreno, pero no toda la interfaz Streamlit. Debe validarse localmente en macOS antes de usarlo en un trabajo real; la apertura del DXF en AutoCAD sigue pendiente.
 
 ## Correccion v0.8.3: posicion real de los reconocimientos
 
@@ -78,6 +78,14 @@ La versión **v0.8.4 ha superado 88 pruebas automatizadas** (incluidas las 79 an
 - Los puntos STA contribuyen a la geometría de la línea del terreno **sin símbolos ni etiquetas individuales**.
 - La aplicación verifica diferencias de más de **0,001 m** entre la cota de los reconocimientos y la superficie interpolada de PERFIL1. Si hay discrepancia bloquea la representación para solicitar corrección en el archivo, sin mover el ensayo automáticamente.
 - Se incluyen pruebas de regresión con terreno quebrado, con los Excel aportados por el usuario, la salida DXF y el componente MiniCAD en Chromium.
+
+## Correccion v0.8.5: MiniCAD, guitarra y Unidades
+
+- Corregido el **TypeError** al entrar en Interpretación: `modelo_minicad` recibia el argumento `dpsh` como posicional y ademas como keyword. Se ha eliminado esa duplicidad.
+- La guitarra se organiza en **cuatro filas**: PK, cota del terreno, sondeos y penetrómetros. S-01 y P-01 a P-04 aparecen en sus PK exactos, mientras que STA solo afecta a la topografia y no se etiqueta como reconocimiento. Esta estructura es comun a Plotly, PDF, PNG, SVG y DXF.
+- En **Unidades** se editan nombre y color por codigo BKFL. El selector de color incluye una muestra visual y su referencia hexadecimal. Los cambios recolorean las zonas asignadas, se conservan tras guardar/cargar JSON y no alteran los libros Excel originales.
+- Retirada **Observaciones de la tabla Unidades** y añadida migración para abrir los antiguos JSON que la contengan. Esto no suprime las observaciones de campo existentes en los archivos de ensayo originales.
+- 97 pruebas superadas; comprobacion integral con los cinco Excel del caso y lectura de entidades GUITARRA en el DXF. La prueba integrada completa en Streamlit Cloud/Mac queda pendiente.
 
 ## Limitaciones importantes
 
