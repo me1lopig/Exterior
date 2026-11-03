@@ -1,4 +1,4 @@
-# GeoPerfil 2D v0.8.3 — Alineación de sondeos y penetrómetros con el terreno
+# GeoPerfil 2D v0.8.4 — Ajuste de curvas N20 y contactos a bordes del perfil
 
 Aplicacion Python/Streamlit para dibujar perfiles geologicos manualmente a partir de sondeos y ensayos de campo. La geologia se interpreta mediante contactos y lentejones en el MiniCAD; los ensayos no generan correlaciones geologicas automaticas.
 
@@ -68,7 +68,7 @@ python3 -m pytest -q perfil_geologico/tests
 python3 -m compileall -q perfil_geologico
 ```
 
-La versión **v0.8.3 ha superado 79 pruebas automatizadas**. Incluye regresiones del importador, topografia con STA, guardado, capas y DXF, ademas de pruebas de navegador del MiniCAD y una prueba integral con los cinco libros aportados en esta conversacion. El DXF fue releido con `ezdxf`; las imagenes fueron generadas y revisadas. No se pudo ejecutar una sesión completa de Streamlit aquí porque Streamlit no estaba instalado. Se comprobó el MiniCAD en Chromium mediante Playwright, incluyendo que las bocas y puntos de inicio estén sobre la línea del terreno, pero no toda la interfaz Streamlit. Debe validarse localmente en macOS antes de usarlo en un trabajo real; la apertura del DXF en AutoCAD sigue pendiente.
+La versión **v0.8.4 ha superado 88 pruebas automatizadas** (incluidas las 79 anteriores). Incluye regresiones del importador, topografia con STA, guardado, capas y DXF, ademas de pruebas de navegador del MiniCAD y una prueba integral con los cinco libros aportados en esta conversacion. El DXF fue releido con `ezdxf`; las imagenes fueron generadas y revisadas. No se pudo ejecutar una sesión completa de Streamlit aquí porque Streamlit no estaba instalado. Se comprobó el MiniCAD en Chromium mediante Playwright, incluyendo que las bocas y puntos de inicio estén sobre la línea del terreno, pero no toda la interfaz Streamlit. Debe validarse localmente en macOS antes de usarlo en un trabajo real; la apertura del DXF en AutoCAD sigue pendiente.
 
 ## Correccion v0.8.3: posicion real de los reconocimientos
 
@@ -89,3 +89,16 @@ La versión **v0.8.3 ha superado 79 pruebas automatizadas**. Incluye regresiones
 - Las etiquetas densas pueden solaparse al activar muchas capas y letras grandes. En tal caso desactive capas o reduzca la fuente.
 - El DXF usa coordenadas de perfil X=PK, Y=cota, no coordenadas UTM. Las tramas HATCH de unidades geologicas dependen de la interpretacion que el usuario complete.
 - La aplicacion aun requiere validacion funcional completa con navegador + Streamlit local y revision del perfil por profesional geotecnico.
+
+## Novedades v0.8.4 - contactos hasta los bordes y penetraciones contenidas
+
+- El MiniCAD permite terminar contactos en la topografia, en el borde izquierdo,
+  el derecho y el limite inferior sin sobrepasarlos. Las guias azules aparecen
+  durante el modo de dibujo y permiten captura exacta a cualquier nivel de zoom.
+- Las curvas N20 se ajustan automaticamente al espacio disponible sin cambiar
+  el PK del penetrómetro, la cota de inicio ni las lecturas. El ensayo extremo
+  derecho puede dibujar su curva hacia la izquierda. La escala horizontal de
+  **representacion de golpes** puede reducirse respecto a la solicitada para
+  respetar los limites del perfil.
+- Los valores observados siempre tienen prioridad en la captura magnetica.
+- Consulte `CAMBIOS_v0.8.4.md` y ejecute `pytest -q` antes de uso.

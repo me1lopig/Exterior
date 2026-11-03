@@ -19,12 +19,14 @@ from perfil_geologico.calculos.contactos import (
 )
 from perfil_geologico.calculos.proyeccion import proyectar_puntos, longitud_eje
 from perfil_geologico.calculos.terreno import terreno_de_campana, incidencias_cota_inicio
+from perfil_geologico.calculos.dpsh import distribucion_curvas
 from perfil_geologico.servicios.importar_campana import importar_campana
 from perfil_geologico.calculos.presentacion import limites_perfil
 from perfil_geologico.calculos.zonas import (
     TRAMAS,
     asignar_estilos_zonas,
     construir_zonas,
+    validar_contactos_dominio,
 )
 from perfil_geologico.componentes.minicad import minicad_geologico, modelo_minicad
 from perfil_geologico.modelos.dominio import Contacto, Proyecto, VerticeContacto
@@ -229,7 +231,7 @@ def _cabecera() -> None:
       <div class="gp-logo">◈</div>
       <div class="gp-brand-name">GeoPerfil <span>2D</span></div>
       <div class="gp-brand-subtitle">Interpretación geológica y geotécnica</div>
-      <div class="gp-brand-version">v0.8.3 · Cotas verificadas</div>
+      <div class="gp-brand-version">v0.8.4 · Bordes y penetraciones</div>
     </div>""", unsafe_allow_html=True)
     _acciones_proyecto()
 
@@ -484,6 +486,7 @@ def vista_interpretacion() -> None:
                 st.session_state.zonas, avisos = construir_zonas(
                     sondeos, st.session_state.contactos, st.session_state.zonas,
                     terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
+                    dpsh=dpsh,
                 )
                 st.session_state.avisos_topologia = avisos
                 st.rerun()
@@ -560,9 +563,11 @@ def vista_interpretacion() -> None:
         sondeos, st.session_state.datos["Intervalos"], st.session_state.datos["Unidades"],
         st.session_state.contactos, st.session_state.zonas, dpsh,
         st.session_state.datos["Lecturas_DPSH"],
+        escala_dpsh=float(st.session_state.proyecto.escala_penetracion_m_golpe),
         contactos_referencia=contactos_referencia,
         exageracion_vertical=st.session_state.proyecto.exageracion_vertical,
         terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
+                    dpsh=dpsh,
         capas=st.session_state.proyecto.capas,
         texto_general_pt=st.session_state.proyecto.texto_general_pt,
         texto_ensayos_pt=st.session_state.proyecto.texto_ensayos_pt,
@@ -584,12 +589,15 @@ def vista_interpretacion() -> None:
                             referencia = interfaces.get(punto.interfaz_id)
                             if referencia is None or any(abs(a-b) > 1e-7 for a,b in zip(referencia,(punto.s_m,punto.z_m))):
                                 raise ValueError(f"Interfaz observada desactualizada: {punto.interfaz_id}.")
+                validar_contactos_dominio(sondeos, contactos,
+                    terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos), dpsh=dpsh)
                 if respuesta.get("limpiar_interpretacion") and not contactos:
                     zonas, avisos = [], []
                 else:
                     zonas, avisos = construir_zonas(
                         sondeos, contactos, list(respuesta.get("zonas", [])),
                         terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
+                        dpsh=dpsh,
                     )
                 st.session_state.contactos = contactos
                 st.session_state.zonas = zonas
@@ -629,9 +637,12 @@ def vista_interpretacion() -> None:
             if st.button("Aplicar coordenadas exactas"):
                 try:
                     actualizar_vertices(contacto, editada)
+                    validar_contactos_dominio(sondeos, st.session_state.contactos,
+                        terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos), dpsh=dpsh)
                     st.session_state.zonas, _ = construir_zonas(
                         sondeos, st.session_state.contactos, st.session_state.zonas,
-                    terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
+                        terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
+                        dpsh=dpsh,
                     )
                     st.rerun()
                 except (ValueError, RuntimeError) as exc:
@@ -673,6 +684,14 @@ def vista_perfil() -> None:
         float(proyecto.escala_penetracion_m_golpe), 0.005)
     escala=proyecto.escala_penetracion_m_golpe
     st.caption("Los golpes DPRG se representan como registrados cada 20 cm; subtipo y rechazo requieren confirmacion documental.")
+    if not dpsh.empty:
+        limite_grafico=terreno_de_campana(st.session_state.datos,sondeos)
+        lim_b=(float(limite_grafico['s_m'].min()),float(limite_grafico['s_m'].max()))
+        efectiva, sentidos = distribucion_curvas(dpsh,st.session_state.datos['Lecturas_DPSH'],escala,sondeos,lim_b)
+        if efectiva < escala - 1e-8:
+            st.caption(f"Escala grafica aplicada: {efectiva:.4f} m/golpe (reducida automaticamente para no invadir otros trabajos ni los limites del perfil).")
+        if any(v==-1 for v in sentidos.values()):
+            st.caption("Las curvas en el extremo derecho se dibujan hacia el interior; sus PK, cotas y N20 no cambian.")
     rellenos=proyecto.capas['rellenos']
     mostrar_dpsh=proyecto.capas['penetracion']
     extras={

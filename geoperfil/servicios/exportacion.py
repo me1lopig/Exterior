@@ -10,6 +10,7 @@ import pandas as pd
 from perfil_geologico.calculos.contactos import interpolar_contacto
 from perfil_geologico.modelos.dominio import Contacto, Proyecto
 from perfil_geologico.calculos.presentacion import preparar_guitarra
+from perfil_geologico.calculos.dpsh import separar_tramos_contiguos, distribucion_curvas
 
 
 def contactos_a_csv(contactos: list[Contacto]) -> bytes:
@@ -70,7 +71,6 @@ def contactos_a_dxf(
         salida.write("0\nENDSEC\n0\nEOF\n")
         return salida.getvalue().encode('ascii',errors='replace')
     import ezdxf
-    from perfil_geologico.calculos.dpsh import separar_tramos_contiguos
     doc = ezdxf.new('R2010', setup=True)
     model = doc.modelspace()
     capas = ('TERRENO','SONDEOS','CONTACTOS','LENTEJONES','UNIDADES',
@@ -135,6 +135,8 @@ def contactos_a_dxf(
                              radius=0.10,dxfattribs={'layer':'SONDEOS'})
             texto(fila.sondeo_id, fila.s_m, fila.cota_boca_m+1.0)
         if dpsh is not None and not dpsh.empty and proyecto.capas.get('penetracion',True):
+            escala_efectiva, sentidos = distribucion_curvas(dpsh,lecturas_dpsh,escala_dpsh,sondeos,rango_pk or
+                    (float(terreno['s_m'].min()),float(terreno['s_m'].max())))
             for ensayo in dpsh.itertuples(index=False):
                 profundidad=float(ensayo.profundidad_m)
                 linea([(ensayo.s_m,ensayo.cota_inicio_m),
@@ -144,7 +146,7 @@ def contactos_a_dxf(
                 if lecturas_dpsh is not None and not lecturas_dpsh.empty:
                     lecturas = lecturas_dpsh[lecturas_dpsh['ensayo_id']==ensayo.ensayo_id]
                     for tramo in separar_tramos_contiguos(lecturas):
-                        linea([(ensayo.s_m+float(v)*escala_dpsh, ensayo.cota_inicio_m-float(depth))
+                        linea([(ensayo.s_m+sentidos.get(str(ensayo.ensayo_id),1)*float(v)*escala_efectiva, ensayo.cota_inicio_m-float(depth))
                                for depth,v in zip(tramo['profundidad_m'],tramo['n20'])], 'DPSH')
                 texto(ensayo.ensayo_id, ensayo.s_m, ensayo.cota_inicio_m+1.0)
         if rango_pk is None:
@@ -317,12 +319,13 @@ def _figura_perfil_documento(
         ax.plot([p.s_m for p in contacto.vertices], [p.z_m for p in contacto.vertices],
                 color=contacto.color, linewidth=1.6, marker="o", markersize=2.5,
                 zorder=3)
+    escala_efectiva, sentidos = distribucion_curvas(dpsh_proyectados,lecturas_dpsh,escala_dpsh,
+        sondeos_proyectados,rango_pk or (float(terreno['s_m'].min()),float(terreno['s_m'].max())))
     for ensayo in dpsh_proyectados.itertuples(index=False) if proyecto.capas.get('penetracion',True) else []:
         grupo = lecturas_dpsh[lecturas_dpsh["ensayo_id"] == ensayo.ensayo_id].sort_values("profundidad_m")
-        from perfil_geologico.calculos.dpsh import separar_tramos_contiguos
         profundidad = float(grupo["profundidad_m"].max()) if len(grupo) else float(ensayo.profundidad_m)
         for tramo in separar_tramos_contiguos(grupo):
-            x = ensayo.s_m + tramo["n20"].to_numpy(float) * escala_dpsh
+            x = ensayo.s_m + sentidos.get(str(ensayo.ensayo_id),1)*tramo["n20"].to_numpy(float) * escala_efectiva
             z = ensayo.cota_inicio_m - tramo["profundidad_m"].to_numpy(float)
             ax.plot(x, z, color="#E45658", linewidth=1.2, marker="o", markersize=1.8, zorder=5)
         ax.plot(

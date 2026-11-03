@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from perfil_geologico.calculos.contactos import interpolar_contacto
-from perfil_geologico.calculos.dpsh import separar_tramos_contiguos
+from perfil_geologico.calculos.dpsh import separar_tramos_contiguos, distribucion_curvas
 from perfil_geologico.modelos.dominio import Contacto, Proyecto
 from perfil_geologico.calculos.presentacion import preparar_guitarra
 
@@ -178,10 +178,12 @@ def crear_figura_perfil(
         )
 
     if mostrar_dpsh and not dpsh.empty:
+        escala_efectiva, sentidos = distribucion_curvas(dpsh, lecturas_dpsh, escala_dpsh,
+                                                       sondeos, rango_pk or (xmin,xmax))
         for ensayo in dpsh.sort_values("s_m").itertuples(index=False):
             grupo = lecturas_dpsh[lecturas_dpsh["ensayo_id"] == ensayo.ensayo_id]
             for indice, tramo in enumerate(separar_tramos_contiguos(grupo)):
-                x = float(ensayo.s_m) + tramo["n20"].to_numpy(float) * escala_dpsh
+                x = float(ensayo.s_m) + sentidos.get(str(ensayo.ensayo_id),1) * tramo["n20"].to_numpy(float) * escala_efectiva
                 z = float(ensayo.cota_inicio_m) - tramo["profundidad_m"].to_numpy(float)
                 figura.add_trace(
                     go.Scatter(

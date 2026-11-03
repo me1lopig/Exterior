@@ -35,12 +35,50 @@ def linea_terreno(sondeos_proyectados: pd.DataFrame, terreno_puntos: pd.DataFram
     return terreno["s_m"].to_numpy(float), terreno["cota_boca_m"].to_numpy(float)
 
 
+
+def base_dominio(sondeos_proyectados: pd.DataFrame, dpsh: pd.DataFrame | None = None,
+                 margen_inferior_m: float = 2.0,
+                 terreno_puntos: pd.DataFrame | None = None) -> float:
+    """Base geologica comun al editor y a la polygonizacion, incluyendo ensayos profundos."""
+    profundidades = [float((sondeos_proyectados['cota_boca_m'] - sondeos_proyectados['profundidad_m']).min())]
+    if dpsh is not None and not dpsh.empty:
+        profundidades.append(float((dpsh['cota_inicio_m'] - dpsh['profundidad_m']).min()))
+    if terreno_puntos is not None and not terreno_puntos.empty:
+        profundidades.append(float(terreno_puntos['cota_boca_m'].min()))
+    return min(profundidades) - margen_inferior_m
+
+
+def validar_contactos_dominio(
+    sondeos_proyectados: pd.DataFrame,
+    contactos: Iterable[Contacto],
+    terreno_puntos: pd.DataFrame | None = None,
+    dpsh: pd.DataFrame | None = None,
+) -> None:
+    """Rechaza contactos que atraviesan la topografia o los bordes del perfil."""
+    from shapely.geometry import LineString, Polygon
+    if sondeos_proyectados.empty:
+        return
+    s,z = linea_terreno(sondeos_proyectados,terreno_puntos)
+    if len(s)<2:
+        return
+    base = base_dominio(sondeos_proyectados,dpsh,terreno_puntos=terreno_puntos)
+    dominio = Polygon([*zip(s,z),(float(s[-1]),base),(float(s[0]),base)])
+    tol = max(1e-7, float(dominio.length)*1e-9)
+    for c in contactos:
+        if len(c.vertices)<2:
+            continue
+        linea = LineString([(float(v.s_m),float(v.z_m)) for v in c.vertices])
+        if not dominio.buffer(tol).covers(linea):
+            raise ValueError(f"El contacto '{c.nombre}' sale de los limites geologicos. Corrija sus vertices.")
+
+
 def construir_zonas(
     sondeos_proyectados: pd.DataFrame,
     contactos: Iterable[Contacto],
     zonas_previas: list[dict] | None = None,
     margen_inferior_m: float = 2.0,
     terreno_puntos: pd.DataFrame | None = None,
+    dpsh: pd.DataFrame | None = None,
 ) -> tuple[list[dict], list[str]]:
     """Divide el dominio terreno-base mediante la red de contactos.
 
@@ -58,10 +96,7 @@ def construir_zonas(
     s_terreno, z_terreno = linea_terreno(sondeos_proyectados, terreno_puntos)
     if len(s_terreno) < 2:
         return [], ["Se necesitan al menos dos bocas en abscisas distintas."]
-    base = float(
-        (sondeos_proyectados["cota_boca_m"] - sondeos_proyectados["profundidad_m"]).min()
-        - margen_inferior_m
-    )
+    base = base_dominio(sondeos_proyectados, dpsh, margen_inferior_m, terreno_puntos)
     contorno = [*zip(s_terreno, z_terreno), (s_terreno[-1], base), (s_terreno[0], base)]
     dominio = Polygon(contorno)
     if not dominio.is_valid or dominio.area <= 0:
