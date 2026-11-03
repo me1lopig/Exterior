@@ -74,17 +74,28 @@ def modelo_minicad(
     escala_dpsh: float = 0.12,
     contactos_referencia: list[Contacto] | None = None,
     exageracion_vertical: float | None = None,
+    terreno_puntos: pd.DataFrame | None = None,
+    capas: dict[str, bool] | None = None,
+    texto_general_pt: int = 10,
+    texto_ensayos_pt: int = 9,
 ) -> dict:
     """Convierte el proyecto al modelo JSON del lienzo."""
-    s_terreno, z_terreno = linea_terreno(sondeos)
+    s_terreno, z_terreno = linea_terreno(sondeos, terreno_puntos)
     rectangulos, observados = _rectangulos_sondeos(sondeos, intervalos, unidades)
-    base = float((sondeos["cota_boca_m"] - sondeos["profundidad_m"]).min()) - 2.0
-    zmax = float(max(sondeos["cota_boca_m"].max(), dpsh["cota_inicio_m"].max() if len(dpsh) else -np.inf)) + 1.5
+    cotas_base = [float((sondeos["cota_boca_m"] - sondeos["profundidad_m"]).min()), float(z_terreno.min())]
+    if not dpsh.empty:
+        cotas_base.append(float((dpsh["cota_inicio_m"] - dpsh["profundidad_m"]).min()))
+    base = min(cotas_base) - 2.0
+    zmax = float(max(float(z_terreno.max()), float(sondeos["cota_boca_m"].max()),
+                     float(dpsh["cota_inicio_m"].max()) if len(dpsh) else -np.inf)) + 1.5
     xmin, xmax = float(s_terreno.min()), float(s_terreno.max())
     margen_x = max((xmax - xmin) * 0.04, 2.0)
     return {
         "bounds": {"xmin": xmin - margen_x, "xmax": xmax + margen_x, "ymin": base, "ymax": zmax},
         "exageracion_vertical": exageracion_vertical,
+        "capas": dict(capas) if capas is not None else None,
+        "texto_general_pt": int(texto_general_pt),
+        "texto_ensayos_pt": int(texto_ensayos_pt),
         "terreno": [{"s_m": float(s), "z_m": float(z)} for s, z in zip(s_terreno, z_terreno)],
         "sondeos": rectangulos,
         "observados": observados,

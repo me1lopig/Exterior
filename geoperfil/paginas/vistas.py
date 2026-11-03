@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime
-from io import BytesIO
 import json
 
 import pandas as pd
@@ -18,7 +17,10 @@ from perfil_geologico.calculos.contactos import (
     vinculos_observados_desactualizados,
     vertices_a_dataframe,
 )
-from perfil_geologico.calculos.proyeccion import proyectar_puntos
+from perfil_geologico.calculos.proyeccion import proyectar_puntos, longitud_eje
+from perfil_geologico.calculos.terreno import terreno_de_campana, incidencias_cota_inicio
+from perfil_geologico.servicios.importar_campana import importar_campana
+from perfil_geologico.calculos.presentacion import limites_perfil
 from perfil_geologico.calculos.zonas import (
     TRAMAS,
     asignar_estilos_zonas,
@@ -26,16 +28,14 @@ from perfil_geologico.calculos.zonas import (
 )
 from perfil_geologico.componentes.minicad import minicad_geologico, modelo_minicad
 from perfil_geologico.modelos.dominio import Contacto, Proyecto, VerticeContacto
-from perfil_geologico.servicios.datos_demo import crear_datos_demo
+from perfil_geologico.servicios.datos_demo import crear_datos_vacios
 from perfil_geologico.servicios.exportacion import (
     contactos_a_csv,
     contactos_a_dxf,
-    figura_perfil_pdf,
+    figura_perfil_pdf, figura_perfil_imagen,
 )
 from perfil_geologico.servicios.importar_excel import (
-    crear_plantilla_excel,
     datos_a_excel,
-    leer_excel,
 )
 from perfil_geologico.servicios.persistencia import proyecto_a_json, proyecto_desde_json
 from perfil_geologico.utiles.validacion import validar_datos
@@ -47,9 +47,9 @@ TABLAS = ("Sondeos", "Intervalos", "Unidades", "Ensayos_DPSH", "Lecturas_DPSH", 
 
 def inicializar_estado() -> None:
     if "proyecto" not in st.session_state:
-        st.session_state.proyecto = Proyecto()
+        st.session_state.proyecto = Proyecto(nombre="Perfil geologico")
     if "datos" not in st.session_state:
-        st.session_state.datos = crear_datos_demo()
+        st.session_state.datos = crear_datos_vacios()
     if "contactos" not in st.session_state:
         st.session_state.contactos = []
     if "zonas" not in st.session_state:
@@ -60,10 +60,14 @@ def inicializar_estado() -> None:
         st.session_state.revision_datos = 0
     if "hipotesis_referencia" not in st.session_state:
         st.session_state.hipotesis_referencia = ""
+    if "avisos_importacion" not in st.session_state:
+        st.session_state.avisos_importacion = []
 
 
 def _datos_geometricos() -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[str]]:
     datos = st.session_state.datos
+    if datos["Eje"].empty:
+        return pd.DataFrame(), pd.DataFrame(), [], []
     errores, avisos = validar_datos(
         datos["Sondeos"], datos["Intervalos"], datos["Unidades"],
         datos["Ensayos_DPSH"], datos["Lecturas_DPSH"],
@@ -85,71 +89,149 @@ def _datos_geometricos() -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[st
     ).tolist()
     if fuera:
         avisos.append(f"Fuera del corredor de {corredor:g} m: {', '.join(fuera)}.")
+    # Solo en la importacion multifichero, donde PERFIL1 aporta tambien cada cota de boca.
+    estaciones = datos.get('Estaciones')
+    if estaciones is not None and not estaciones.empty:
+        try:
+            terreno = terreno_de_campana(datos, sondeos)
+            errores.extend(incidencias_cota_inicio(terreno, sondeos, dpsh))
+        except ValueError as exc:
+            errores.append(str(exc))
     return sondeos, dpsh, errores, avisos
 
 
-def _estado_sidebar() -> None:
+CAPAS_PERFIL = (
+    ("terreno", "Terreno"),
+    ("sondeos", "Sondeos"),
+    ("contactos", "Contactos y lentejones"),
+    ("rellenos", "Rellenos geológicos"),
+    ("penetracion", "Penetración dinámica"),
+    ("spt", "SPT · secuencia de golpes"),
+    ("muestras", "Muestras"),
+    ("laboratorio", "Laboratorio (resumen)"),
+    ("guitarra", "Guitarra"),
+)
+
+
+def _estado_sidebar(pagina: str) -> None:
+    """Panel lateral contextual: configuracion grafica, sin duplicar el menu de proyecto."""
+    proyecto: Proyecto = st.session_state.proyecto
+    with st.sidebar:
+        st.markdown('<div class="sidebar-heading">CAPAS Y VISUALIZACIÓN</div>', unsafe_allow_html=True)
+        if pagina in ("Perfil", "Interpretación"):
+            st.caption("Active solo las capas que necesite para interpretar o presentar el perfil.")
+            grupos = (
+                (("terreno", "Terreno"), ("sondeos", "Sondeos"),
+                 ("contactos", "Contactos y lentejones"), ("rellenos", "Rellenos geológicos")),
+                (("penetracion", "Penetración dinámica"), ("spt", "SPT · golpeos"),
+                 ("muestras", "Muestras"), ("laboratorio", "Laboratorio")),
+                (("guitarra", "Guitarra"),),
+            )
+            for i, grupo in enumerate(grupos):
+                st.markdown(("**Geología**", "**Ensayos y muestras**", "**Presentación**")[i])
+                for clave, etiqueta in grupo:
+                    proyecto.capas[clave] = st.checkbox(
+                        etiqueta, value=bool(proyecto.capas.get(clave, False)),
+                        key=f"capa-{clave}",
+                    )
+            st.divider()
+            st.markdown("**Tamaño de letra**")
+            proyecto.texto_general_pt = st.slider(
+                "Texto general (pt)", 6, 18, int(proyecto.texto_general_pt), key="texto-general")
+            proyecto.texto_ensayos_pt = st.slider(
+                "Ensayos (pt)", 6, 18, int(proyecto.texto_ensayos_pt), key="texto-ensayos")
+            proyecto.texto_guitarra_pt = st.slider(
+                "Guitarra (pt)", 6, 18, int(proyecto.texto_guitarra_pt), key="texto-guitarra")
+            if pagina == "Interpretación":
+                st.caption("En MiniCAD se muestran terreno, sondeos, contactos, rellenos y penetración. "
+                           "Los SPT, las muestras y la guitarra aparecen en Perfil y en las exportaciones.")
+        else:
+            st.caption("Las capas y tamaños de letra se configuran en Perfil o Interpretación.")
+        st.divider()
+        st.markdown("**Campaña actual**")
+        if st.session_state.datos["Eje"].empty:
+            st.info("Importe varios Excel en la pestaña Datos.")
+        else:
+            sondeos, dpsh, errores, avisos = _datos_geometricos()
+            st.caption(f"{len(sondeos)} sondeos · {len(dpsh)} penetraciones · "
+                       f"{len(st.session_state.contactos)} contactos · {len(st.session_state.zonas)} zonas")
+            if errores:
+                st.error(f"{len(errores)} errores de validación")
+            elif avisos:
+                st.warning(f"{len(avisos)} avisos")
+            else:
+                st.success("Datos comprobados")
+
+
+def _limpiar_preferencias_widgets() -> None:
+    """Evita que controles de la campana anterior sobrescriban el JSON cargado."""
+    claves = [f"capa-{nombre}" for nombre, _ in CAPAS_PERFIL]
+    claves += ["texto-general", "texto-ensayos", "texto-guitarra", "escala_h", "escala_v"]
+    for clave in claves:
+        st.session_state.pop(clave, None)
+
+
+def _acciones_proyecto() -> None:
+    """Acciones reales de proyecto en cabecera con confirmacion para operaciones destructivas."""
     proyecto: Proyecto = st.session_state.proyecto
     proyecto.contactos = st.session_state.contactos
     proyecto.zonas = st.session_state.zonas
-    sondeos, dpsh, errores, avisos = _datos_geometricos()
-    st.sidebar.markdown("## Navegacion")
-    st.sidebar.caption("Introduzca datos, defina el eje y revise la interpretacion antes de exportar.")
-    st.sidebar.divider()
-    st.sidebar.markdown("### Acciones")
-    confirmar_demo = st.sidebar.checkbox(
-        "Confirmar restablecimiento y descarte de la interpretacion",
-        key="confirmar-demo",
-    ) if st.session_state.contactos or st.session_state.zonas else True
-    if st.sidebar.button("Restablecer caso demostrativo", use_container_width=True):
-        if not confirmar_demo:
-            st.sidebar.error("Confirme antes de restablecer.")
-            return
-        st.session_state.proyecto = Proyecto()
-        st.session_state.datos = crear_datos_demo()
-        st.session_state.contactos = []
-        st.session_state.zonas = []
-        st.session_state.hipotesis_referencia = ""
-        st.rerun()
-    st.sidebar.divider()
-    st.sidebar.markdown("### Estado")
-    if errores:
-        st.sidebar.markdown(f'<div class="status-error">{len(errores)} errores bloqueantes</div>', unsafe_allow_html=True)
-    else:
-        st.sidebar.markdown('<div class="status-ok">Entradas comprobadas</div>', unsafe_allow_html=True)
-    st.sidebar.markdown(
-        f'<p class="metric-line">{len(sondeos)} sondeos · {len(dpsh)} DPSH · '
-        f'{len(st.session_state.contactos)} contactos · {len(st.session_state.zonas)} zonas · {len(avisos)} avisos</p>',
-        unsafe_allow_html=True,
-    )
-    st.sidebar.divider()
-    st.sidebar.markdown("### Proyecto")
-    archivo = proyecto_a_json(proyecto, st.session_state.datos)
-    st.sidebar.download_button(
-        "Descargar proyecto", archivo, file_name="perfil_geologico.json",
-        mime="application/json", use_container_width=True,
-    )
-    carga = st.sidebar.file_uploader("Abrir proyecto", type=["json"], label_visibility="collapsed")
-    if carga is not None and st.sidebar.button("Cargar archivo", use_container_width=True):
-        try:
-            proyecto_nuevo, datos_nuevos = proyecto_desde_json(carga.getvalue())
-            st.session_state.proyecto = proyecto_nuevo
-            st.session_state.contactos = proyecto_nuevo.contactos
-            st.session_state.zonas = proyecto_nuevo.zonas
-            st.session_state.datos = datos_nuevos
-            st.session_state.hipotesis_referencia = ""
-            st.rerun()
-        except (ValueError, KeyError, TypeError) as exc:
-            st.sidebar.error(f"Proyecto no valido: {exc}")
+    con_datos = not st.session_state.datos["Eje"].empty
+    nombre_archivo = "geoperfil_proyecto.json"
+    a, b, c, d = st.columns([1, 1, 1, 6], gap="small")
+    with a:
+        with st.popover("＋ Nuevo", use_container_width=True):
+            st.caption("Vacía la campaña y la interpretación actuales.")
+            confirmado = st.checkbox("Confirmo el descarte de los cambios actuales", key="nuevo-confirmado")
+            if st.button("Crear proyecto vacío", disabled=con_datos and not confirmado,
+                         use_container_width=True, key="nuevo-aplicar"):
+                st.session_state.proyecto = Proyecto(nombre="Perfil geológico")
+                st.session_state.datos = crear_datos_vacios()
+                st.session_state.contactos = []
+                st.session_state.zonas = []
+                st.session_state.avisos_importacion = []
+                st.session_state.hipotesis_referencia = ""
+                _limpiar_preferencias_widgets()
+                for clave in ("campana_pendiente", "campana_huella_pendiente",
+                              "campana_avisos_pendientes", "pagina_principal"):
+                    st.session_state.pop(clave, None)
+                st.rerun()
+    with b:
+        with st.popover("▣ Abrir", use_container_width=True):
+            carga = st.file_uploader("Proyecto GeoPerfil (JSON)", type=["json"], key="abrir-json")
+            confirmado = st.checkbox("Confirmo sustituir el proyecto actual", key="abrir-confirmado")
+            if st.button("Abrir proyecto", use_container_width=True,
+                         disabled=carga is None or (con_datos and not confirmado), key="abrir-aplicar"):
+                try:
+                    nuevo, datos = proyecto_desde_json(carga.getvalue())
+                    st.session_state.proyecto = nuevo
+                    st.session_state.contactos = nuevo.contactos
+                    st.session_state.zonas = nuevo.zonas
+                    st.session_state.datos = datos
+                    st.session_state.hipotesis_referencia = ""
+                    st.session_state.avisos_importacion = []
+                    _limpiar_preferencias_widgets()
+                    st.rerun()
+                except (ValueError, KeyError, TypeError) as exc:
+                    st.error(f"Proyecto no válido: {exc}")
+    with c:
+        archivo = proyecto_a_json(proyecto, st.session_state.datos)
+        st.download_button("▣ Guardar", data=archivo, file_name=nombre_archivo,
+                           mime="application/json", use_container_width=True, disabled=not con_datos)
+    with d:
+        st.markdown('<div class="project-actions-hint">Proyecto JSON · se descarga una copia local; '
+                    'la interpretación MiniCAD se guarda al finalizar cada geometría.</div>',
+                    unsafe_allow_html=True)
 
 
 def _cabecera() -> None:
-    st.markdown('<div class="app-kicker">GEOPERFIL · INTERPRETACION GEOLOGICA 2D</div>', unsafe_allow_html=True)
-    st.title("Perfil geologico desde reconocimientos")
-    st.markdown(
-        '<p class="app-subtitle">Correlacion trazable de sondeos y representacion grafica de ensayos DPSH.</p>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("""<div class="gp-brand">
+      <div class="gp-logo">◈</div>
+      <div class="gp-brand-name">GeoPerfil <span>2D</span></div>
+      <div class="gp-brand-subtitle">Interpretación geológica y geotécnica</div>
+      <div class="gp-brand-version">v0.8.3 · Cotas verificadas</div>
+    </div>""", unsafe_allow_html=True)
+    _acciones_proyecto()
 
 
 def vista_proyecto() -> None:
@@ -163,7 +245,6 @@ def vista_proyecto() -> None:
         proyecto.autor = st.text_input("Autor / revision", proyecto.autor)
         proyecto.sistema_referencia = st.text_input("Sistema de referencia", proyecto.sistema_referencia)
     with derecha:
-        proyecto.corredor_m = st.number_input("Semiancho del corredor (m)", 0.0, 5000.0, proyecto.corredor_m, 5.0)
         col_h, col_v = st.columns(2)
         escala_h = col_h.selectbox("Escala H", [100, 200, 500, 1000, 2000, 5000], index=3, key="escala_h")
         opciones_v = [50, 100, 200, 500, 1000, 2000, 5000]
@@ -177,115 +258,140 @@ def vista_proyecto() -> None:
 
 
 def vista_datos() -> None:
-    st.header("Datos de reconocimiento")
-    st.markdown('<p class="section-note">Importe la plantilla Excel o revise las tablas directamente.</p>', unsafe_allow_html=True)
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.download_button(
-            "Descargar plantilla con ejemplo", crear_plantilla_excel(True),
-            file_name="plantilla_geoperfil.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-    with col2:
-        excel = st.file_uploader("Importar Excel", type=["xlsx"], label_visibility="collapsed")
-        reemplazar = st.checkbox(
-            "Confirmo que deseo sustituir los datos y descartar la interpretacion actual",
-            value=False, key="confirmar-importacion",
-        ) if st.session_state.contactos or st.session_state.zonas else True
-        if excel is not None and st.button("Aplicar datos importados", type="primary", use_container_width=True):
-            if not reemplazar:
-                st.error("Confirme expresamente antes de sustituir el proyecto actual.")
-                return
+    st.header("Datos de campaña")
+    st.markdown('<p class="section-note">Importe los libros originales y conserve la referencia de sus observaciones.</p>', unsafe_allow_html=True)
+    with st.expander("Datos generales del proyecto y escalas", expanded=False):
+        vista_proyecto()
+    with st.expander("Importar campana desde varios archivos Excel", expanded=True):
+        st.caption("PERFIL1.xlsx (obligatorio): PK acumulado y cota del terreno. BKFL, DPRG, ISPT y ListadoLab son opcionales. STA es un punto topografico del terreno, no una prospeccion.")
+        libros = st.file_uploader("Seleccionar archivos de campana", type=["xlsx"], accept_multiple_files=True, key="libros-campana")
+        if libros:
+            st.write("Archivos seleccionados:", ", ".join(f.name for f in libros))
+        # La previsualizacion solo vale para el conjunto exacto de archivos validado.
+        from hashlib import sha256
+        huella = tuple(sorted((f.name,sha256(f.getvalue()).hexdigest()) for f in libros)) if libros else ()
+        if st.session_state.get("campana_huella_pendiente") != huella:
+            st.session_state.pop("campana_pendiente", None)
+            st.session_state.pop("campana_avisos_pendientes", None)
+        if st.button("Validar archivos", disabled=not libros):
             try:
-                nuevos = leer_excel(BytesIO(excel.getvalue()))
-                errores, _ = validar_datos(
-                    nuevos["Sondeos"], nuevos["Intervalos"], nuevos["Unidades"],
-                    nuevos["Ensayos_DPSH"], nuevos["Lecturas_DPSH"],
-                )
-                if errores:
-                    raise ValueError("; ".join(errores))
-                st.session_state.datos = nuevos
+                nombres = [f.name for f in libros]
+                if len(nombres) != len(set(nombres)):
+                    raise ValueError("Existen archivos con el mismo nombre; cambie los nombres antes de cargar.")
+                nuevos, avisos = importar_campana({f.name:f.getvalue() for f in libros})
+                st.session_state.campana_pendiente = nuevos
+                st.session_state.campana_huella_pendiente = huella
+                st.session_state.campana_avisos_pendientes = avisos
+                st.success(f"Validacion correcta: {len(nuevos['Sondeos'])} sondeos, {len(nuevos['Ensayos_DPSH'])} penetraciones, {len(nuevos['SPT'])} SPT y {len(nuevos['Muestras'])} muestras.")
+            except (ValueError,KeyError,TypeError) as exc:
+                st.session_state.pop("campana_pendiente", None)
+                st.session_state.pop("campana_huella_pendiente", None)
+                st.error(str(exc))
+        if "campana_pendiente" in st.session_state:
+            pendiente = st.session_state.campana_pendiente
+            st.dataframe(pendiente["Estaciones"].rename(columns={"reconocimiento": "punto_id"}), use_container_width=True, hide_index=True)
+            for aviso in st.session_state.get("campana_avisos_pendientes", []): st.warning(aviso)
+            confirmar_campana=st.checkbox("Confirmo la sustitucion de datos y el descarte de la interpretacion actual", key="confirmar-campana")
+            if st.button("Aplicar campana validada", type="primary", disabled=not confirmar_campana):
+                st.session_state.datos = pendiente
                 st.session_state.contactos = []
                 st.session_state.zonas = []
+                st.session_state.proyecto.contactos = []
+                st.session_state.proyecto.zonas = []
+                st.session_state.proyecto.extension_modo = "eje_completo"
+                st.session_state.proyecto.pk_inicio_m = 0.0
+                st.session_state.proyecto.pk_fin_m = float(pendiente["Eje"]["x_m"].max())
+                posiciones=sorted(set(pendiente['Estaciones'].loc[
+                    pendiente['Estaciones']['tipo_punto'].eq('reconocimiento'),'pk_m'].astype(float)))
+                if len(posiciones)>1 and not pendiente['Lecturas_DPSH'].empty:
+                    separacion=min(y-x for x,y in zip(posiciones,posiciones[1:]) if y>x)
+                    max_golpes=max(float(pendiente['Lecturas_DPSH']['n20'].max()),1.0)
+                    st.session_state.proyecto.escala_penetracion_m_golpe=round(
+                        max(.005,min(.12,.72*separacion/max_golpes)),3)
+                if st.session_state.proyecto.pk_fin_m<=25:
+                    st.session_state.proyecto.guitarra_paso_m=5.0
+                st.session_state.avisos_importacion = list(st.session_state.get("campana_avisos_pendientes", []))
+                st.session_state.pop("campana_pendiente", None)
+                st.session_state.pop("campana_huella_pendiente", None)
                 st.rerun()
-            except (ValueError, KeyError) as exc:
-                st.error(str(exc))
-    tabla_nombre = st.selectbox("Tabla editable", TABLAS)
-    tabla = st.session_state.datos[tabla_nombre]
-    editada = st.data_editor(tabla, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"tabla-{tabla_nombre}")
-    cambia_eje = tabla_nombre == "Eje" and not editada.equals(tabla)
-    confirmar_eje = st.checkbox(
-        "Confirmo que quiero cambiar el eje y descartar contactos y rellenos",
-        key="confirmar-eje-datos",
-    ) if cambia_eje and (st.session_state.contactos or st.session_state.zonas) else True
-    if st.button("Guardar cambios de tabla"):
-        if not confirmar_eje:
-            st.error("Confirme el cambio de eje antes de descartar la interpretacion.")
-        else:
-            nuevos = dict(st.session_state.datos)
-            nuevos[tabla_nombre] = editada
-            errores_nuevos, _ = validar_datos(
-                nuevos["Sondeos"], nuevos["Intervalos"], nuevos["Unidades"],
-                nuevos["Ensayos_DPSH"], nuevos["Lecturas_DPSH"],
-            )
-            if errores_nuevos:
-                st.error("No se guardaron los datos: " + "; ".join(errores_nuevos))
-            else:
-                st.session_state.datos = nuevos
-                if cambia_eje:
-                    st.session_state.contactos = []
-                    st.session_state.zonas = []
-                elif tabla_nombre in {"Sondeos", "Intervalos", "Unidades"}:
-                    st.session_state.revision_datos += 1
-                    st.warning("Revise los vinculos observados y recalcule las zonas si ha cambiado la geometria.")
-                st.success("Tabla actualizada y validada.")
+    if "Estaciones" in st.session_state.datos:
+        with st.expander("Datos complementarios importados y fuentes"):
+            for nombre in ("Estaciones","SPT","Muestras","Laboratorio","Fuentes"):
+                tabla_extra=st.session_state.datos.get(nombre)
+                if tabla_extra is not None:
+                    st.markdown(f"**{nombre} — {len(tabla_extra)} registros**")
+                    if nombre == "Estaciones":
+                        tabla_extra = tabla_extra.rename(columns={"reconocimiento": "punto_id"})
+                    st.dataframe(tabla_extra, use_container_width=True, hide_index=True)
+            st.caption("Los datos de campana originales son de solo lectura. Para corregirlos modifique el Excel de origen y vuelva a importar.")
+        for aviso in st.session_state.get("avisos_importacion",[]): st.warning(aviso)
+    if st.session_state.datos["Eje"].empty:
+        st.info("No hay campana cargada. Seleccione PERFIL1.xlsx y los libros complementarios para comenzar.")
+        return
+    with st.expander("Tablas internas de consulta (solo lectura)"):
+        for nombre in TABLAS:
+            tabla = st.session_state.datos[nombre]
+            st.markdown(f"**{nombre} — {len(tabla)} registros**")
+            st.dataframe(tabla, use_container_width=True, hide_index=True)
     _, _, errores, avisos = _datos_geometricos()
-    if errores:
-        for error in errores:
-            st.error(error)
-    elif not avisos:
-        st.success("Estructura, referencias y rangos basicos correctos.")
+    for error in errores:
+        st.error(error)
     for aviso in avisos:
         st.warning(aviso)
+    if not errores and not avisos:
+        st.success("Datos de campana validados.")
 
 
 def vista_trazado() -> None:
     st.header("Eje y proyeccion")
-    st.markdown('<p class="section-note">Los reconocimientos se proyectan por minima distancia sobre la polilinea.</p>', unsafe_allow_html=True)
-    eje = st.data_editor(
-        st.session_state.datos["Eje"], num_rows="dynamic", use_container_width=True,
-        hide_index=True, key="editor-eje",
+    proyecto = st.session_state.proyecto
+    proyecto.corredor_m = st.number_input(
+        "Distancia maxima al eje del perfil (m)", 0.0, 5000.0, float(proyecto.corredor_m), 5.0,
+        help="Semiancho del corredor: permite identificar reconocimientos alejados del eje. No modifica las coordenadas ni excluye silenciosamente los datos."
     )
-    cambio_eje = not eje.equals(st.session_state.datos["Eje"])
-    confirmar = st.checkbox(
-        "Confirmo que el nuevo eje sustituye al anterior y descarta contactos y rellenos",
-        key="confirmar-eje",
-    ) if cambio_eje and (st.session_state.contactos or st.session_state.zonas) else True
-    if st.button("Aplicar eje", type="primary"):
-        if not confirmar:
-            st.error("Debe confirmar el descarte de interpretacion antes de cambiar el eje.")
-        elif len(eje) < 2 or not {"orden", "x_m", "y_m"}.issubset(eje.columns):
-            st.error("El eje necesita al menos dos puntos con orden y coordenadas X/Y.")
-        else:
-            st.session_state.datos["Eje"] = eje.sort_values("orden").reset_index(drop=True)
-            if cambio_eje:
-                st.session_state.contactos = []
-                st.session_state.zonas = []
-            st.rerun()
+    st.markdown('<p class="section-note">Perfil definido por PK acumulado y cotas de PERFIL1; STA aporta un punto de terreno, no un trabajo de campo.</p>', unsafe_allow_html=True)
+    st.caption("Eje calculado automaticamente desde los PK de PERFIL1. Para corregirlo, modifique ese archivo y vuelva a importar.")
+    st.dataframe(st.session_state.datos['Eje'], use_container_width=True, hide_index=True)
     sondeos, dpsh, errores, avisos = _datos_geometricos()
     if errores:
         for error in errores:
             st.error(error)
         return
+    if "Estaciones" in st.session_state.datos:
+        st.info("Campana por PK: las coordenadas X del eje son PK acumulados; Y=0. Las cotas se toman de PERFIL1.")
+    st.subheader("Extension del perfil")
+    longitud = longitud_eje(st.session_state.datos["Eje"])
+    opciones = {"Eje completo": "eje_completo", "Reconocimientos extremos": "reconocimientos", "Intervalo manual": "manual"}
+    modo_actual = proyecto.extension_modo if proyecto.extension_modo in opciones.values() else "eje_completo"
+    etiqueta = st.selectbox("Limites de visualizacion", list(opciones), index=list(opciones.values()).index(modo_actual))
+    proyecto.extension_modo = opciones[etiqueta]
+    if proyecto.extension_modo == "reconocimientos":
+        proyecto.margen_pk_m = st.number_input("Margen adicional en cada extremo (m)", min_value=0.0,
+                                               max_value=max(longitud, 1.0), value=min(float(proyecto.margen_pk_m), longitud))
+    elif proyecto.extension_modo == "manual":
+        a, b = st.columns(2)
+        proyecto.pk_inicio_m = a.number_input("PK inicial (m)", min_value=0.0, max_value=max(longitud, 0.001),
+                                             value=min(max(0.0, float(proyecto.pk_inicio_m)), longitud))
+        proyecto.pk_fin_m = b.number_input("PK final (m)", min_value=0.0, max_value=max(longitud, 0.001),
+                                          value=min(max(0.0, float(proyecto.pk_fin_m)), longitud))
+    opciones_paso = [2.0,5.0,10.0,25.0,50.0,100.0,200.0]
+    proyecto.guitarra_paso_m = st.selectbox("Intervalo de la guitarra / PK (m)", opciones_paso,
+                                            index=opciones_paso.index(float(proyecto.guitarra_paso_m))
+                                            if float(proyecto.guitarra_paso_m) in opciones_paso else 4)
+    try:
+        rango = limites_perfil(proyecto, st.session_state.datos["Eje"], sondeos, dpsh)
+        st.caption(f"Longitud del eje: {longitud:.2f} m. Representacion: PK {rango[0]:.2f} - {rango[1]:.2f} m. "
+                   "El terreno se interpola entre puntos de PERFIL1, incluido STA; no se extrapola fuera.")
+    except ValueError as exc:
+        st.error(str(exc))
     fig = go.Figure()
     eje_actual = st.session_state.datos["Eje"].sort_values("orden")
-    fig.add_trace(go.Scatter(x=eje_actual["x_m"], y=eje_actual["y_m"], mode="lines+markers", name="Eje",
+    fig.add_trace(go.Scatter(x=eje_actual["x_m"], y=eje_actual["y_m"], mode="lines", name="Eje",
                              line={"color": "#0A2239", "width": 3}))
     fig.add_trace(go.Scatter(x=sondeos["x_m"], y=sondeos["y_m"], mode="markers+text", text=sondeos["sondeo_id"],
                              textposition="top center", name="Sondeos", marker={"color": "#5C748C", "size": 9}))
     fig.add_trace(go.Scatter(x=dpsh["x_m"], y=dpsh["y_m"], mode="markers+text", text=dpsh["ensayo_id"],
-                             textposition="bottom center", name="DPSH", marker={"color": "#E45658", "size": 9, "symbol": "diamond"}))
+                             textposition="bottom center", name="Penetraciones", marker={"color": "#E45658", "size": 9, "symbol": "diamond"}))
     fig.update_layout(template="plotly_white", height=480, margin={"l": 30, "r": 20, "t": 20, "b": 40},
                       xaxis_title="X (m)", yaxis_title="Y (m)", yaxis={"scaleanchor": "x", "scaleratio": 1})
     st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
@@ -298,6 +404,19 @@ def vista_trazado() -> None:
     st.dataframe(tabla.style.format({"s_m": "{:.2f}", "distancia_eje_m": "{:+.2f}"}), use_container_width=True, hide_index=True)
     for aviso in avisos:
         st.warning(aviso)
+
+
+def vista_unidades() -> None:
+    """Leyenda y materiales de campaña sin introducir una segunda fuente de datos."""
+    st.header("Unidades geológicas")
+    st.caption("Colores y códigos importados de BKFL; la correlación entre sondeos se define manualmente.")
+    tabla = st.session_state.datos["Unidades"]
+    if tabla.empty:
+        st.info("Cargue un libro BKFL para consultar las unidades geológicas.")
+        return
+    st.dataframe(tabla, hide_index=True, use_container_width=True)
+    st.caption("La asignación de material y trama a los polígonos se realiza desde Interpretación. "
+               "Para modificar las descripciones de origen, corrija el Excel de campaña y vuelva a importarlo.")
 
 
 def _contactos_desde_cad(datos: list[dict]) -> list[Contacto]:
@@ -342,6 +461,9 @@ def vista_interpretacion() -> None:
         unsafe_allow_html=True,
     )
     sondeos, dpsh, errores, _ = _datos_geometricos()
+    if sondeos.empty:
+        st.info('No hay columnas litologicas BKFL; el MiniCAD requiere al menos un sondeo.')
+        return
     if errores:
         st.error("Corrija los datos y el eje antes de interpretar contactos.")
         return
@@ -360,7 +482,8 @@ def vista_interpretacion() -> None:
             actualizar_vinculos_observados(st.session_state.contactos, interfaces)
             try:
                 st.session_state.zonas, avisos = construir_zonas(
-                    sondeos, st.session_state.contactos, st.session_state.zonas
+                    sondeos, st.session_state.contactos, st.session_state.zonas,
+                    terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
                 )
                 st.session_state.avisos_topologia = avisos
                 st.rerun()
@@ -439,6 +562,10 @@ def vista_interpretacion() -> None:
         st.session_state.datos["Lecturas_DPSH"],
         contactos_referencia=contactos_referencia,
         exageracion_vertical=st.session_state.proyecto.exageracion_vertical,
+        terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
+        capas=st.session_state.proyecto.capas,
+        texto_general_pt=st.session_state.proyecto.texto_general_pt,
+        texto_ensayos_pt=st.session_state.proyecto.texto_ensayos_pt,
     )
     respuesta = minicad_geologico(modelo, key="minicad-principal")
     if isinstance(respuesta, str):
@@ -461,7 +588,8 @@ def vista_interpretacion() -> None:
                     zonas, avisos = [], []
                 else:
                     zonas, avisos = construir_zonas(
-                        sondeos, contactos, list(respuesta.get("zonas", []))
+                        sondeos, contactos, list(respuesta.get("zonas", [])),
+                        terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
                     )
                 st.session_state.contactos = contactos
                 st.session_state.zonas = zonas
@@ -502,7 +630,8 @@ def vista_interpretacion() -> None:
                 try:
                     actualizar_vertices(contacto, editada)
                     st.session_state.zonas, _ = construir_zonas(
-                        sondeos, st.session_state.contactos, st.session_state.zonas
+                        sondeos, st.session_state.contactos, st.session_state.zonas,
+                    terreno_puntos=terreno_de_campana(st.session_state.datos, sondeos),
                     )
                     st.rerun()
                 except (ValueError, RuntimeError) as exc:
@@ -533,16 +662,37 @@ def vista_perfil() -> None:
     if errores:
         st.error("No es posible representar el perfil mientras existan errores bloqueantes.")
         return
-    controles = st.columns([1, 1, 1, 2])
-    rellenos = controles[0].toggle("Relleno de unidades", True)
-    mostrar_dpsh = controles[1].toggle("Ensayos DPSH", True)
-    escala = controles[2].number_input("Escala DPSH (m/golpe)", 0.01, 1.0, 0.12, 0.01)
-    controles[3].caption("DPSH: lecturas N20 unidas por segmentos rectos; sin correlacion ni interpretacion automatica.")
+    if sondeos.empty:
+        st.warning('No se han importado sondeos BKFL. Consulte penetraciones y resultados en Datos; el perfil geologico requiere al menos un sondeo.')
+        return
+    proyecto=st.session_state.proyecto
+    st.caption("Capas visibles y tamaños de letra: panel lateral izquierdo. "
+               "Las preferencias se conservan en el proyecto y las exportaciones.")
+    proyecto.escala_penetracion_m_golpe=st.number_input(
+        'Escala penetracion (m/golpe)', 0.005, 1.0,
+        float(proyecto.escala_penetracion_m_golpe), 0.005)
+    escala=proyecto.escala_penetracion_m_golpe
+    st.caption("Los golpes DPRG se representan como registrados cada 20 cm; subtipo y rechazo requieren confirmacion documental.")
+    rellenos=proyecto.capas['rellenos']
+    mostrar_dpsh=proyecto.capas['penetracion']
+    extras={
+        'terreno_puntos':terreno_de_campana(st.session_state.datos,sondeos),
+        'spt':st.session_state.datos.get('SPT'),
+        'muestras':st.session_state.datos.get('Muestras'),
+        'laboratorio':st.session_state.datos.get('Laboratorio'),
+    }
+    try:
+        rango = limites_perfil(st.session_state.proyecto, st.session_state.datos["Eje"], sondeos, dpsh)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
     figura = crear_figura_perfil(
         st.session_state.proyecto, sondeos, st.session_state.datos["Intervalos"],
         st.session_state.datos["Unidades"], st.session_state.contactos, dpsh,
         st.session_state.datos["Lecturas_DPSH"], zonas=st.session_state.zonas,
         escala_dpsh=escala, mostrar_rellenos=rellenos, mostrar_dpsh=mostrar_dpsh,
+        rango_pk=rango, paso_guitarra=st.session_state.proyecto.guitarra_paso_m,
+        **extras,
     )
     st.plotly_chart(figura, use_container_width=True, config={"displaylogo": False, "scrollZoom": True})
     sin_asignar = sum(not zona.get("unidad_id") for zona in st.session_state.zonas)
@@ -561,52 +711,97 @@ def vista_exportacion() -> None:
     if errores:
         st.error("Corrija los errores antes de exportar.")
         return
+    if sondeos.empty:
+        st.warning('Sin sondeos BKFL no se generan perfiles graficos. Descargue el proyecto y sus datos desde la barra lateral o Datos.')
+        return
     proyecto: Proyecto = st.session_state.proyecto
     proyecto.contactos = st.session_state.contactos
     proyecto.zonas = st.session_state.zonas
     datos = st.session_state.datos
-    escala = st.number_input("Escala DPSH para PDF (m/golpe)", 0.01, 1.0, 0.12, 0.01)
+    proyecto.escala_penetracion_m_golpe=st.number_input(
+        'Escala penetracion para exportacion (m/golpe)', 0.005, 1.0,
+        float(proyecto.escala_penetracion_m_golpe), 0.005)
+    escala=proyecto.escala_penetracion_m_golpe
+    try:
+        rango = limites_perfil(proyecto, datos["Eje"], sondeos, dpsh)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    extras={
+        'terreno_puntos':terreno_de_campana(datos,sondeos),
+        'spt':datos.get('SPT'),
+        'muestras':datos.get('Muestras'),
+        'laboratorio':datos.get('Laboratorio'),
+    }
+    st.caption("Las exportaciones utilizan las capas y tamanos de texto guardados desde la pestana Perfil.")
     figura = crear_figura_perfil(
         proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
         st.session_state.contactos, dpsh, datos["Lecturas_DPSH"],
-        zonas=st.session_state.zonas, escala_dpsh=escala,
+        zonas=st.session_state.zonas, escala_dpsh=escala, rango_pk=rango,
+        paso_guitarra=proyecto.guitarra_paso_m, **extras,
     )
     col1, col2, col3 = st.columns(3)
     col1.download_button("Proyecto JSON", proyecto_a_json(proyecto, datos), "perfil_geologico.json", "application/json", use_container_width=True)
-    col2.download_button("Datos Excel", datos_a_excel(datos), "datos_perfil.xlsx",
+    col2.download_button("Exportar datos procesados (Excel)", datos_a_excel(datos), "datos_perfil.xlsx",
                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
     col3.download_button("Perfil HTML", figura.to_html(include_plotlyjs="cdn").encode("utf-8"),
                          "perfil_interactivo.html", "text/html", use_container_width=True)
     col4, col5, col6 = st.columns(3)
     col4.download_button("Contactos CSV", contactos_a_csv(st.session_state.contactos), "contactos.csv", "text/csv", use_container_width=True)
     col5.download_button(
-        "Geometria DXF", contactos_a_dxf(st.session_state.contactos, st.session_state.zonas),
+        "Perfil DXF con guitarra y tramas", contactos_a_dxf(
+            st.session_state.contactos, st.session_state.zonas, proyecto=proyecto,
+            sondeos=sondeos, dpsh=dpsh, lecturas_dpsh=datos["Lecturas_DPSH"],
+            intervalos=datos["Intervalos"], unidades=datos["Unidades"],
+            rango_pk=rango, escala_dpsh=escala, **extras,
+        ),
         "perfil_geologico.dxf", "application/dxf", use_container_width=True,
     )
     try:
         pdf = figura_perfil_pdf(
             proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
             st.session_state.contactos, dpsh, datos["Lecturas_DPSH"], escala,
-            zonas=st.session_state.zonas,
+            zonas=st.session_state.zonas, rango_pk=rango, **extras,
         )
         col6.download_button("Plano PDF", pdf, "perfil_geologico.pdf", "application/pdf", use_container_width=True)
     except ImportError:
         col6.warning("Instale matplotlib para exportar PDF.")
-    st.caption("El DXF usa coordenadas locales del perfil: X = abscisa s; Y = cota z.")
+    try:
+        png = figura_perfil_imagen(
+            proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
+            st.session_state.contactos, dpsh, datos["Lecturas_DPSH"], escala,
+            zonas=st.session_state.zonas, rango_pk=rango, formato="png", **extras,
+        )
+        svg = figura_perfil_imagen(
+            proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
+            st.session_state.contactos, dpsh, datos["Lecturas_DPSH"], escala,
+            zonas=st.session_state.zonas, rango_pk=rango, formato="svg", **extras,
+        )
+        a, b = st.columns(2)
+        a.download_button("Imagen PNG con guitarra", png, "perfil_geologico.png", "image/png", use_container_width=True)
+        b.download_button("Imagen SVG con guitarra", svg, "perfil_geologico.svg", "image/svg+xml", use_container_width=True)
+    except ImportError:
+        st.warning("Se necesita Matplotlib para generar las imagenes.")
+    st.caption("DXF en coordenadas locales del perfil: X = PK (m); Y = cota (m). "
+               "La guitarra DXF se coloca bajo el perfil, fuera del dominio de cotas geologicas.")
 
 
 def ejecutar_aplicacion() -> None:
     inicializar_estado()
-    _estado_sidebar()
     _cabecera()
-    paginas = ["Proyecto", "Datos", "Trazado", "Interpretacion", "Perfil", "Exportacion"]
-    pagina = st.radio("Navegacion principal", paginas, horizontal=True, label_visibility="collapsed")
+    paginas = ["Datos", "Trazado", "Perfil", "Unidades", "Interpretación", "Exportar"]
+    pagina = st.radio("Navegación principal", paginas, horizontal=True,
+                      label_visibility="collapsed", key="pagina_principal")
+    _estado_sidebar(pagina)
     vistas = {
-        "Proyecto": vista_proyecto,
         "Datos": vista_datos,
         "Trazado": vista_trazado,
-        "Interpretacion": vista_interpretacion,
         "Perfil": vista_perfil,
-        "Exportacion": vista_exportacion,
+        "Unidades": vista_unidades,
+        "Interpretación": vista_interpretacion,
+        "Exportar": vista_exportacion,
     }
+    if pagina != "Datos" and st.session_state.datos["Eje"].empty:
+        st.info("Importe una campaña mediante varios archivos Excel en la pestaña Datos.")
+        return
     vistas[pagina]()

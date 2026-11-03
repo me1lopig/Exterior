@@ -1,209 +1,91 @@
-# GeoPerfil 2D
+# GeoPerfil 2D v0.8.3 — Alineación de sondeos y penetrómetros con el terreno
 
-Aplicacion Streamlit para construir perfiles geologicos 2D a partir de sondeos y representar ensayos DPSH como polilineas `N20`-cota.
+Aplicacion Python/Streamlit para dibujar perfiles geologicos manualmente a partir de sondeos y ensayos de campo. La geologia se interpreta mediante contactos y lentejones en el MiniCAD; los ensayos no generan correlaciones geologicas automaticas.
 
-La carpeta puede renombrarse libremente al desplegarla en Streamlit Cloud.
-En Streamlit Cloud seleccione `app.py` como archivo principal y mantenga `requirements.txt` en la misma carpeta.
+## Importacion unica: libros originales de campana
 
-## Version v0.6.0 - Revision de estabilidad (26/10/2026)
+- **Importacion simultanea de varios archivos Excel**: `PERFIL1.xlsx` define PK y cotas reales, `BKFL.XLSX` litologias, `DPRG.XLSX` penetracion dinamica, `ISPT.XLSX` SPT y `ListadoLab.XLSX` laboratorio.
+- Reconocimiento por **cabeceras del archivo**, no por nombre literal. PERFIL1 es obligatorio; los cuatro restantes son opcionales. Para un perfil geologico dibujable es necesario al menos BKFL.
+- Interfaz de **validar antes de aplicar**. Se informa del numero de sondeos, curvas, ensayos y muestras; el usuario confirma expresamente antes de sustituir la campana o descartar contactos anteriores.
+- La columna **Cota** de PERFIL1 indica la elevacion real de cada punto (m). Cero es valido; vacio es error. La columna **Distancia** es el PK acumulado (m). **STA es un punto topografico del terreno**, no un sondeo, penetracion ni otro trabajo de campo. Su PK y su cota forman parte de la superficie del perfil.
+- La topografia observada procede de **todos los puntos de PERFIL1**, incluido STA, sin inventar cotas fuera del primer y ultimo punto; entre PK se interpola linealmente.
+- Los intervalos BKFL se conservan con estrato, descripcion y origen. Los codigos `EST_*` no se equiparan automaticamente a unidades geotecnicas `UG-*` del laboratorio.
+- DPRG conserva los golpes originales separados por profundidad de 0,20 m; **el subtipo de penetracion debe confirmarse**. No interpreta rechazo ni convierte los golpes en SPT. La tabla interna se denomina `Ensayos_DPSH` por compatibilidad con v0.7, aunque se registra el tipo como `PENETROMETRO (subtipo no confirmado)`.
+- Los SPT se muestran como **`SPT 24/13/4/4`** a su cota, sin reemplazar los incrementos por N. Se deduplican los SPT presentes tanto en ISPT como en ListadoLab, dando prioridad a ISPT y avisando si hay discrepancias.
+- Muestras no SPT y resultados de laboratorio resumidos disponibles como **capas optativas**, con codigo UG, USCS, IP, RCS donde existan datos. Se guardan los registros completos de ListadoLab en el proyecto.
+- Controles de visibilidad de terreno, sondeos, contactos, rellenos, curvas de penetracion, SPT, muestras, laboratorio y guitarra. Tamano de letra **general, ensayos y guitarra** de 6 a 18 pt; parametros serializados en JSON.
+- Exportaciones HTML, PNG, SVG, PDF y DXF comparten estas capas. En DXF, los SPT, muestras y laboratorio son textos editables en capas CAD especificas.
+- **Solo existe la entrada multifichero**. Se han retirado la plantilla Excel unica, la edicion de tablas de entrada y el inicio automatico con datos demostrativos. Los proyectos JSON guardados siguen siendo recuperables.
 
-Esta version **no incorpora un CAD generalista**. Corrige y simplifica el flujo
-existente; sigue siendo un prototipo sometido a validacion geologica.
+## Interfaz v0.8.3
 
-### Cambios funcionales
-
-- Se retira **Generar borrador orientativo** de la interfaz. La geologia se interpreta
-  solo dibujando contactos abiertos y lentejones cerrados.
-- Al finalizar, borrar o modificar una geometria, el MiniCAD guarda la operacion y
-  solicita automaticamente a Python el recalculo de zonas. Tras actualizarse las
-  zonas, **Rellenar** se puede utilizar sin un guardado manual intermedio.
-- Deshacer/rehacer y el borrado de rellenos solicitan su persistencia; el proyecto
-  JSON conserva los datos y las zonas actualizados recibidos de MiniCAD.
-- Al dividir una zona previamente clasificada, las nuevas zonas quedan **sin
-  unidad asignada** hasta que el tecnico las clasifique. Solo se conserva el
-  relleno si la geometria permanece esencialmente identica.
-- Las interfaces observadas estan protegidas frente al arrastre y frente a edicion
-  numerica no autorizada; Python verifica sus coordenadas al recibir el MiniCAD.
-- Cambios de eje, importacion de Excel y restablecimiento que descarten geometria
-  requieren confirmacion explicita; editar sondeos/intervalos ya no borra los
-  contactos silenciosamente.
-- Guardado JSON con metadatos de columnas de las tablas, compatible tambien con
-  proyectos anteriores cuando no contenian ensayos DPSH.
-- Validaciones adicionales de datos finitos, colores, identificadores, profundidad
-  final, lecturas DPSH y contactos fuera de los valores observados.
-- DPSH con lagunas se representa por tramos independientes en MiniCAD, Plotly y PDF.
-- Tratamiento de huecos de poligonos en MiniCAD, Plotly y PDF; polilineas DXF
-  cerradas identificadas como tales.
-- Control H/V en Proyecto. La relacion se aplica en el perfil Plotly y en el PDF;
-  el MiniCAD adapta el alto del lienzo y muestra el factor visual efectivo si
-  los limites de altura del editor impiden mostrar exactamente la relacion pedida.
-- El MiniCAD trata los textos de los sondeos como texto, no como HTML activo.
-
-### Uso recomendado
-
-1. Importe Excel y revise los avisos de validacion.
-2. Configure eje y exageracion vertical.
-3. Entre en MiniCAD y dibuje **Introducir contacto** o **Introducir lentejon**.
-4. Termine con el boton **Finalizar**, Enter o doble clic; tras recalcular zonas,
-   pulse **Rellenar** y asigne unidad/trama a cada cara.
-5. Descargue el proyecto JSON como respaldo. Abra el JSON y compruebe que se han
-   recuperado contactos y rellenos antes de considerar validada la sesion.
-6. Revise la coincidencia del PDF/DXF con el perfil interpretado.
-
-### Validacion
-
-En el entorno de desarrollo se han superado 37 tests: 17 de nucleo anteriores,
-6 del cursor mediante Chromium, 10 nuevos de regresion y 4 de dibujo/guardado/
-relleno bajo distintas escalas, tambien con Chromium. Se ha ensayado un proyecto
-Excel sintetico complejo, su persistencia JSON, y exportaciones PDF/DXF.
-**No se ha realizado una prueba manual completa de Streamlit sobre macOS ni una
-validacion geologica independiente**; por ello se suministra como version de
-pruebas de estabilizacion y no como producto aprobado para uso profesional.
-
-### Limitaciones conocidas
-
-- El terreno se interpola a partir de las bocas de sondeo, no de un MDT.
-- El trazado libre de contactos entre sondeos representa una hipotesis del tecnico.
-- Los extremos abiertos que no cierran una cara no pueden rellenarse.
-- Los huecos en la vista Plotly usan relleno liso, aunque las demas caras
-  pueden representar las tramas seleccionadas.
-- La escala H/V define la relacion geometrica visual; no convierte por si sola
-  una impresion en papel a una escala fisica certificada.
-- Si aparecen contactos observados desactualizados, deben revisarse explicitamente.
-
-### Pruebas
-
-```
-python -m pytest -q tests
-python -m compileall -q .
-streamlit run app.py
-```
-
-Para pruebas en navegador se necesita Playwright y Chromium instalados. Si no
-estan disponibles, esas pruebas se omiten; el nucleo Python se ejecuta igualmente.
-
-El Excel `ejemplos/caso_complejo_topografia_unidades.xlsx` contiene solo datos
-**sinteticos** y sirve para probar geometrias complejas y multiples DPSH.
-
----
-
-## Correccion de precision v0.5.1
-
-Descripcion historica de la mejora del cursor introducida en v0.5.1:
-
-- Conversion del raton a coordenadas SVG mediante la matriz real del navegador
-  (`getScreenCTM().inverse()`) para evitar desfases por ajuste de ancho,
-  margenes del `viewBox`, zoom o cambio de tamano de ventana.
-- Distancias de captura medidas en pixeles reales de pantalla.
-- Un mismo radio para resaltar y capturar las interfaces observadas.
-- Las interfaces observadas tienen prioridad sobre lineas interpretadas proximas.
-- No se arrastran accidentalmente vertices clasificados como observados.
-- Se impide crear nuevos puntos fuera del area de trazado.
-- Tooltip de interfaces posicionado con la transformacion real.
-
-Verificacion efectuada: 17 pruebas del nucleo y 6 pruebas con Chromium
-con diferentes anchos, cambio de tamano, zoom y captura magnetica.
-En entornos sin Playwright/Chromium las pruebas del navegador se omiten.
-Estas comprobaciones NO cierran el resto de hallazgos de la auditoria v0.5.
-
-Para reproducir las pruebas de interfaz (opcional):
-
-```bash
-pip install playwright pytest
-python -m playwright install chromium
-pytest -q tests/test_minicad_browser.py
-```
-
-## Alcance de la version 0.5
-
-- Importacion y edicion de sondeos, intervalos, unidades y DPSH.
-- Ejes rectos o poligonales en coordenadas XY.
-- Proyeccion por minima distancia y control de corredor.
-- MiniCAD SVG simplificado con herramientas para introducir o borrar contactos
-  abiertos y lentejones cerrados, rellenar o vaciar zonas y limpiar toda la
-  interpretacion.
-- Resaltado al pasar el cursor y marcador en aspa sobre interfaces observadas, con profundidad y unidades contiguas.
-- Dibujo de contactos abiertos y lentes cerradas para intercalaciones locales y acunamientos.
-- Seleccion implicita, movimiento de vertices e insercion mediante doble clic,
-  sin recargar la barra principal con operaciones CAD avanzadas.
-- Borrado diferenciado de contactos y lentejones; vaciado de rellenos y limpieza
-  completa de bordes y zonas con confirmacion.
-- Ajuste magnetico a interfaces observadas y vertices existentes, anulable temporalmente con `Alt`.
-- Deshacer, rehacer, zoom, encuadre y desplazamiento del lienzo.
-- Avisos de autointerseccion, cruces, extremos abiertos y zonas de area anormalmente pequena.
-- Vinculos estables con interfaces de sondeo y actualizacion explicita si cambian los datos originales.
-- Hipotesis alternativas persistentes, recuperables y superponibles como referencia grafica.
-- El generador de borradores permanece como funcion heredada interna para compatibilidad, pero no esta disponible en la interfaz v0.6.
-- Deteccion de intercalaciones locales A-B-A y propuesta de lente cerrada cuando ambos sondeos contiguos confirman la ausencia de B.
-- Tratamiento independiente y con identificadores unicos de unidades alternantes
-  repetidas, por ejemplo A-B-A-B-A.
-- Aviso sin cierre automatico cuando falta cobertura vertical o control lateral suficiente.
-- Acunamientos provisionales a media distancia, siempre identificados como interpretados y editables.
-- Polygonizacion topologica de lentes, intercalaciones y pinzamientos.
-- Asignacion de unidad, color y trama a cada zona cerrada.
-- DPSH representado mediante puntos unidos por segmentos rectos.
-- Separacion segura de tramos DPSH con lagunas de lectura, conservando su
-  estructura tabular para la representacion.
-- Exportacion a JSON, Excel, HTML, CSV, DXF y PDF.
-
-Los DPSH se representan sin convertirlos a SPT, sin clasificar el terreno y sin modificar los contactos. La correlacion geologica y la asignacion de zonas siguen siendo decisiones tecnicas del usuario.
+- Cabecera azul oscuro con operaciones **Nuevo**, **Abrir** (proyecto JSON) y **Guardar** (descarga del proyecto). Nuevo y Abrir solicitan confirmación antes de sustituir trabajo existente. El guardado MiniCAD se mantiene independiente de la descarga del JSON.
+- Pestañas superiores en este orden: **Datos**, **Trazado**, **Perfil**, **Unidades**, **Interpretación** y **Exportar**. Los metadatos y las escalas del proyecto están en un apartado desplegable de **Datos**.
+- Panel **izquierdo** contextual: capas geológicas, capas de ensayos, guitarra y tres tamaños de letra (general, ensayos y guitarra). El perfil y sus exportaciones usan estas preferencias. Las preferencias se restauran correctamente al abrir otro proyecto.
+- Barra horizontal de herramientas del MiniCAD **encima del lienzo**, agrupada en Dibujo, Rellenos y Vista. Incluye seleccionar, dibujar/borrar contacto, dibujar/borrar lentejón, finalizar, rellenar/quitar relleno, limpiar, deshacer/rehacer, mover, encuadrar y ajuste magnético. El desplazamiento con la mano es adicional a **Mayús+arrastrar** y al botón central; el zoom con rueda sigue disponible.
+- Los puntos **STA solo aportan PK/cota a la superficie**: no se dibujan símbolos ni etiquetas STA en el trazado, en el MiniCAD, en el perfil ni en la guitarra. La topografía sigue incluyendo esos datos de forma exacta.
+- **Unidades** muestra la tabla de colores/códigos importados, sin introducir una segunda fuente editable. La clasificación de polígonos sigue siendo manual en Interpretación.
+- Las modificaciones estéticas no cambian el motor de contactos, cotas, SPT, lectura DPRG, construcción de zonas ni las coordenadas de exportación.
 
 ## Instalacion
 
-Entre en la carpeta descomprimida `perfil_geologico` y ejecute:
+En macOS o Linux, dentro de la carpeta `perfil_geologico`:
 
 ```bash
-python -m venv .venv
-```
-
-En Windows:
-
-```powershell
-.venv\Scripts\activate
-python -m pip install -r requirements.txt
-streamlit run app.py
-```
-
-En Linux:
-
-```bash
+python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-streamlit run app.py
+python3 -m pip install -r requirements.txt
+python3 -m streamlit run app.py
 ```
 
-## Convenciones
+En Windows, active `.venv\Scripts\activate` y ejecute `python -m pip install -r requirements.txt` y `python -m streamlit run app.py`.
 
-- Coordenadas horizontales y cotas en metros.
-- Cota `z` positiva hacia arriba.
-- Profundidad positiva hacia abajo.
-- La abscisa `s` aumenta con el orden de los vertices del eje.
-- La distancia lateral es positiva a la izquierda del eje orientado.
-- El DXF se exporta en coordenadas locales `X=s`, `Y=z`.
+## Procedimiento con varios archivos
 
-## Formato Excel
+1. Abra la pestaña **Datos** y seleccione **Importar campana desde varios archivos Excel**.
+2. Seleccione juntos `PERFIL1.xlsx`, `BKFL.XLSX`, `DPRG.XLSX`, `ISPT.XLSX` y/o `ListadoLab.XLSX`. Los nombres pueden ser diferentes, pero las cabeceras deben coincidir con los formatos reconocidos.
+3. Pulse **Validar archivos**, revise estaciones y advertencias y confirme la sustitucion.
+4. Pulse **Aplicar campana validada**. Las tablas derivadas quedan bloqueadas para impedir inconsistencias con PERFIL1. Para corregir datos, modifique el original y vuelva a importar. La interpretacion anterior se descarta solo tras confirmacion.
+5. En **Trazado**, revise el eje de PK acumulados y la guitarra. El eje es de solo lectura para una campana importada por PK.
+6. En **Interpretación**, utilice la barra MiniCAD horizontal (selección, contactos, lentejones, rellenos, desplazamiento y ajuste magnético).
+7. En **Perfil**, active las capas y ajuste los tamaños de letra desde el panel lateral izquierdo; cambie la escala gráfica de golpes en la zona central.
+8. En **Exportar**, descargue PDF, PNG, SVG, DXF, HTML, Excel o proyecto JSON. Guarde el JSON para poder reabrir la campana y su interpretacion.
 
-La propia aplicacion permite descargar una plantilla con datos demostrativos. Las hojas obligatorias son:
+La carpeta `ejemplos/campana_multifichero_sintetica/` contiene cinco libros inventados expresamente para probar el importador. No se entrega ninguna plantilla de entrada unica.
 
-- `Sondeos`
-- `Intervalos`
-- `Unidades`
-- `Ensayos_DPSH`
-- `Lecturas_DPSH`
+## Trazabilidad de los datos
 
-La hoja `Eje` es opcional durante la importacion, aunque debe definirse antes de generar el perfil.
+Las tablas internas derivadas que usa el motor (`Sondeos`, `Intervalos`, `Unidades`, `Ensayos_DPSH`, `Lecturas_DPSH`, `Eje`) se mantienen para el motor de GeoPerfil. Ademas, la nueva importacion agrega `Estaciones`, `SPT`, `Muestras`, `Laboratorio`, `Laboratorio_original` y `Fuentes`. Las tablas contienen nombre del archivo, numero de fila e identificadores donde corresponde. `Fuentes` incluye hash SHA-256 del libro; la aplicacion **no guarda los bytes originales del Excel en el JSON**. Conserve sus originales separadamente.
+
+SPT y laboratorio son datos observados de campo/ensayo. Las zonas geologicas dibujadas y clasificadas constituyen interpretacion del tecnico, no medicion de los libros.
 
 ## Pruebas
 
+Desde la carpeta superior que contiene `perfil_geologico`:
+
 ```bash
-cd ..
-python -m unittest discover -s perfil_geologico/tests -v
-python -m compileall -q perfil_geologico
+python3 -m pytest -q perfil_geologico/tests
+python3 -m compileall -q perfil_geologico
 ```
 
-## Limitaciones conocidas
+La versión **v0.8.3 ha superado 79 pruebas automatizadas**. Incluye regresiones del importador, topografia con STA, guardado, capas y DXF, ademas de pruebas de navegador del MiniCAD y una prueba integral con los cinco libros aportados en esta conversacion. El DXF fue releido con `ezdxf`; las imagenes fueron generadas y revisadas. No se pudo ejecutar una sesión completa de Streamlit aquí porque Streamlit no estaba instalado. Se comprobó el MiniCAD en Chromium mediante Playwright, incluyendo que las bocas y puntos de inicio estén sobre la línea del terreno, pero no toda la interfaz Streamlit. Debe validarse localmente en macOS antes de usarlo en un trabajo real; la apertura del DXF en AutoCAD sigue pendiente.
 
-- La superficie del terreno se obtiene de las cotas de boca de los sondeos.
-- No se representan todavia fallas ni pliegues volcados.
-- Los extremos de los contactos deben alcanzar el contorno o coincidir con otro contacto para dividir una zona.
-- La comprobacion topologica no sustituye la revision geologica del tecnico responsable.
+## Correccion v0.8.3: posicion real de los reconocimientos
+
+- Sondeos y penetrómetros comienzan **exactamente en el PK y la Cota indicados en PERFIL1**, sin desplazamiento vertical de la geometría. Los datos de entrada nunca se alteran automáticamente.
+- La cota del terreno de PDF/PNG/SVG se obtiene ahora de **todos los puntos de PERFIL1**, como en MiniCAD, Plotly y DXF. Se ha corregido un error anterior del PDF que utilizaba únicamente cotas de sondeos.
+- Se representa la posición de inicio de cada reconocimiento con una marca de boca y, en el caso del penetrómetro, un eje fino desde la cota de inicio hasta la profundidad final. La curva de golpes sigue comenzando en la **primera lectura real**, normalmente 0,20 m por debajo, sin inventar una lectura N20 a profundidad 0.
+- Los puntos STA contribuyen a la geometría de la línea del terreno **sin símbolos ni etiquetas individuales**.
+- La aplicación verifica diferencias de más de **0,001 m** entre la cota de los reconocimientos y la superficie interpolada de PERFIL1. Si hay discrepancia bloquea la representación para solicitar corrección en el archivo, sin mover el ensayo automáticamente.
+- Se incluyen pruebas de regresión con terreno quebrado, con los Excel aportados por el usuario, la salida DXF y el componente MiniCAD en Chromium.
+
+## Limitaciones importantes
+
+- Las escalas H/V aplican la exageracion en la visualizacion, pero en perfiles muy cortos y profundos la composicion de PDF/PNG/SVG se ajusta para ser legible. **Esa salida ajustada NO garantiza escala fisica de impresion** y se rotula expresamente. Para planos medidos, revise el DXF y su ventana de impresion.
+- Los reconocimientos de PERFIL1 se ubican sobre un **perfil definido por PK**. Esta modalidad no crea coordenadas UTM reales: X se utiliza internamente como PK e Y=0. La entrada clasica con coordenadas XY se ha eliminado de la interfaz; el proyecto usa PK y cotas de PERFIL1.
+- Si solo hay un sondeo litologico BKFL, las superficies fuera del sondeo siguen siendo interpretacion manual; no se infiere continuidad lateral.
+- El terreno se interpola entre cotas de todos los puntos de PERFIL1 (incluido STA); no sustituye un modelo digital del terreno.
+- El nivel freatico indicado como cero en libros de ensayo no se dibuja automaticamente como nivel de agua.
+- Las etiquetas densas pueden solaparse al activar muchas capas y letras grandes. En tal caso desactive capas o reduzca la fuente.
+- El DXF usa coordenadas de perfil X=PK, Y=cota, no coordenadas UTM. Las tramas HATCH de unidades geologicas dependen de la interpretacion que el usuario complete.
+- La aplicacion aun requiere validacion funcional completa con navegador + Streamlit local y revision del perfil por profesional geotecnico.

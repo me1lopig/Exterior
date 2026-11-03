@@ -43,6 +43,25 @@ def proyecto_desde_json(origen: bytes | BytesIO) -> tuple[Proyecto, dict[str, pd
             raise ValueError(f"El proyecto no contiene la tabla {nombre}.")
         columnas = columnas_guardadas.get(nombre, list(tabla_modelo.columns))
         datos[nombre] = pd.DataFrame(almacen[nombre], columns=columnas)
+    # Conserva todas las tablas adicionales de campana, incluidas las vacias.
+    for nombre, registros in almacen.items():
+        if nombre not in datos:
+            if not isinstance(registros, list):
+                raise ValueError(f'Tabla {nombre}: contenido incorrecto.')
+            columnas = columnas_guardadas.get(nombre)
+            if columnas is None:
+                columnas = list(registros[0]) if registros else []
+            datos[nombre] = pd.DataFrame(registros, columns=columnas)
+    # Migracion sin perdida de proyectos v0.8.0: STA era denominado "origen",
+    # pero es realmente un punto topografico que forma parte del terreno.
+    if 'Estaciones' in datos and 'tipo_punto' not in datos['Estaciones'].columns:
+        estaciones = datos['Estaciones']
+        if 'reconocimiento' in estaciones.columns:
+            estaciones['tipo_punto'] = estaciones['reconocimiento'].astype(str).str.upper().map(
+                lambda identificador: 'terreno' if identificador == 'STA' else 'reconocimiento'
+            )
+        if 'es_origen' in estaciones.columns:
+            estaciones.drop(columns=['es_origen'], inplace=True)
     errores, _ = validar_datos(datos["Sondeos"], datos["Intervalos"], datos["Unidades"],
                               datos["Ensayos_DPSH"], datos["Lecturas_DPSH"])
     if errores:

@@ -24,10 +24,11 @@ TRAMAS = (
 )
 
 
-def linea_terreno(sondeos_proyectados: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+def linea_terreno(sondeos_proyectados: pd.DataFrame, terreno_puntos: pd.DataFrame | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Obtiene una linea de terreno ordenada a partir de las bocas."""
+    fuente = terreno_puntos if terreno_puntos is not None and not terreno_puntos.empty else sondeos_proyectados
     terreno = (
-        sondeos_proyectados.groupby("s_m", as_index=False)["cota_boca_m"]
+        fuente.groupby("s_m", as_index=False)["cota_boca_m"]
         .mean()
         .sort_values("s_m")
     )
@@ -39,6 +40,7 @@ def construir_zonas(
     contactos: Iterable[Contacto],
     zonas_previas: list[dict] | None = None,
     margen_inferior_m: float = 2.0,
+    terreno_puntos: pd.DataFrame | None = None,
 ) -> tuple[list[dict], list[str]]:
     """Divide el dominio terreno-base mediante la red de contactos.
 
@@ -53,7 +55,7 @@ def construir_zonas(
 
     if sondeos_proyectados.empty:
         return [], ["No hay sondeos proyectados para definir el dominio."]
-    s_terreno, z_terreno = linea_terreno(sondeos_proyectados)
+    s_terreno, z_terreno = linea_terreno(sondeos_proyectados, terreno_puntos)
     if len(s_terreno) < 2:
         return [], ["Se necesitan al menos dos bocas en abscisas distintas."]
     base = float(

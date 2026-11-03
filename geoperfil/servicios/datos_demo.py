@@ -78,3 +78,8 @@ def crear_datos_demo() -> dict[str, pd.DataFrame]:
         "Lecturas_DPSH": lecturas_dpsh,
         "Eje": eje,
     }
+
+
+def crear_datos_vacios() -> dict[str, pd.DataFrame]:
+    """Solo estructuras internas vacias; los datos se cargan mediante libros de campana."""
+    return {nombre: tabla.iloc[0:0].copy() for nombre, tabla in crear_datos_demo().items()}

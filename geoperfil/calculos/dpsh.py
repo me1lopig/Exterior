@@ -47,6 +47,12 @@ def curvas_dpsh(dpsh: pd.DataFrame, lecturas: pd.DataFrame, escala: float) -> li
                  "n20": float(fila.n20)}
                 for fila in tramo.itertuples(index=False)
             ])
-        curvas.append({"ensayo_id": str(ensayo.ensayo_id), "tramos": tramos})
+        curvas.append({
+            "ensayo_id": str(ensayo.ensayo_id),
+            "s_m": float(ensayo.s_m),
+            "cota_inicio_m": float(ensayo.cota_inicio_m),
+            "profundidad_m": float(ensayo.profundidad_m),
+            "tramos": tramos,
+        })
     return curvas
 
