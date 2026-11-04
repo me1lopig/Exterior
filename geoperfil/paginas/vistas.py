@@ -298,7 +298,8 @@ def vista_datos() -> None:
                 st.session_state.campana_pendiente = nuevos
                 st.session_state.campana_huella_pendiente = huella
                 st.session_state.campana_avisos_pendientes = avisos
-                st.success(f"Validacion correcta: {len(nuevos['Sondeos'])} sondeos, {len(nuevos['Ensayos_DPSH'])} penetraciones, {len(nuevos['SPT'])} SPT y {len(nuevos['Muestras'])} muestras.")
+                rechazos = int(nuevos['SPT']['rechazo'].sum()) if 'rechazo' in nuevos['SPT'] else 0
+                st.success(f"Validacion correcta: {len(nuevos['Sondeos'])} sondeos, {len(nuevos['Ensayos_DPSH'])} penetraciones, {len(nuevos['SPT'])} SPT ({rechazos} con rechazo) y {len(nuevos['Muestras'])} muestras.")
             except (ValueError,KeyError,TypeError) as exc:
                 st.session_state.pop("campana_pendiente", None)
                 st.session_state.pop("campana_huella_pendiente", None)
@@ -306,6 +307,18 @@ def vista_datos() -> None:
         if "campana_pendiente" in st.session_state:
             pendiente = st.session_state.campana_pendiente
             st.dataframe(pendiente["Estaciones"].rename(columns={"reconocimiento": "punto_id"}), use_container_width=True, hide_index=True)
+            if not pendiente['SPT'].empty:
+                with st.expander('Comprobar SPT, rechazos y penetraciones parciales', expanded=False):
+                    columnas_spt = [c for c in (
+                        'sondeo_id', 'profundidad_m', 'secuencia_original', 'secuencia',
+                        'estado', 'n_central', 'n_central_original',
+                        'pen1_mm', 'pen2_mm', 'pen3_mm', 'pen4_mm',
+                        'archivo_origen', 'fila'
+                    ) if c in pendiente['SPT'].columns]
+                    st.dataframe(pendiente['SPT'][columnas_spt], use_container_width=True, hide_index=True)
+                    st.caption('R y RECHAZO se conservan como estados de rechazo, nunca como cero golpes. '
+                               'Las penetraciones parciales se mantienen en milimetros y el N central '
+                               'no se calcula artificialmente cuando existe rechazo.')
             for aviso in st.session_state.get("campana_avisos_pendientes", []): st.warning(aviso)
             confirmar_campana=st.checkbox("Confirmo la sustitucion de datos y el descarte de la interpretacion actual", key="confirmar-campana")
             if st.button("Aplicar campana validada", type="primary", disabled=not confirmar_campana):

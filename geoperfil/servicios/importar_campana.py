@@ -42,6 +42,28 @@ def _numero(v, campo, fila, archivo, *, permitir_vacio=False):
     return result
 
 
+def _es_rechazo_spt(valor):
+    """Equivalencia literal R/RECHAZO, sin confundir rechazo con cero golpes."""
+    return isinstance(valor, str) and _norm(valor).strip().rstrip('.') in {'r', 'rechazo'}
+
+
+def _golpe_spt(valor, campo, fila, archivo):
+    """Devuelve (numero o None, estado) preservando el rechazo como cualitativo."""
+    if _es_rechazo_spt(valor):
+        return None, 'rechazo'
+    numero = _numero(valor, campo, fila, archivo, permitir_vacio=True)
+    if numero is None:
+        return None, 'sin_dato'
+    if numero < 0:
+        raise ValueError(f'{archivo}, fila {fila}: {campo} no puede tener golpes negativos.')
+    return numero, 'registrado'
+
+
+def _texto_original(valor):
+    """Conserva el valor legible de la celda, diferenciando 0 de vacio."""
+    return '' if valor is None else str(valor)
+
+
 def _cabecera_columnas(row):
     used = Counter()
     cols=[]
@@ -112,7 +134,7 @@ def importar_campana(archivos: Mapping[str,bytes]) -> tuple[dict[str,pd.DataFram
     for nombre, contenido in archivos.items():
         hoja,columnas,items=_filas(bytes(contenido),nombre)
         cab={_norm(c) for c in columnas}
-        if {'estaciones','distancia','cota'}.issubset(cab): clave='PERFIL1'
+        if ('estaciones' in cab or 'estacion' in cab) and {'distancia','cota'}.issubset(cab): clave='PERFIL1'
         elif {'profundidad inicial','profundidad final','estrato'}.issubset(cab): clave='BKFL'
         elif {'numero de golpes','profundidad','descripcion muestra'}.issubset(cab): clave='DPRG'
         elif {'ispt_inc1','ispt_pen1','spt (valores centrales)'}.issubset(cab): clave='ISPT'
@@ -129,7 +151,7 @@ def importar_campana(archivos: Mapping[str,bytes]) -> tuple[dict[str,pd.DataFram
     estaciones=[]
     ids=set()
     for n, row in registros['PERFIL1']:
-        idrec=_id(_v(row,'ESTACIONES','PERFIL1'), 'PERFIL1',n)
+        idrec=_id(_v(row,'Estación' if any(_norm(k)=='estacion' for k in row) else 'ESTACIONES','PERFIL1'), 'PERFIL1',n)
         if idrec in ids:
             raise ValueError(f'PERFIL1: identificador repetido {idrec}.')
         ids.add(idrec)
@@ -210,20 +232,44 @@ def importar_campana(archivos: Mapping[str,bytes]) -> tuple[dict[str,pd.DataFram
         profundidad=_numero(_v(row,'Profundidad inicial',fuente),'Profundidad inicial',n,fuente)
         if profundidad<0: raise ValueError(f'{fuente}, fila {n}: profundidad negativa.')
         golpes=[]
+        estados=[]
+        originales=[]
         for i in range(1,5):
-            golpes.append(_numero(_v(row,f'ISPT_INC{i}',fuente),f'ISPT_INC{i}',n,fuente, permitir_vacio=True))
+            original=_v(row,f'ISPT_INC{i}',fuente)
+            valor,estado=_golpe_spt(original,f'ISPT_INC{i}',n,fuente)
+            golpes.append(valor)
+            estados.append(estado)
+            originales.append(_texto_original(original))
         llave=(idrec,round(profundidad,5))
-        central=_numero(_v(row,'SPT (valores centrales)',fuente),'SPT central',n,fuente,permitir_vacio=True)
+        central_original=_v(row,'SPT (valores centrales)',fuente)
+        central,central_estado=_golpe_spt(central_original,'SPT central',n,fuente)
+        rechazo=any(estado=='rechazo' for estado in estados) or central_estado=='rechazo'
+        asiento_original=row.get('ISPT_SEAT') if fuente=='ISPT' else None
+        if _es_rechazo_spt(asiento_original):
+            rechazo=True
+        secuencia_original=_texto_original(row.get('Valores ensayos')) if fuente=='ISPT' else ''
         if llave in sptraw and not overwrite:
             anterior=sptraw[llave]
-            if tuple(golpes)!=tuple(anterior['golpes']):
+            if (tuple(golpes),tuple(estados),central_estado) != (
+                tuple(anterior['golpes']),tuple(anterior['estados']),anterior['central_estado']
+            ):
                 avisos.append(f'{fuente}, fila {n}: SPT duplicado con golpes distintos ({idrec}, {profundidad:g} m). Se mantiene ISPT.')
             return
-        if all(v is None for v in golpes):
-            avisos.append(f'{fuente}, fila {n}: SPT sin secuencia de golpes completa.')
+        if all(estado=='sin_dato' for estado in estados):
+            avisos.append(f'{fuente}, fila {n}: SPT sin incrementos documentados.')
         if central is not None and golpes[1] is not None and golpes[2] is not None and abs(central-(golpes[1]+golpes[2]))>.01:
             avisos.append(f'{fuente}, fila {n}: N central no coincide con incrementos 2+3; se conservan ambos.')
-        sptraw[llave]={'id':idrec,'prof':profundidad,'golpes':golpes,'central':central,'origen':fuente,'fila':n,
+        if rechazo and central is not None:
+            avisos.append(f'{fuente}, fila {n}: hay rechazo SPT pero N central numerico; se mantienen ambos valores originales sin reinterpretar.')
+        sptraw[llave]={'id':idrec,'prof':profundidad,'golpes':golpes,'estados':estados,
+                       'originales':originales,'central':central,'central_estado':central_estado,
+                       'central_original':_texto_original(central_original),
+                       'rechazo':rechazo,'origen':fuente,'fila':n,
+                       'secuencia_original':secuencia_original,
+                       'asiento_original':_texto_original(asiento_original),
+                       'espesor_ensayo_mm':(_numero(row.get('Espesor en milímetros'),
+                                         'Espesor en milimetros',n,fuente,permitir_vacio=True)
+                                         if fuente=='ISPT' else None),
                        'pen':[(_numero(_v(row,f'ISPT_PEN{i}',fuente),f'ISPT_PEN{i}',n,fuente,permitir_vacio=True)
                                if fuente=='ISPT' else None) for i in range(1,5)]}
     for n,row in registros.get('ISPT',[]): _spt(n,row,'ISPT',True)
@@ -260,12 +306,31 @@ def importar_campana(archivos: Mapping[str,bytes]) -> tuple[dict[str,pd.DataFram
     spt=[]
     for _,it in sorted(sptraw.items()):
         p=ubicaciones[it['id']]
-        secuencia='/'.join(str(int(v)) if v is not None and v.is_integer() else (f'{v:g}' if v is not None else '?') for v in it['golpes'])
+        def token(valor, estado):
+            if estado=='rechazo': return 'R'
+            if valor is None: return '?'
+            return str(int(valor)) if valor.is_integer() else f'{valor:g}'
+        ultima=max((i for i,s in enumerate(it['estados']) if s!='sin_dato'),default=-1)
+        secuencia='/'.join(token(v,s) for v,s in zip(it['golpes'][:ultima+1],it['estados'][:ultima+1]))
+        if not secuencia:
+            secuencia=it['secuencia_original'] or '?'
+        referencia=next((f for f in fuentes if f['tipo']==it['origen']),{})
         spt.append({'sondeo_id':it['id'],'profundidad_m':it['prof'],'pk_m':p['pk_m'],
                     'cota_m':p['cota_m']-it['prof'],'secuencia':secuencia,'n_central':it['central'],
                     **{f'inc{i}':it['golpes'][i-1] for i in range(1,5)},
                     **{f'pen{i}_mm':it['pen'][i-1] for i in range(1,5)},
-                    'archivo':it['origen'],'fila':it['fila']})
+                    'archivo':it['origen'],'fila':it['fila'],
+                    'estado':'rechazo' if it['rechazo'] else 'registrado',
+                    'rechazo':it['rechazo'],
+                    'n_central_estado':it['central_estado'],
+                    'n_central_original':it['central_original'],
+                    'secuencia_original':it['secuencia_original'],
+                    'ispt_seat_original':it['asiento_original'],
+                    'espesor_ensayo_mm':it['espesor_ensayo_mm'],
+                    'archivo_origen':referencia.get('archivo',it['origen']),
+                    'hoja_origen':referencia.get('hoja',''),
+                    **{f'inc{i}_estado':it['estados'][i-1] for i in range(1,5)},
+                    **{f'inc{i}_original':it['originales'][i-1] for i in range(1,5)}})
     # Tablas de v0.7 con su esquema original para compatibilidad.
     base=crear_datos_demo()
     def tabla(nombre,rows):
@@ -282,7 +347,11 @@ def importar_campana(archivos: Mapping[str,bytes]) -> tuple[dict[str,pd.DataFram
                            {'orden':2,'x_m':max(distancias),'y_m':0.}]),
         'Estaciones':pd.DataFrame(estaciones,columns=['reconocimiento','pk_m','cota_m','tipo_punto','archivo','fila']),
         'SPT':pd.DataFrame(spt,columns=['sondeo_id','profundidad_m','pk_m','cota_m','secuencia','n_central',
-                 'inc1','inc2','inc3','inc4','pen1_mm','pen2_mm','pen3_mm','pen4_mm','archivo','fila']),
+                 'inc1','inc2','inc3','inc4','pen1_mm','pen2_mm','pen3_mm','pen4_mm','archivo','fila',
+                 'estado','rechazo','n_central_estado','n_central_original','secuencia_original',
+                 'ispt_seat_original','espesor_ensayo_mm','archivo_origen','hoja_origen',
+                 *[f'inc{i}_estado' for i in range(1,5)],
+                 *[f'inc{i}_original' for i in range(1,5)]]),
         'Muestras':pd.DataFrame(muestras,columns=list(laboratorio[0]) if laboratorio else [
             'reconocimiento','profundidad_m','tipo','unidad_geotecnica','uscs','finos_pct',
             'll_pct','lp_pct','ip_pct','sulfatos_mg_kg','rcs_kpa','densidad_seca_kn_m3','densidad_humeda_kn_m3','humedad_pct','phi_cd_grados','cohesion_cd_kpa','archivo','fila']),

@@ -1,4 +1,4 @@
-# GeoPerfil 2D v0.9.0 - Integridad de exportaciones y paquete verificable
+# GeoPerfil 2D v0.9.1 - Integridad de exportaciones y paquete verificable
 
 Aplicacion Python/Streamlit para dibujar perfiles geologicos manualmente a partir de sondeos y ensayos de campo. La geologia se interpreta mediante contactos y lentejones en el MiniCAD; los ensayos no generan correlaciones geologicas automaticas.
 
@@ -115,3 +115,12 @@ La versión **v0.8.5 ha superado 97 pruebas automatizadas** (incluidas las 88 an
   respetar los limites del perfil.
 - Los valores observados siempre tienen prioridad en la captura magnetica.
 - Consulte `CAMBIOS_v0.8.4.md` y ejecute `pytest -q` antes de uso.
+
+## Corrección v0.9.1: cabecera de PERFIL1 y rechazos SPT
+
+- Se acepta `Estación` (singular) o `Estaciones` (plural) en PERFIL1.
+- En ISPT y en los registros SPT de ListadoLab, `R`, `RECHAZO` (independientemente de mayúsculas y espacios) se registran como **rechazo**, nunca como `0` ni como un valor N-SPT inventado.
+- Se mantienen en la tabla SPT los valores originales y los incrementos de penetración en mm, incluso cuando exista rechazo parcial. La vista previa de importación muestra los casos de rechazo antes de aplicar la campaña.
+- Los formatos editables JSON y XLSX incluyen los campos de estado y texto original para su posterior auditoría; el DXF lleva esos atributos en XDATA cuando la capa SPT está activada.
+
+**Comprobación de esta entrega v0.9.1:** 119 pruebas automatizadas superadas en el entorno de ejecución. Los cinco libros facilitados se importaron sin error (3 sondeos, 12 intervalos, 8 SPT, 3 rechazos); se comprobó la ida y vuelta JSON, la tabla SPT del XLSX y la reapertura de DXF con ezdxf y atributos XDATA. No se ha ejecutado la interfaz completa de Streamlit en este entorno.
