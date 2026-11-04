@@ -1,4 +1,4 @@
-# GeoPerfil 2D v0.8.5 — Correccion MiniCAD, guitarra y personalizacion de unidades
+# GeoPerfil 2D v0.9.0 - Integridad de exportaciones y paquete verificable
 
 Aplicacion Python/Streamlit para dibujar perfiles geologicos manualmente a partir de sondeos y ensayos de campo. La geologia se interpreta mediante contactos y lentejones en el MiniCAD; los ensayos no generan correlaciones geologicas automaticas.
 
@@ -15,6 +15,7 @@ Aplicacion Python/Streamlit para dibujar perfiles geologicos manualmente a parti
 - Muestras no SPT y resultados de laboratorio resumidos disponibles como **capas optativas**, con codigo UG, USCS, IP, RCS donde existan datos. Se guardan los registros completos de ListadoLab en el proyecto.
 - Controles de visibilidad de terreno, sondeos, contactos, rellenos, curvas de penetracion, SPT, muestras, laboratorio y guitarra. Tamano de letra **general, ensayos y guitarra** de 6 a 18 pt; parametros serializados en JSON.
 - Exportaciones HTML, PNG, SVG, PDF y DXF comparten estas capas. En DXF, los SPT, muestras y laboratorio son textos editables en capas CAD especificas.
+- La descarga **Paquete maestro verificado** incluye JSON, XLSX, CSV, HTML, DXF y los formatos graficos disponibles junto con un `manifest.json` de hashes SHA-256.
 - **Solo existe la entrada multifichero**. Se han retirado la plantilla Excel unica, la edicion de tablas de entrada y el inicio automatico con datos demostrativos. Los proyectos JSON guardados siguen siendo recuperables.
 
 ## Interfaz v0.8.5
@@ -39,6 +40,10 @@ python3 -m streamlit run app.py
 ```
 
 En Windows, active `.venv\Scripts\activate` y ejecute `python -m pip install -r requirements.txt` y `python -m streamlit run app.py`.
+
+Para ejecutar las pruebas, instale las dependencias de desarrollo con
+`python -m pip install -r requirements-dev.txt`. Las pruebas de navegador
+requieren ademas `python -m playwright install chromium`.
 
 ## Procedimiento con varios archivos
 

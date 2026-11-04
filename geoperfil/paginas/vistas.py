@@ -10,6 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from perfil_geologico import __version__
 from perfil_geologico.calculos.contactos import (
     actualizar_vertices,
     actualizar_vinculos_observados,
@@ -34,12 +35,20 @@ from perfil_geologico.servicios.datos_demo import crear_datos_vacios
 from perfil_geologico.servicios.exportacion import (
     contactos_a_csv,
     contactos_a_dxf,
+    figura_html_autocontenida,
     figura_perfil_pdf, figura_perfil_imagen,
+    vertices_zonas_a_csv,
+    zonas_a_csv,
 )
 from perfil_geologico.servicios.importar_excel import (
     datos_a_excel,
 )
-from perfil_geologico.servicios.persistencia import proyecto_a_json, proyecto_desde_json
+from perfil_geologico.servicios.persistencia import (
+    huella_proyecto, proyecto_a_json, proyecto_desde_json,
+)
+from perfil_geologico.servicios.paquete_salida import (
+    crear_manifest, crear_paquete_entrega, manifest_a_json, verificar_paquete,
+)
 from perfil_geologico.utiles.validacion import validar_datos
 from perfil_geologico.visualizacion.perfil_plotly import crear_figura_perfil
 
@@ -229,11 +238,11 @@ def _acciones_proyecto() -> None:
 
 
 def _cabecera() -> None:
-    st.markdown("""<div class="gp-brand">
+    st.markdown(f"""<div class="gp-brand">
       <div class="gp-logo">◈</div>
       <div class="gp-brand-name">GeoPerfil <span>2D</span></div>
       <div class="gp-brand-subtitle">Interpretación geológica y geotécnica</div>
-      <div class="gp-brand-version">v0.8.5 · Unidades, guitarra y correcciones</div>
+      <div class="gp-brand-version">v{__version__} · Persistencia, escalas y control de interpretación</div>
     </div>""", unsafe_allow_html=True)
     _acciones_proyecto()
 
@@ -250,11 +259,14 @@ def vista_proyecto() -> None:
         proyecto.sistema_referencia = st.text_input("Sistema de referencia", proyecto.sistema_referencia)
     with derecha:
         col_h, col_v = st.columns(2)
-        escala_h = col_h.selectbox("Escala H", [100, 200, 500, 1000, 2000, 5000], index=3, key="escala_h")
-        opciones_v = [50, 100, 200, 500, 1000, 2000, 5000]
-        escala_v = col_v.selectbox("Escala V", opciones_v, index=opciones_v.index(
-            min(opciones_v, key=lambda valor: abs(valor - escala_h / max(proyecto.exageracion_vertical, 0.1)))
-        ), key="escala_v")
+        escala_h = col_h.number_input(
+            "Escala H 1:", min_value=1.0, max_value=100000.0,
+            value=float(proyecto.escala_horizontal), step=50.0, key="escala_h")
+        escala_v = col_v.number_input(
+            "Escala V 1:", min_value=1.0, max_value=100000.0,
+            value=float(proyecto.escala_vertical), step=50.0, key="escala_v")
+        proyecto.escala_horizontal = float(escala_h)
+        proyecto.escala_vertical = float(escala_v)
         proyecto.exageracion_vertical = escala_h / escala_v
         st.caption(f"Exageracion vertical: {proyecto.exageracion_vertical:g}x (H 1:{escala_h} / V 1:{escala_v}). "
                    "Las coordenadas no cambian. Los formatos de impresion precisan escala fisica propia.")
@@ -420,27 +432,37 @@ def vista_unidades() -> None:
     if tabla.empty:
         st.info("Cargue un libro BKFL para definir las unidades geológicas.")
         return
-    from perfil_geologico.calculos.estilos_unidades import aplicar_edicion_unidades
+    from perfil_geologico.calculos.estilos_unidades import (
+        aplicar_edicion_unidades, aplicar_paleta_contactos,
+    )
 
     revision = int(st.session_state.revision_datos)
     cambios = {}
     with st.form("personalizar-unidades", border=True):
         for fila in tabla.sort_values("orden").itertuples(index=False):
             unidad_id = str(fila.unidad_id)
-            izquierda, centro, derecha = st.columns([1.2, 4.5, 2.3], vertical_alignment="bottom")
+            izquierda, orden_col, centro, derecha = st.columns(
+                [1.2, 1.0, 4.2, 2.3], vertical_alignment="bottom")
             with izquierda:
                 st.text_input("Código", value=unidad_id, disabled=True,
                               key=f"unidad-id-{revision}-{unidad_id}")
             with centro:
                 nombre = st.text_input("Nombre", value=str(fila.nombre),
                                       key=f"unidad-nombre-{revision}-{unidad_id}")
+            with orden_col:
+                orden = st.number_input(
+                    "Orden", min_value=1,
+                    max_value=max(len(tabla), int(pd.to_numeric(tabla["orden"]).max())),
+                    value=int(fila.orden), step=1,
+                    key=f"unidad-orden-{revision}-{unidad_id}")
             with derecha:
                 color = st.color_picker("Color seleccionado", value=str(fila.color),
                                         key=f"unidad-color-{revision}-{unidad_id}")
                 st.caption(f"{color.upper()}")
-            cambios[unidad_id] = {"nombre": nombre, "color": color}
+            cambios[unidad_id] = {"nombre": nombre, "color": color, "orden": orden}
             st.divider()
-        confirmar = st.form_submit_button("Guardar nombres y colores", type="primary", use_container_width=True)
+        confirmar = st.form_submit_button(
+            "Guardar nombres y colores y orden", type="primary", use_container_width=True)
     if confirmar:
         try:
             nuevas_unidades, nuevas_zonas = aplicar_edicion_unidades(
@@ -450,6 +472,7 @@ def vista_unidades() -> None:
         else:
             st.session_state.datos["Unidades"] = nuevas_unidades
             st.session_state.zonas = nuevas_zonas
+            aplicar_paleta_contactos(st.session_state.contactos, nuevas_unidades)
             st.session_state.proyecto.zonas = nuevas_zonas
             st.session_state.revision_datos += 1
             st.success("Nombres y colores actualizados en el perfil, MiniCAD y exportaciones.")
@@ -656,11 +679,40 @@ def vista_interpretacion() -> None:
 
     with st.expander("Edicion numerica y tabla de zonas"):
         if st.session_state.contactos:
+            propiedades = pd.DataFrame([
+                {
+                    "contacto_id": contacto.contacto_id,
+                    "nombre": contacto.nombre,
+                    "visible": contacto.visible,
+                    "bloqueado": contacto.bloqueado,
+                }
+                for contacto in st.session_state.contactos
+            ])
+            propiedades_editadas = st.data_editor(
+                propiedades, use_container_width=True, hide_index=True,
+                disabled=["contacto_id"], key="propiedades-contactos",
+                column_config={
+                    "visible": st.column_config.CheckboxColumn("Visible"),
+                    "bloqueado": st.column_config.CheckboxColumn("Bloqueado"),
+                },
+            )
+            if st.button("Aplicar propiedades de contactos", use_container_width=True):
+                por_id = propiedades_editadas.set_index("contacto_id")
+                for elemento in st.session_state.contactos:
+                    if elemento.contacto_id in por_id.index:
+                        fila = por_id.loc[elemento.contacto_id]
+                        elemento.nombre = str(fila["nombre"]).strip() or elemento.contacto_id
+                        elemento.visible = bool(fila["visible"])
+                        elemento.bloqueado = bool(fila["bloqueado"])
+                st.session_state.proyecto.contactos = st.session_state.contactos
+                st.rerun()
+            st.divider()
             nombres = {c.contacto_id: c.nombre for c in st.session_state.contactos}
             seleccionado = st.selectbox("Contacto", list(nombres), format_func=nombres.get)
             contacto = next(c for c in st.session_state.contactos if c.contacto_id == seleccionado)
             editada = st.data_editor(
                 vertices_a_dataframe(contacto), num_rows="dynamic", use_container_width=True, hide_index=True,
+                disabled=True if contacto.bloqueado else ["interfaz_id"],
                 column_config={
                     "origen": st.column_config.SelectboxColumn(
                         "origen", options=["observado", "proyectado", "interpretado", "inferido_acunamiento"], required=True
@@ -670,7 +722,9 @@ def vista_interpretacion() -> None:
                     "interfaz_id": st.column_config.TextColumn("interfaz vinculada", disabled=True),
                 }, key=f"vertices-avanzado-{seleccionado}",
             )
-            if st.button("Aplicar coordenadas exactas"):
+            if contacto.bloqueado:
+                st.info("El contacto está bloqueado. Desbloquéelo para modificar sus vértices.")
+            if st.button("Aplicar coordenadas exactas", disabled=contacto.bloqueado):
                 try:
                     actualizar_vertices(contacto, editada)
                     validar_contactos_dominio(sondeos, st.session_state.contactos,
@@ -789,54 +843,107 @@ def vista_exportacion() -> None:
         'laboratorio':datos.get('Laboratorio'),
     }
     st.caption("Las exportaciones utilizan las capas y tamanos de texto guardados desde la pestana Perfil.")
+    huella = huella_proyecto(proyecto, datos)
+    manifest_base = crear_manifest(proyecto, datos)
+    proyecto_json = proyecto_a_json(proyecto, datos)
     figura = crear_figura_perfil(
         proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
         st.session_state.contactos, dpsh, datos["Lecturas_DPSH"],
         zonas=st.session_state.zonas, escala_dpsh=escala, rango_pk=rango,
         paso_guitarra=proyecto.guitarra_paso_m, **extras,
     )
-    col1, col2, col3 = st.columns(3)
-    col1.download_button("Proyecto JSON", proyecto_a_json(proyecto, datos), "perfil_geologico.json", "application/json", use_container_width=True)
-    col2.download_button("Exportar datos procesados (Excel)", datos_a_excel(datos), "datos_perfil.xlsx",
-                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-    col3.download_button("Perfil HTML", figura.to_html(include_plotlyjs="cdn").encode("utf-8"),
-                         "perfil_interactivo.html", "text/html", use_container_width=True)
-    col4, col5, col6 = st.columns(3)
-    col4.download_button("Contactos CSV", contactos_a_csv(st.session_state.contactos), "contactos.csv", "text/csv", use_container_width=True)
-    col5.download_button(
-        "Perfil DXF con guitarra y tramas", contactos_a_dxf(
+    excel = datos_a_excel(datos, proyecto=proyecto, manifest=manifest_base)
+    html = figura_html_autocontenida(figura, proyecto_json, manifest_base)
+    csv_contactos = contactos_a_csv(st.session_state.contactos, huella)
+    csv_zonas = zonas_a_csv(st.session_state.zonas, huella)
+    csv_vertices_zonas = vertices_zonas_a_csv(st.session_state.zonas, huella)
+    dxf = contactos_a_dxf(
             st.session_state.contactos, st.session_state.zonas, proyecto=proyecto,
             sondeos=sondeos, dpsh=dpsh, lecturas_dpsh=datos["Lecturas_DPSH"],
             intervalos=datos["Intervalos"], unidades=datos["Unidades"],
-            rango_pk=rango, escala_dpsh=escala, **extras,
-        ),
-        "perfil_geologico.dxf", "application/dxf", use_container_width=True,
-    )
+            rango_pk=rango, escala_dpsh=escala, huella_proyecto=huella, **extras,
+        )
+    pdf = png = svg = None
     try:
         pdf = figura_perfil_pdf(
             proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
             st.session_state.contactos, dpsh, datos["Lecturas_DPSH"], escala,
-            zonas=st.session_state.zonas, rango_pk=rango, **extras,
+            zonas=st.session_state.zonas, rango_pk=rango,
+            huella_proyecto=huella, **extras,
         )
-        col6.download_button("Plano PDF", pdf, "perfil_geologico.pdf", "application/pdf", use_container_width=True)
-    except ImportError:
-        col6.warning("Instale matplotlib para exportar PDF.")
-    try:
         png = figura_perfil_imagen(
             proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
             st.session_state.contactos, dpsh, datos["Lecturas_DPSH"], escala,
-            zonas=st.session_state.zonas, rango_pk=rango, formato="png", **extras,
+            zonas=st.session_state.zonas, rango_pk=rango, formato="png",
+            huella_proyecto=huella, **extras,
         )
         svg = figura_perfil_imagen(
             proyecto, sondeos, datos["Intervalos"], datos["Unidades"],
             st.session_state.contactos, dpsh, datos["Lecturas_DPSH"], escala,
-            zonas=st.session_state.zonas, rango_pk=rango, formato="svg", **extras,
+            zonas=st.session_state.zonas, rango_pk=rango, formato="svg",
+            huella_proyecto=huella, **extras,
         )
-        a, b = st.columns(2)
-        a.download_button("Imagen PNG con guitarra", png, "perfil_geologico.png", "image/png", use_container_width=True)
-        b.download_button("Imagen SVG con guitarra", svg, "perfil_geologico.svg", "image/svg+xml", use_container_width=True)
     except ImportError:
-        st.warning("Se necesita Matplotlib para generar las imagenes.")
+        st.warning("Se necesita Matplotlib para generar PDF, PNG y SVG.")
+    archivos = {
+        "perfil_geologico.json": proyecto_json,
+        "datos_e_interpretacion.xlsx": excel,
+        "perfil_interactivo.html": html,
+        "contactos.csv": csv_contactos,
+        "zonas.csv": csv_zonas,
+        "vertices_zonas.csv": csv_vertices_zonas,
+        "perfil_geologico.dxf": dxf,
+    }
+    if pdf is not None:
+        archivos["perfil_geologico.pdf"] = pdf
+    if png is not None:
+        archivos["perfil_geologico.png"] = png
+    if svg is not None:
+        archivos["perfil_geologico.svg"] = svg
+    paquete, manifest_final = crear_paquete_entrega(proyecto, datos, archivos)
+    incidencias_paquete = verificar_paquete(paquete)
+    if incidencias_paquete:
+        st.error("El paquete no ha superado la verificacion interna: " + "; ".join(incidencias_paquete))
+    else:
+        st.success(f"Paquete verificado · SHA-256 del estado {huella[:16]}…")
+
+    col1, col2, col3 = st.columns(3)
+    col1.download_button("Paquete maestro verificado", paquete, "paquete_perfil_geologico.zip",
+                         "application/zip", use_container_width=True,
+                         disabled=bool(incidencias_paquete))
+    col2.download_button("Proyecto JSON", proyecto_json, "perfil_geologico.json",
+                         "application/json", use_container_width=True)
+    col3.download_button("Datos e interpretacion XLSX", excel, "datos_e_interpretacion.xlsx",
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         use_container_width=True)
+    col4, col5, col6 = st.columns(3)
+    col4.download_button("Perfil HTML autonomo", html, "perfil_interactivo.html",
+                         "text/html", use_container_width=True)
+    col5.download_button("Contactos CSV", csv_contactos, "contactos.csv", "text/csv",
+                         use_container_width=True)
+    col6.download_button("Zonas CSV", csv_zonas, "zonas.csv", "text/csv",
+                         use_container_width=True)
+    col7, col8, col9 = st.columns(3)
+    col7.download_button("Perfil DXF trazable", dxf, "perfil_geologico.dxf",
+                         "application/dxf", use_container_width=True)
+    col8.download_button("Manifest", manifest_a_json(manifest_final), "manifest.json",
+                         "application/json", use_container_width=True)
+    if pdf is not None:
+        col9.download_button("Plano PDF", pdf, "perfil_geologico.pdf", "application/pdf",
+                             use_container_width=True)
+    else:
+        col9.warning("PDF no disponible")
+    if png is not None and svg is not None:
+        a, b, c = st.columns(3)
+        a.download_button("Vertices de zonas CSV", csv_vertices_zonas, "vertices_zonas.csv",
+                          "text/csv", use_container_width=True)
+        b.download_button("Imagen PNG", png, "perfil_geologico.png", "image/png",
+                          use_container_width=True)
+        c.download_button("Imagen SVG", svg, "perfil_geologico.svg", "image/svg+xml",
+                          use_container_width=True)
+    else:
+        st.download_button("Vertices de zonas CSV", csv_vertices_zonas, "vertices_zonas.csv",
+                           "text/csv", use_container_width=True)
     st.caption("DXF en coordenadas locales del perfil: X = PK (m); Y = cota (m). "
                "La guitarra DXF se coloca bajo el perfil, fuera del dominio de cotas geologicas.")
 

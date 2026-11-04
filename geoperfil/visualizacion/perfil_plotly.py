@@ -156,10 +156,14 @@ def crear_figura_perfil(
         )
 
     for contacto in contactos_orden if capas.get("contactos",True) else []:
+        if not contacto.visible:
+            continue
         if len(contacto.vertices) < 2:
             continue
         estilos = ["solid" if punto.origen == "observado" else "dot" for punto in contacto.vertices]
-        dash = "solid" if all(estilo == "solid" for estilo in estilos) else "dash"
+        dash = {
+            "observado": "solid", "proyectado": "dot", "interpretado": "dash",
+        }.get(contacto.evidencia, "solid" if all(estilo == "solid" for estilo in estilos) else "dash")
         figura.add_trace(
             go.Scatter(
                 x=[punto.s_m for punto in contacto.vertices],
@@ -172,8 +176,18 @@ def crear_figura_perfil(
                     "line": {"color": contacto.color, "width": 1.5},
                 },
                 name=contacto.nombre,
-                customdata=[[p.origen, p.referencia] for p in contacto.vertices],
-                hovertemplate="s=%{x:.2f} m<br>cota=%{y:.2f} m<br>%{customdata[0]} %{customdata[1]}<extra></extra>",
+                customdata=[[
+                    p.origen, p.referencia, contacto.contacto_id,
+                    contacto.unidad_superior, contacto.unidad_inferior,
+                    contacto.evidencia, contacto.incertidumbre_m,
+                ] for p in contacto.vertices],
+                hovertemplate=(
+                    "s=%{x:.2f} m<br>cota=%{y:.2f} m<br>"
+                    "ID=%{customdata[2]}<br>%{customdata[3]} / %{customdata[4]}<br>"
+                    "%{customdata[0]} %{customdata[1]}<br>"
+                    "evidencia=%{customdata[5]} · incertidumbre=%{customdata[6]:.2f} m"
+                    "<extra></extra>"
+                ),
             )
         )
 

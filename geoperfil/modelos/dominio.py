@@ -52,6 +52,8 @@ class Proyecto:
     autor: str = ""
     sistema_referencia: str = "ETRS89 / UTM"
     corredor_m: float = 50.0
+    escala_horizontal: float = 1000.0
+    escala_vertical: float = 200.0
     exageracion_vertical: float = 5.0
     extension_modo: str = "eje_completo"
     margen_pk_m: float = 10.0
@@ -70,13 +72,22 @@ class Proyecto:
     contactos: list[Contacto] = field(default_factory=list)
     zonas: list[dict[str, Any]] = field(default_factory=list)
     hipotesis: list[dict[str, Any]] = field(default_factory=list)
-    version_formato: str = "1.4"
+    version_formato: str = "2.0"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Proyecto":
+        exageracion = float(data.get("exageracion_vertical", 5.0))
+        if not math.isfinite(exageracion) or exageracion <= 0:
+            raise ValueError("La exageracion vertical debe ser positiva y finita.")
+        escala_horizontal = float(data.get("escala_horizontal", 1000.0))
+        escala_vertical = float(
+            data.get("escala_vertical", escala_horizontal / exageracion)
+        )
+        if not all(math.isfinite(valor) and valor > 0 for valor in (escala_horizontal, escala_vertical)):
+            raise ValueError("Las escalas horizontal y vertical deben ser positivas y finitas.")
         contactos = []
         for bruto in data.get("contactos", []):
             vertices = [
@@ -109,7 +120,9 @@ class Proyecto:
             autor=data.get("autor", ""),
             sistema_referencia=data.get("sistema_referencia", "ETRS89 / UTM"),
             corredor_m=float(data.get("corredor_m", 50.0)),
-            exageracion_vertical=float(data.get("exageracion_vertical", 5.0)),
+            escala_horizontal=escala_horizontal,
+            escala_vertical=escala_vertical,
+            exageracion_vertical=exageracion,
             extension_modo=str(data.get("extension_modo", "eje_completo")),
             margen_pk_m=float(data.get("margen_pk_m", 10.0)),
             pk_inicio_m=float(data.get("pk_inicio_m", 0.0)),

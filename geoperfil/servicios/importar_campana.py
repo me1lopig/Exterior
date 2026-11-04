@@ -163,8 +163,9 @@ def importar_campana(archivos: Mapping[str,bytes]) -> tuple[dict[str,pd.DataFram
         hasta=_numero(_v(row,'Profundidad final','BKFL'),'Profundidad final',n,'BKFL')
         if desde<0 or hasta<=desde: raise ValueError(f'BKFL, fila {n}: intervalo de profundidad incorrecto.')
         estrato=_v(row,'Estrato','BKFL')
-        codigo=f'EST_{str(estrato).strip()}' if estrato is not None else ''
-        if not codigo: raise ValueError(f'BKFL, fila {n}: codigo de estrato vacio.')
+        estrato_limpio = str(estrato).strip() if estrato is not None else ''
+        if not estrato_limpio: raise ValueError(f'BKFL, fila {n}: codigo de estrato vacio.')
+        codigo=f'EST_{estrato_limpio}'
         nombre=str(_v(row,'Descripción','BKFL') or codigo).strip()
         descripcion=str(row.get('Descripción__2') or nombre).strip()
         if codigo not in unidad_detalles:
@@ -293,4 +294,17 @@ def importar_campana(archivos: Mapping[str,bytes]) -> tuple[dict[str,pd.DataFram
     }
     errores, warnings=validar_datos(*(datos[x] for x in ('Sondeos','Intervalos','Unidades','Ensayos_DPSH','Lecturas_DPSH')))
     if errores: raise ValueError('Datos importados incompatibles: '+'; '.join(errores))
+    orden_unidades = dict(zip(datos['Unidades']['unidad_id'].astype(str), datos['Unidades']['orden'].astype(int)))
+    for sondeo_id, grupo in datos['Intervalos'].groupby('sondeo_id'):
+        secuencia = grupo.sort_values('desde_m')['unidad_id'].astype(str).tolist()
+        inversiones = [
+            (superior, inferior)
+            for superior, inferior in zip(secuencia, secuencia[1:])
+            if superior != inferior and orden_unidades.get(inferior, 0) <= orden_unidades.get(superior, 0)
+        ]
+        if inversiones:
+            avisos.append(
+                f'{sondeo_id}: secuencia no monotona respecto al orden de unidades; '
+                'revise lentejones, repeticiones o el orden estratigrafico en Unidades.'
+            )
     return datos,avisos+warnings

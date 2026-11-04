@@ -20,18 +20,29 @@ def aplicar_edicion_unidades(
     if not set(cambios).issubset(codigos):
         raise ValueError("Hay códigos de unidad inexistentes.")
     colores = {}
+    ordenes: dict[str, int] = {}
     for idx, fila in tabla.iterrows():
         codigo = str(fila["unidad_id"])
         datos = cambios.get(codigo, {})
         nombre = str(datos.get("nombre", fila["nombre"])).strip()
         color = str(datos.get("color", fila["color"])).upper()
+        try:
+            orden = int(datos.get("orden", fila["orden"]))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Orden no válido para {codigo}.") from exc
         if not nombre:
             raise ValueError(f"La unidad {codigo} debe tener nombre.")
         if COLOR.fullmatch(color) is None:
             raise ValueError(f"Color no válido para {codigo}: {color!r}.")
+        if orden <= 0:
+            raise ValueError(f"El orden de {codigo} debe ser positivo.")
         tabla.at[idx, "nombre"] = nombre
         tabla.at[idx, "color"] = color
+        tabla.at[idx, "orden"] = orden
         colores[codigo] = color
+        ordenes[codigo] = orden
+    if len(set(ordenes.values())) != len(ordenes):
+        raise ValueError("El orden estratigráfico no puede contener duplicados.")
     # Las zonas previamente clasificadas deben seguir la nueva paleta.
     nuevas_zonas = []
     for zona in zonas:
@@ -41,3 +52,11 @@ def aplicar_edicion_unidades(
             copia["color"] = colores[codigo]
         nuevas_zonas.append(copia)
     return tabla, nuevas_zonas
+
+
+def aplicar_paleta_contactos(contactos: list, unidades: pd.DataFrame) -> None:
+    """Actualiza el color gráfico de cada contacto sin alterar su geometría."""
+    colores = dict(zip(unidades["unidad_id"].astype(str), unidades["color"].astype(str)))
+    for contacto in contactos:
+        if str(contacto.unidad_inferior) in colores:
+            contacto.color = colores[str(contacto.unidad_inferior)]

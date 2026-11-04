@@ -342,6 +342,8 @@ def vertices_a_dataframe(contacto: Contacto) -> pd.DataFrame:
 
 def actualizar_vertices(contacto: Contacto, tabla: pd.DataFrame) -> Contacto:
     """Actualiza una polilinea desde la tabla editable."""
+    if contacto.bloqueado:
+        raise ValueError(f"El contacto {contacto.nombre} está bloqueado y no puede modificarse.")
     vertices = []
     for fila in tabla.dropna(subset=["s_m", "z_m"]).itertuples(index=False):
         vertices.append(

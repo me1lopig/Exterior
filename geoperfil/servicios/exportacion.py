@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO, StringIO
+import json
 
 import numpy as np
 import pandas as pd
@@ -13,7 +14,7 @@ from perfil_geologico.calculos.presentacion import preparar_guitarra
 from perfil_geologico.calculos.dpsh import separar_tramos_contiguos, distribucion_curvas
 
 
-def contactos_a_csv(contactos: list[Contacto]) -> bytes:
+def contactos_a_csv(contactos: list[Contacto], huella: str = "") -> bytes:
     filas = []
     for contacto in contactos:
         for orden, punto in enumerate(contacto.vertices, start=1):
@@ -21,15 +22,78 @@ def contactos_a_csv(contactos: list[Contacto]) -> bytes:
                 {
                     "contacto_id": contacto.contacto_id,
                     "nombre": contacto.nombre,
+                    "unidad_superior": contacto.unidad_superior,
+                    "unidad_inferior": contacto.unidad_inferior,
+                    "color": contacto.color,
+                    "evidencia": contacto.evidencia,
+                    "incertidumbre_m": contacto.incertidumbre_m,
                     "orden": orden,
                     "s_m": punto.s_m,
                     "z_m": punto.z_m,
                     "origen": punto.origen,
                     "referencia": punto.referencia,
                     "interfaz_id": punto.interfaz_id,
+                    "visible": contacto.visible,
+                    "bloqueado": contacto.bloqueado,
+                    "sha256_estado_canonico": huella,
                 }
             )
-    return pd.DataFrame(filas).to_csv(index=False).encode("utf-8-sig")
+    columnas = [
+        "contacto_id", "nombre", "unidad_superior", "unidad_inferior", "color",
+        "evidencia", "incertidumbre_m", "orden", "s_m", "z_m", "origen",
+        "referencia", "interfaz_id", "visible", "bloqueado", "sha256_estado_canonico",
+    ]
+    return pd.DataFrame(filas, columns=columnas).to_csv(index=False).encode("utf-8-sig")
+
+
+def zonas_a_csv(zonas: list[dict], huella: str = "") -> bytes:
+    columnas = [
+        "zona_id", "etiqueta", "unidad_id", "trama", "color", "area_m2",
+        "centro_s_m", "centro_z_m", "sha256_estado_canonico",
+    ]
+    filas = [
+        {**{columna: zona.get(columna, "") for columna in columnas[:-1]},
+         "sha256_estado_canonico": huella}
+        for zona in zonas
+    ]
+    return pd.DataFrame(filas, columns=columnas).to_csv(index=False).encode("utf-8-sig")
+
+
+def vertices_zonas_a_csv(zonas: list[dict], huella: str = "") -> bytes:
+    columnas = [
+        "zona_id", "tipo_anillo", "numero_anillo", "orden", "s_m", "z_m",
+        "sha256_estado_canonico",
+    ]
+    filas = []
+    for zona in zonas:
+        anillos = [("exterior", 0, zona.get("coordenadas", []))]
+        anillos.extend(
+            ("hueco", indice, anillo)
+            for indice, anillo in enumerate(zona.get("huecos", []), start=1)
+        )
+        for tipo, numero, anillo in anillos:
+            for orden, punto in enumerate(anillo, start=1):
+                filas.append({
+                    "zona_id": zona.get("zona_id", ""), "tipo_anillo": tipo,
+                    "numero_anillo": numero, "orden": orden,
+                    "s_m": punto[0], "z_m": punto[1],
+                    "sha256_estado_canonico": huella,
+                })
+    return pd.DataFrame(filas, columns=columnas).to_csv(index=False).encode("utf-8-sig")
+
+
+def figura_html_autocontenida(figura, proyecto_json: bytes, manifest: dict) -> bytes:
+    """HTML sin dependencias de red y con estado maestro embebido para auditoria."""
+    html = figura.to_html(include_plotlyjs=True, full_html=True)
+    proyecto_texto = proyecto_json.decode("utf-8").replace("</", "<\\/")
+    manifest_texto = json.dumps(manifest, ensure_ascii=False, allow_nan=False).replace("</", "<\\/")
+    metadatos = (
+        '<script id="geoperfil-proyecto" type="application/json">'
+        + proyecto_texto + "</script>"
+        + '<script id="geoperfil-manifest" type="application/json">'
+        + manifest_texto + "</script>"
+    )
+    return html.replace("</body>", metadatos + "</body>").encode("utf-8")
 
 
 def contactos_a_dxf(
@@ -42,6 +106,7 @@ def contactos_a_dxf(
     spt: pd.DataFrame | None = None,
     muestras: pd.DataFrame | None = None,
     laboratorio: pd.DataFrame | None = None,
+    huella_proyecto: str = "",
 ) -> bytes:
     """DXF R2010 con entidades editables, HATCH y guitarra en coordenadas PK/cota."""
     # Compatibilidad con la exportacion geometrica de versiones anteriores.
@@ -49,6 +114,8 @@ def contactos_a_dxf(
         salida=StringIO()
         salida.write("0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n")
         for contacto in contactos:
+            if not contacto.visible:
+                continue
             if len(contacto.vertices)<2:
                 continue
             capa=contacto.contacto_id.upper()[:31]
@@ -74,23 +141,65 @@ def contactos_a_dxf(
     doc = ezdxf.new('R2010', setup=True)
     model = doc.modelspace()
     capas = ('TERRENO','SONDEOS','CONTACTOS','LENTEJONES','UNIDADES',
-             'TRAMAS','DPSH','GUITARRA','TEXTOS','SPT','MUESTRAS','LABORATORIO')
+             'TRAMAS','DPSH','GUITARRA','TEXTOS','SPT','MUESTRAS','LABORATORIO',
+             'METADATOS')
     for capa in capas:
         if not doc.layers.has_entry(capa):
             doc.layers.new(name=capa)
+    if not doc.appids.has_entry('GEOPERFIL'):
+        doc.appids.add('GEOPERFIL')
+    def nombre_capa(prefijo, identificador):
+        limpio=''.join(c if c.isalnum() or c in '_-' else '_' for c in str(identificador).upper())
+        return f'{prefijo}_{limpio}'[:31]
+    def asegurar_capa(capa):
+        if not doc.layers.has_entry(capa):
+            doc.layers.new(name=capa)
+        return capa
+    def xdata(entidad, tipo, valores):
+        if entidad is None:
+            return
+        etiquetas=[(1000,f'tipo={tipo}')]
+        for clave,valor in valores.items():
+            if valor is None or (isinstance(valor,float) and not np.isfinite(valor)):
+                continue
+            texto_valor=json.dumps(valor,ensure_ascii=False,default=str) if isinstance(valor,(dict,list,tuple)) else str(valor)
+            if len(texto_valor) <= 220:
+                etiquetas.append((1000,f'{clave}={texto_valor}'))
+                continue
+            trozos=[texto_valor[i:i+200] for i in range(0,len(texto_valor),200)]
+            etiquetas.extend(
+                (1000,f'{clave}[{indice}/{len(trozos)}]={trozo}')
+                for indice,trozo in enumerate(trozos,start=1)
+            )
+        entidad.set_xdata('GEOPERFIL',etiquetas)
     def linea(puntos, capa, cerrado=False):
         if len(puntos) < 2:
-            return
-        model.add_lwpolyline([(float(x),float(y)) for x,y in puntos], close=cerrado,
-                             dxfattribs={'layer':capa})
+            return None
+        asegurar_capa(capa)
+        return model.add_lwpolyline([(float(x),float(y)) for x,y in puntos], close=cerrado,
+                                    dxfattribs={'layer':capa})
     def texto(valor, x, y, tam=1.3, capa='TEXTOS'):
-        model.add_text(str(valor),dxfattribs={'layer':capa,'height':tam,'insert':(float(x),float(y))})
+        asegurar_capa(capa)
+        return model.add_text(str(valor),dxfattribs={'layer':capa,'height':tam,'insert':(float(x),float(y))})
     for contacto in contactos if proyecto.capas.get('contactos', True) else []:
+        if not contacto.visible:
+            continue
         if len(contacto.vertices)<2:
             continue
         vertices=[(p.s_m,p.z_m) for p in contacto.vertices]
         cerrado = len(vertices)>=3 and abs(vertices[0][0]-vertices[-1][0])<1e-7 and abs(vertices[0][1]-vertices[-1][1])<1e-7
-        linea(vertices, 'LENTEJONES' if cerrado else 'CONTACTOS', cerrado=cerrado)
+        capa_contacto=nombre_capa('LENTE' if cerrado else 'CONT',contacto.contacto_id)
+        entidad=linea(vertices,capa_contacto,cerrado=cerrado)
+        xdata(entidad,'contacto',{
+            'contacto_id':contacto.contacto_id,'nombre':contacto.nombre,
+            'unidad_superior':contacto.unidad_superior,'unidad_inferior':contacto.unidad_inferior,
+            'color':contacto.color,'visible':contacto.visible,'bloqueado':contacto.bloqueado,
+            'evidencia':contacto.evidencia,'incertidumbre_m':contacto.incertidumbre_m,
+            'vertices':[{
+                'orden':i,'origen':p.origen,'referencia':p.referencia,'interfaz_id':p.interfaz_id,
+            } for i,p in enumerate(contacto.vertices,start=1)],
+            'sha256_estado_canonico':huella_proyecto,
+        })
     patrones={'horizontal':'ANSI31','vertical':'ANSI31','diagonal_45':'ANSI31',
               'diagonal_135':'ANSI31','cruzada':'ANSI32','puntos':'DOTS',
               'grava':'AR-SAND','roca':'ANSI37'}
@@ -99,9 +208,20 @@ def contactos_a_dxf(
         if len(exterior)<3:
             continue
         huecos=[h for h in zona.get('huecos',[]) if len(h)>=3]
-        linea(exterior,'UNIDADES',cerrado=True)
-        for hueco in huecos:
-            linea(hueco,'UNIDADES',cerrado=True)
+        entidad_zona=linea(exterior,nombre_capa('ZONA',zona.get('zona_id','SIN_ID')),cerrado=True)
+        xdata(entidad_zona,'zona',{
+            'zona_id':zona.get('zona_id',''),'etiqueta':zona.get('etiqueta',''),
+            'unidad_id':zona.get('unidad_id',''),'trama':zona.get('trama',''),
+            'color':zona.get('color',''),'area_m2':zona.get('area_m2'),
+            'centro_s_m':zona.get('centro_s_m'),'centro_z_m':zona.get('centro_z_m'),
+            'sha256_estado_canonico':huella_proyecto,
+        })
+        for numero_hueco,hueco in enumerate(huecos,start=1):
+            entidad_hueco=linea(hueco,nombre_capa('ZONA',zona.get('zona_id','SIN_ID')),cerrado=True)
+            xdata(entidad_hueco,'hueco_zona',{
+                'zona_id':zona.get('zona_id',''),'numero_hueco':numero_hueco,
+                'sha256_estado_canonico':huella_proyecto,
+            })
         if not zona.get('unidad_id'):
             continue   # No se rellena una zona no clasificada.
         hatch=model.add_hatch(color=8,dxfattribs={'layer':'TRAMAS'})
@@ -124,30 +244,97 @@ def contactos_a_dxf(
         hatch.paths.add_polyline_path([(float(x),float(y)) for x,y in exterior], is_closed=True, flags=1)
         for hueco in huecos:
             hatch.paths.add_polyline_path([(float(x),float(y)) for x,y in hueco], is_closed=True, flags=0)
+        xdata(hatch,'relleno_zona',{
+            'zona_id':zona.get('zona_id',''),'unidad_id':zona.get('unidad_id',''),
+            'trama':zona.get('trama',''),'color':zona.get('color',''),
+            'sha256_estado_canonico':huella_proyecto,
+        })
     if sondeos is not None and not sondeos.empty:
         fuente=terreno_puntos if terreno_puntos is not None and not terreno_puntos.empty else sondeos
         terreno = fuente.groupby('s_m',as_index=False)['cota_boca_m'].mean().sort_values('s_m')
         if proyecto.capas.get('terreno',True):
-            linea(terreno[['s_m','cota_boca_m']].to_numpy(float).tolist(),'TERRENO')
+            entidad_terreno=linea(terreno[['s_m','cota_boca_m']].to_numpy(float).tolist(),'TERRENO')
+            xdata(entidad_terreno,'terreno',{'sha256_estado_canonico':huella_proyecto})
+        colores_unidad = dict(zip(
+            unidades['unidad_id'].astype(str), unidades['color'].astype(str)
+        )) if unidades is not None and not unidades.empty else {}
+        nombres_unidad = dict(zip(
+            unidades['unidad_id'].astype(str), unidades['nombre'].astype(str)
+        )) if unidades is not None and not unidades.empty else {}
+        ancho_lito=max(float(terreno['s_m'].max()-terreno['s_m'].min())*.003,.20)
         for fila in sondeos.itertuples(index=False) if proyecto.capas.get('sondeos',True) else []:
-            linea([(fila.s_m,fila.cota_boca_m),(fila.s_m,fila.cota_boca_m-fila.profundidad_m)],'SONDEOS')
-            model.add_circle((float(fila.s_m),float(fila.cota_boca_m)),
-                             radius=0.10,dxfattribs={'layer':'SONDEOS'})
+            eje_sondeo=linea([(fila.s_m,fila.cota_boca_m),(fila.s_m,fila.cota_boca_m-fila.profundidad_m)],'SONDEOS')
+            xdata(eje_sondeo,'sondeo',{
+                'sondeo_id':fila.sondeo_id,'cota_boca_m':fila.cota_boca_m,
+                'profundidad_m':fila.profundidad_m,'descripcion':getattr(fila,'descripcion',''),
+                'sha256_estado_canonico':huella_proyecto,
+            })
+            boca=model.add_circle((float(fila.s_m),float(fila.cota_boca_m)),
+                                  radius=0.10,dxfattribs={'layer':'SONDEOS'})
+            xdata(boca,'boca_sondeo',{'sondeo_id':fila.sondeo_id})
             texto(fila.sondeo_id, fila.s_m, fila.cota_boca_m+1.0)
+            if intervalos is not None and not intervalos.empty:
+                tramos=intervalos[intervalos['sondeo_id']==fila.sondeo_id].sort_values('desde_m')
+                for tramo in tramos.itertuples(index=False):
+                    techo=float(fila.cota_boca_m)-float(tramo.desde_m)
+                    muro=float(fila.cota_boca_m)-float(tramo.hasta_m)
+                    unidad_id=str(tramo.unidad_id)
+                    capa_lito=nombre_capa('LITO',unidad_id)
+                    rectangulo=[
+                        (fila.s_m-ancho_lito,techo),(fila.s_m+ancho_lito,techo),
+                        (fila.s_m+ancho_lito,muro),(fila.s_m-ancho_lito,muro),
+                    ]
+                    entidad=linea(rectangulo,capa_lito,cerrado=True)
+                    color_hex=colores_unidad.get(unidad_id,'').lstrip('#')
+                    if entidad is not None and len(color_hex)==6:
+                        try:
+                            from ezdxf.colors import rgb2int
+                            entidad.dxf.true_color=rgb2int(tuple(int(color_hex[i:i+2],16) for i in (0,2,4)))
+                        except ValueError:
+                            pass
+                    xdata(entidad,'intervalo_litologico',{
+                        'sondeo_id':fila.sondeo_id,'desde_m':tramo.desde_m,'hasta_m':tramo.hasta_m,
+                        'unidad_id':unidad_id,'nombre_unidad':nombres_unidad.get(unidad_id,''),
+                        'descripcion':getattr(tramo,'descripcion',''),
+                        'archivo':getattr(tramo,'archivo',''),'fila':getattr(tramo,'fila',''),
+                        'sha256_estado_canonico':huella_proyecto,
+                    })
+                    texto(unidad_id,fila.s_m,muro+(techo-muro)/2,max(.35,ancho_lito*.55),capa_lito)
         if dpsh is not None and not dpsh.empty and proyecto.capas.get('penetracion',True):
             escala_efectiva, sentidos = distribucion_curvas(dpsh,lecturas_dpsh,escala_dpsh,sondeos,rango_pk or
                     (float(terreno['s_m'].min()),float(terreno['s_m'].max())))
             for ensayo in dpsh.itertuples(index=False):
                 profundidad=float(ensayo.profundidad_m)
-                linea([(ensayo.s_m,ensayo.cota_inicio_m),
-                       (ensayo.s_m,ensayo.cota_inicio_m-profundidad)],'DPSH')
-                model.add_circle((float(ensayo.s_m),float(ensayo.cota_inicio_m)),
-                                 radius=0.10,dxfattribs={'layer':'DPSH'})
+                eje_penetro=linea([(ensayo.s_m,ensayo.cota_inicio_m),
+                                   (ensayo.s_m,ensayo.cota_inicio_m-profundidad)],'DPSH')
+                xdata(eje_penetro,'penetracion',{
+                    'ensayo_id':ensayo.ensayo_id,'cota_inicio_m':ensayo.cota_inicio_m,
+                    'profundidad_m':ensayo.profundidad_m,'fecha':getattr(ensayo,'fecha',''),
+                    'tipo_ensayo':getattr(ensayo,'tipo_ensayo',''),
+                    'sha256_estado_canonico':huella_proyecto,
+                })
+                inicio_penetro=model.add_circle((float(ensayo.s_m),float(ensayo.cota_inicio_m)),
+                                                radius=0.10,dxfattribs={'layer':'DPSH'})
+                xdata(inicio_penetro,'inicio_penetracion',{'ensayo_id':ensayo.ensayo_id})
                 if lecturas_dpsh is not None and not lecturas_dpsh.empty:
                     lecturas = lecturas_dpsh[lecturas_dpsh['ensayo_id']==ensayo.ensayo_id]
                     for tramo in separar_tramos_contiguos(lecturas):
-                        linea([(ensayo.s_m+sentidos.get(str(ensayo.ensayo_id),1)*float(v)*escala_efectiva, ensayo.cota_inicio_m-float(depth))
-                               for depth,v in zip(tramo['profundidad_m'],tramo['n20'])], 'DPSH')
+                        puntos_curva=[
+                            (ensayo.s_m+sentidos.get(str(ensayo.ensayo_id),1)*float(v)*escala_efectiva,
+                             ensayo.cota_inicio_m-float(depth))
+                            for depth,v in zip(tramo['profundidad_m'],tramo['n20'])
+                        ]
+                        curva=(linea(puntos_curva,'DPSH') if len(puntos_curva)>1 else
+                               model.add_point(puntos_curva[0],dxfattribs={'layer':'DPSH'}))
+                        xdata(curva,'lecturas_penetracion',{
+                            'ensayo_id':ensayo.ensayo_id,
+                            'profundidad_m':tramo['profundidad_m'].tolist(),
+                            'n20':tramo['n20'].tolist(),
+                            'estado':tramo['estado'].tolist() if 'estado' in tramo else [],
+                            'observaciones':tramo['observaciones'].tolist() if 'observaciones' in tramo else [],
+                            'escala_m_golpe':escala_efectiva,
+                            'sentido':sentidos.get(str(ensayo.ensayo_id),1),
+                        })
                 texto(ensayo.ensayo_id, ensayo.s_m, ensayo.cota_inicio_m+1.0)
         if rango_pk is None:
             rango_pk=(float(terreno['s_m'].min()),float(terreno['s_m'].max()))
@@ -179,12 +366,14 @@ def contactos_a_dxf(
             for r in spt.itertuples(index=False):
                 if r.sondeo_id in ubicaciones:
                     x,z=ubicaciones[r.sondeo_id]
-                    texto('SPT '+str(r.secuencia),x+0.7,z-float(r.profundidad_m),alto,'SPT')
+                    entidad=texto('SPT '+str(r.secuencia),x+0.7,z-float(r.profundidad_m),alto,'SPT')
+                    xdata(entidad,'spt',{**r._asdict(),'sha256_estado_canonico':huella_proyecto})
         if muestras is not None and len(muestras) and proyecto.capas.get('muestras',False):
             for r in muestras.itertuples(index=False):
                 if r.reconocimiento in ubicaciones:
                     x,z=ubicaciones[r.reconocimiento]
-                    texto(str(r.tipo)+' '+str(r.unidad_geotecnica),x-0.7,z-float(r.profundidad_m),alto,'MUESTRAS')
+                    entidad=texto(str(r.tipo)+' '+str(r.unidad_geotecnica),x-0.7,z-float(r.profundidad_m),alto,'MUESTRAS')
+                    xdata(entidad,'muestra',{**r._asdict(),'sha256_estado_canonico':huella_proyecto})
         if laboratorio is not None and len(laboratorio) and proyecto.capas.get('laboratorio',False):
             for r in laboratorio.itertuples(index=False):
                 if r.tipo=='SPT' or r.reconocimiento not in ubicaciones: continue
@@ -193,7 +382,17 @@ def contactos_a_dxf(
                 if r.uscs: contenido+=' | USCS '+str(r.uscs)
                 if pd.notna(r.ip_pct): contenido+=f' | IP={float(r.ip_pct):g}%'
                 if pd.notna(r.rcs_kpa): contenido+=f' | RCS={float(r.rcs_kpa):g} kPa'
-                texto(contenido,x+0.7,z-float(r.profundidad_m)-alto,alto,'LABORATORIO')
+                entidad=texto(contenido,x+0.7,z-float(r.profundidad_m)-alto,alto,'LABORATORIO')
+                xdata(entidad,'laboratorio',{**r._asdict(),'sha256_estado_canonico':huella_proyecto})
+        punto_meta=model.add_point((float(terreno['s_m'].min()),float(terreno['cota_boca_m'].min())),
+                                   dxfattribs={'layer':'METADATOS'})
+        xdata(punto_meta,'proyecto',{
+            'nombre':proyecto.nombre,'localizacion':proyecto.localizacion,'autor':proyecto.autor,
+            'sistema_referencia':proyecto.sistema_referencia,
+            'escala_horizontal':proyecto.escala_horizontal,'escala_vertical':proyecto.escala_vertical,
+            'exageracion_vertical':proyecto.exageracion_vertical,
+            'sha256_estado_canonico':huella_proyecto,
+        })
     out=StringIO()
     doc.write(out)
     return out.getvalue().encode('utf-8')
@@ -215,6 +414,7 @@ def _figura_perfil_documento(
     spt: pd.DataFrame | None = None,
     muestras: pd.DataFrame | None = None,
     laboratorio: pd.DataFrame | None = None,
+    huella_proyecto: str = "",
 ) -> bytes:
     """Composicion unica Matplotlib para PDF, PNG y SVG."""
     import matplotlib.pyplot as plt
@@ -276,27 +476,7 @@ def _figura_perfil_documento(
                 parche.set_fillrule('evenodd')
             ax.add_patch(parche)
             unidades_mostradas.add(unidad)
-    else:
-        for contacto in contactos_orden:
-            base = interpolar_contacto(contacto, estaciones)
-            mascara = np.isfinite(superficie) & np.isfinite(base)
-            ax.fill_between(
-                estaciones, superficie, base, where=mascara,
-                facecolor=colores.get(contacto.unidad_superior, "#cccccc"), alpha=0.42,
-                linewidth=0, label=nombres.get(contacto.unidad_superior, contacto.unidad_superior), zorder=1,
-            )
-            superficie = np.where(mascara, base, superficie)
-        if contactos_orden:
-            ultima = contactos_orden[-1].unidad_inferior
-            fondo = min(
-                float((sondeos_proyectados["cota_boca_m"] - sondeos_proyectados["profundidad_m"]).min()),
-                float(np.nanmin(superficie)) - 2.0,
-            )
-            ax.fill_between(
-                estaciones, superficie, fondo, where=np.isfinite(superficie),
-                facecolor=colores.get(ultima, "#cccccc"), alpha=0.42, linewidth=0,
-                label=nombres.get(ultima, ultima), zorder=1,
-            )
+    # Sin zonas topologicas clasificadas no se infieren rellenos desde contactos.
     # El terreno observado debe dibujarse incluso si no hay zonas interpretadas.
     if proyecto.capas.get('terreno',True):
         ax.plot(terreno['s_m'].to_numpy(float),terreno['cota_boca_m'].to_numpy(float),
@@ -317,9 +497,22 @@ def _figura_perfil_documento(
         ax.text(sondeo.s_m, sondeo.cota_boca_m + 0.8, sondeo.sondeo_id,
                 ha="center", va="bottom", fontsize=proyecto.texto_general_pt, fontweight="bold")
     for contacto in contactos_orden if proyecto.capas.get('contactos',True) else []:
+        if not contacto.visible:
+            continue
+        estilo = {"observado": "-", "proyectado": ":", "interpretado": "--"}.get(
+            contacto.evidencia, "-"
+        )
+        if contacto.incertidumbre_m > 0 and len(contacto.vertices) >= 2:
+            xs = np.array([p.s_m for p in contacto.vertices], dtype=float)
+            if np.all(np.diff(xs) > 0):
+                zs = np.array([p.z_m for p in contacto.vertices], dtype=float)
+                ax.fill_between(
+                    xs, zs - contacto.incertidumbre_m, zs + contacto.incertidumbre_m,
+                    color=contacto.color, alpha=0.10, linewidth=0, zorder=2,
+                )
         ax.plot([p.s_m for p in contacto.vertices], [p.z_m for p in contacto.vertices],
-                color=contacto.color, linewidth=1.6, marker="o", markersize=2.5,
-                zorder=3)
+                color=contacto.color, linewidth=1.6, linestyle=estilo,
+                marker="o", markersize=2.5, zorder=3, label=contacto.nombre)
     escala_efectiva, sentidos = distribucion_curvas(dpsh_proyectados,lecturas_dpsh,escala_dpsh,
         sondeos_proyectados,rango_pk or (float(terreno['s_m'].min()),float(terreno['s_m'].max())))
     for ensayo in dpsh_proyectados.itertuples(index=False) if proyecto.capas.get('penetracion',True) else []:
@@ -365,6 +558,18 @@ def _figura_perfil_documento(
                         xytext=(5,-12),textcoords='offset points',ha='left',va='center',
                         fontsize=proyecto.texto_ensayos_pt,color='#6A5B4B',zorder=9)
     fig.suptitle(proyecto.nombre, x=0.045, ha="left", fontsize=15, fontweight="bold", color="#0A2239")
+    referencia = " · ".join(
+        valor for valor in (proyecto.localizacion, proyecto.sistema_referencia, proyecto.autor) if valor
+    )
+    if referencia:
+        fig.text(.045, .935, referencia, ha="left", va="top", fontsize=8, color="#536579")
+    fig.text(
+        .97, .015,
+        f"H 1:{proyecto.escala_horizontal:g} · V 1:{proyecto.escala_vertical:g} · "
+        f"EV {proyecto.exageracion_vertical:g}x"
+        + (f" · SHA-256 {huella_proyecto[:16]}…" if huella_proyecto else ""),
+        ha="right", va="bottom", fontsize=7, color="#687487",
+    )
     ax.set_xlabel("")
     ax.set_ylabel("Cota (m)")
     ax.grid(True, color="#DDE2E8", linewidth=0.5)
@@ -433,7 +638,11 @@ def _figura_perfil_documento(
         raise ValueError('Formato de imagen no admitido.')
     parametros={'format':formato,'dpi':220}
     if formato=='pdf':
-        parametros['metadata']={'Title':proyecto.nombre}
+        parametros['metadata']={
+            'Title':proyecto.nombre, 'Author':proyecto.autor,
+            'Subject':f'Perfil geologico · {proyecto.sistema_referencia}',
+            'Keywords':f'GeoPerfil 2D; {huella_proyecto}',
+        }
     fig.savefig(salida,**parametros)
     plt.close(fig)
     return salida.getvalue()
@@ -446,11 +655,13 @@ def figura_perfil_pdf(
     rango_pk: tuple[float,float] | None = None,
     terreno_puntos: pd.DataFrame | None = None, spt: pd.DataFrame | None = None,
     muestras: pd.DataFrame | None = None, laboratorio: pd.DataFrame | None = None,
+    huella_proyecto: str = "",
 ) -> bytes:
     return _figura_perfil_documento(proyecto,sondeos_proyectados,intervalos,unidades,
                                    contactos,dpsh_proyectados,lecturas_dpsh,escala_dpsh,
                                    zonas=zonas,rango_pk=rango_pk,formato='pdf',
-                                   terreno_puntos=terreno_puntos,spt=spt,muestras=muestras,laboratorio=laboratorio)
+                                   terreno_puntos=terreno_puntos,spt=spt,muestras=muestras,laboratorio=laboratorio,
+                                   huella_proyecto=huella_proyecto)
 
 
 def figura_perfil_imagen(
@@ -460,10 +671,12 @@ def figura_perfil_imagen(
     rango_pk: tuple[float,float] | None = None, formato: str = 'png',
     terreno_puntos: pd.DataFrame | None = None, spt: pd.DataFrame | None = None,
     muestras: pd.DataFrame | None = None, laboratorio: pd.DataFrame | None = None,
+    huella_proyecto: str = "",
 ) -> bytes:
     if formato not in ('png','svg'):
         raise ValueError('La salida de imagen debe ser PNG o SVG.')
     return _figura_perfil_documento(proyecto,sondeos_proyectados,intervalos,unidades,
                                    contactos,dpsh_proyectados,lecturas_dpsh,escala_dpsh,
                                    zonas=zonas,rango_pk=rango_pk,formato=formato,
-                                   terreno_puntos=terreno_puntos,spt=spt,muestras=muestras,laboratorio=laboratorio)
+                                   terreno_puntos=terreno_puntos,spt=spt,muestras=muestras,laboratorio=laboratorio,
+                                   huella_proyecto=huella_proyecto)
