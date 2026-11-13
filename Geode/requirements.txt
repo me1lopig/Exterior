@@ -1,7 +1,0 @@
-streamlit
-requests
-pyproj
-pandas
-numpy
-Pillow
-matplotlib
