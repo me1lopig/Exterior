@@ -16,6 +16,8 @@ class FakeStreamlit(types.ModuleType):
         self.session_state={}
         self.selection=types.SimpleNamespace(points=[])
         self.metrics=[]
+        self.pressure_tables=[]
+        self.radiolabels=[]
         self.warnings=[]
         self.click_calcular=False
         self.ancho_max=None
@@ -30,6 +32,10 @@ class FakeStreamlit(types.ModuleType):
             return _stop
         return lambda *a,**kw: None
 
+    def markdown(self,text,**kw):
+        if 'class="tabla-presiones"' in str(text):
+            self.pressure_tables.append(str(text))
+
     def columns(self,especificacion,**kwargs):
         return [self for _ in range(especificacion if isinstance(especificacion,int) else len(especificacion))]
     def tabs(self,labels): return [self for _ in labels]
@@ -39,7 +45,9 @@ class FakeStreamlit(types.ModuleType):
             return self.ancho_max
         return kw.get('value',0.0)
     def selectbox(self,label,options,*args,**kw): return options[kw.get('index',0)]
-    def radio(self,label,options,*args,**kw): return options[kw.get('index',0)]
+    def radio(self,label,options,*args,**kw):
+        self.radiolabels.append(label)
+        return options[kw.get('index',0)]
     def toggle(self,label,**kw): return kw.get('value',False)
     def button(self,label,**kw): return self.click_calcular
     def data_editor(self,data,**kw): return data
@@ -65,13 +73,19 @@ class InterfazSmokeTest(unittest.TestCase):
             fake.click_calcular=True
             runpy.run_path(origen,run_name='__main__')
             self.assertEqual(len(fake.session_state['ultimo_calculo']['resultados']),26)
-            self.assertTrue(any('Presión de servicio neta' in k for k,v in fake.metrics))
+            self.assertEqual(len(fake.pressure_tables),2)
+            self.assertTrue(all('Neta (MPa)' in html and 'Bruta (MPa)' in html
+                                for html in fake.pressure_tables))
+            self.assertTrue(all(html.count('<tr class=')==3 for html in fake.pressure_tables))
+            self.assertTrue(all('fila-servicio' in html for html in fake.pressure_tables))
+            self.assertNotIn('Geometría del bulbo 2D',fake.radiolabels)
 
             fake.click_calcular=False
             fake.ancho_max=2.0
             runpy.run_path(origen,run_name='__main__')
             self.assertEqual(len(fake.session_state['ultimo_calculo']['resultados']),26)
             self.assertTrue(any('pendientes de actualizar' in w for w in fake.warnings))
+            self.assertEqual(len(fake.pressure_tables),4)
         finally:
             if real is None: sys.modules.pop('streamlit',None)
             else: sys.modules['streamlit']=real

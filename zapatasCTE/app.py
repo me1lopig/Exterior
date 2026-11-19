@@ -54,6 +54,13 @@ h1{font-size:2.05rem!important}
 .stButton>button[kind="primary"]{background:var(--red);border-color:var(--red)}
 [data-testid="stMetric"]{border-left:3px solid var(--red);padding-left:.8rem}
 [data-testid="stDataFrame"]{border:1px solid var(--line)}
+.tabla-presiones{width:100%;border-collapse:collapse;margin:.55rem 0 1rem}
+.tabla-presiones th,.tabla-presiones td{padding:.55rem .65rem;border-bottom:1px solid var(--line)}
+.tabla-presiones th{font-size:.87rem;font-weight:600;text-align:right}
+.tabla-presiones th:first-child,.tabla-presiones td:first-child{text-align:left}
+.tabla-presiones td{font-size:1.05rem}
+.tabla-presiones td:not(:first-child){text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.tabla-presiones .fila-servicio{background:rgba(65,122,173,.10);font-weight:700}
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,6 +82,28 @@ def capas_desde_tabla(tabla: pd.DataFrame) -> tuple[CapaSuelo, ...]:
 
 def formatear(valor: float | None, decimales: int=3) -> str:
     return "No válido" if valor is None or not isfinite(valor) else f"{valor:.{decimales}f}"
+
+
+def mostrar_tabla_presiones(resultado) -> None:
+    """INC-02: presenta las presiones ya calculadas sin alterar el motor."""
+    filas = (
+        ("Hundimiento", resultado.q_hund_neta_mpa, resultado.q_hund_bruta_mpa),
+        ("Asientos", resultado.q_asiento_neta_mpa, resultado.q_asiento_bruta_mpa),
+        ("Servicio", resultado.q_serv_neta_mpa, resultado.q_serv_bruta_mpa),
+    )
+    cuerpo = "".join(
+        f'<tr class="{"fila-servicio" if etiqueta == "Servicio" else ""}">'
+        f"<td>{etiqueta}</td><td>{formatear(neta)}</td>"
+        f"<td>{formatear(bruta)}</td></tr>"
+        for etiqueta, neta, bruta in filas
+    )
+    st.markdown(
+        '<table class="tabla-presiones" aria-label="Presiones admisibles netas y brutas">'
+        '<thead><tr><th>Comprobación</th><th>Neta (MPa)</th>'
+        '<th>Bruta (MPa)</th></tr></thead><tbody>'
+        + cuerpo + '</tbody></table>',
+        unsafe_allow_html=True,
+    )
 
 
 st.caption("GEO APP / GEOTECNIA / PROTOTIPO TÉCNICO")
@@ -343,17 +372,11 @@ with tab_res:
             f2.metric("L",f"{seleccionado.l_m:.2f} m")
             f3.metric("Área",f"{seleccionado.area_m2:.2f} m²")
             st.plotly_chart(grafico_geom(seleccionado.b_m,seleccionado.l_m),use_container_width=True)
-            fa,fb=st.columns(2)
-            fa.metric("Hundimiento neto",f"{seleccionado.q_hund_neta_mpa:.3f} MPa")
-            fb.metric("Asientos neto",f"{seleccionado.q_asiento_neta_mpa:.3f} MPa")
-            st.metric("Presión de servicio neta",formatear(seleccionado.q_serv_neta_mpa)+" MPa")
+            mostrar_tabla_presiones(seleccionado)
             st.write(f"**Gobierna:** {seleccionado.limitacion}")
             with st.expander("Detalle de presiones, balasto y factores"):
                 st.write(f"q0 del contorno (hundimiento) = {seleccionado.q0_kpa/1000:.3f} MPa")
                 st.write(f"Tension preexistente en la base = {seleccionado.sigma_pre_base_kpa/1000:.3f} MPa")
-                st.write(f"Presion limite por asiento bruta = {seleccionado.q_asiento_bruta_mpa:.3f} MPa")
-                st.write(f"Hundimiento bruto = {seleccionado.q_hund_bruta_mpa:.3f} MPa")
-                st.write(f"Servicio bruto = {formatear(seleccionado.q_serv_bruta_mpa)} MPa")
                 st.write(f"k_s,BL = {seleccionado.ks_bl_mn_m3:.2f} MN/m³")
                 st.write(f"Ksp30 ({s_cal.tipo_material_balasto.lower()}) = {seleccionado.ksp30_mn_m3:.2f} MN/m³")
                 gamma_k=_peso_especifico_representativo(h_cal,seleccionado.b_m)
@@ -398,21 +421,12 @@ with tab_res:
                     st.warning("El perfil NO demuestra cubrir la profundidad activa estimada. Revisar capas mas profundas.")
                 seccion_tab, existente_tab = st.tabs(["Sección y bulbo 2D", "Tensiones 1D y asientos"])
                 with seccion_tab:
-                    modelo_2d=st.radio("Geometría del bulbo 2D",
-                        ["B × L de la zapata seleccionada","Corrida ideal (longitud infinita)"],
-                        horizontal=True,key="modelo_2d")
-                    es_corrida_2d=modelo_2d.startswith("Corrida")
-                    if es_corrida_2d:
-                        q_2d=st.number_input("Presión neta para corrida ideal (kPa)",
-                            min_value=0.1,value=float(q_ref*1000),step=10.0,
-                            help="Valor de partida de la zapata seleccionada; no procede de la comparativa corrida histórica.")
-                    else:
-                        q_2d=float(q_ref*1000)
-                        st.caption(f"Presión neta de referencia: {q_2d:.2f} kPa.")
+                    q_2d=float(q_ref*1000)
+                    st.caption(f"Presión neta de referencia: {q_2d:.2f} kPa.")
                     figura_2d=figura_seccion_bulbo(
-                        seleccionado.b_m, None if es_corrida_2d else seleccionado.l_m,
+                        seleccionado.b_m,seleccionado.l_m,
                         h_cal.profundidad_base_m,h_cal.nivel_freatico_m,s_cal.capas,
-                        q_2d,corrida=es_corrida_2d,
+                        q_2d,corrida=False,
                         zmax_m=guardado["z_bulbo"])
                     st.plotly_chart(figura_2d,use_container_width=True)
                     st.caption("Isobaras: Δσz/q neta de Boussinesq (incremento de tensión vertical total). "
@@ -528,9 +542,7 @@ with tab_res:
                 except (AttributeError,KeyError,TypeError,IndexError,ValueError):
                     pass
                 st.metric("Anchura B",f"{corrida_sel.b_m:.2f} m")
-                st.metric("Hundimiento neto",f"{corrida_sel.q_hund_neta_mpa:.3f} MPa")
-                st.metric("Asientos neto",f"{corrida_sel.q_asiento_neta_mpa:.3f} MPa")
-                st.metric("Servicio neto",formatear(corrida_sel.q_serv_neta_mpa)+" MPa")
+                mostrar_tabla_presiones(corrida_sel)
                 st.write(f"**Gobierna:** {corrida_sel.limitacion}")
                 with st.expander("Datos y factores de la corrida seleccionada"):
                     st.write(f"Longitud usada en hundimiento: {LONGITUD_CORRIDA_HUNDIMIENTO_M:.0f} m")
@@ -539,8 +551,6 @@ with tab_res:
                     st.write(f"sc = {corrida_sel.sc:.4f}; sq = {corrida_sel.sq:.4f}; "
                              f"sγ = {corrida_sel.sgamma:.4f}")
                     st.write(f"σv0,exc = {corrida_sel.sigma_pre_base_kpa:.2f} kPa")
-                    st.write(f"q hund. bruta = {corrida_sel.q_hund_bruta_mpa:.4f} MPa")
-                    st.write(f"q asientos bruta = {corrida_sel.q_asiento_bruta_mpa:.4f} MPa")
                     st.write(f"ks,BL = {corrida_sel.ks_bl_mn_m3:.3f} MN/m³")
                     st.write(f"Ksp30 = {corrida_sel.ksp30_mn_m3:.3f} MN/m³")
                 for aviso in corrida_sel.avisos:
