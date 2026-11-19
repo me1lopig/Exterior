@@ -1,417 +1,324 @@
-"""Cimentaciones superficiales: malla BxL, hundimiento y asiento elástico.
+"""ZapatasCTE 4.2 completa autonoma (reconstruida). Interfaz Streamlit.
 
-Prototipo técnico; no sustituye la verificación del proyecto conforme al CTE.
+Herramienta de predimensionamiento NO equivalente a verificaciones ELU/ELS integrales.
 """
 from __future__ import annotations
-
-from math import isfinite
 import hashlib
 import json
-
+from dataclasses import asdict
+import math
 import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
 import streamlit as st
+from src.engine import (VERSION, Parametros, Estrato, MAPA, dimensiones,
+                        ejecutar_malla, tabla_resultados, contribuciones_asiento,
+                        bulbo_tensiones, calcular_corrida_historica)
+from src.balasto_cte import comparar_criterios
 
-from calculos.diagnostico_asientos import (
-    calcular_perfil_bulbo, contribuciones_steinbrenner, profundidad_porcentaje_asiento,
-    descarga_preexistente_kpa,
-)
-from visualizacion.graficos_asientos import (
-    figura_bulbo, figura_asiento_acumulado, figura_contribuciones,
-)
-from calculos.malla import (
-    LONGITUD_CORRIDA_INTERNA_M,
-    LONGITUD_CORRIDA_HUNDIMIENTO_M,
-    avisos_globales,
-    calcular_corridas,
-    calcular_malla,
-)
-from modelos.datos import CapaSuelo, DatosAsientos, DatosHundimiento, DatosProyecto
-from modelos.geometrias import RangoGeometrico, generar_geometrias, serie_rango
-from utiles.tablas_malla import CAMPOS_MAPA, tabla_malla
-from visualizacion.graficos_malla import curvas_seccion, grafico_geom, mapa_calor
-
-st.set_page_config(page_title="Cimentaciones superficiales · B × L", page_icon="▦", layout="wide")
-st.markdown("""
-<style>
-:root{--blue:#142d48;--red:#c94f59;--line:#dce5ed;--muted:#66768c}
-.block-container{max-width:1540px;padding-top:2rem}
-h1,h2,h3{color:var(--blue)!important}
-h1{font-size:2.05rem!important}
-.small-intro{color:var(--muted);margin-top:-.4rem;margin-bottom:1rem}
-.stButton>button[kind="primary"]{background:var(--red);border-color:var(--red)}
-[data-testid="stMetric"]{border-left:3px solid var(--red);padding-left:.8rem}
-[data-testid="stDataFrame"]{border:1px solid var(--line)}
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title='ZapatasCTE · v4.2', page_icon='▦',layout='wide')
+st.markdown('''<style>.block-container{max-width:1520px;padding-top:1.4rem}
+h1,h2,h3{color:#203a55!important}.stButton>button[kind="primary"]{background:#b84e57}
+</style>''',unsafe_allow_html=True)
 
 
-def capas_desde_tabla(tabla: pd.DataFrame) -> tuple[CapaSuelo, ...]:
-    capas = []
-    for i, (_, fila) in enumerate(tabla.iterrows(), 1):
-        if any(pd.isna(fila.get(c)) for c in ("z sup. (m)","z inf. (m)","E (MPa)","nu")):
-            raise ValueError(f"Estrato {i}: faltan valores obligatorios.")
-        capas.append(CapaSuelo(
-            nombre=str(fila.get("Unidad") or f"Nivel {i}"),
-            z_superior_m=float(fila["z sup. (m)"]),
-            z_inferior_m=float(fila["z inf. (m)"]),
-            modulo_mpa=float(fila["E (MPa)"]),
-            poisson=float(fila["nu"]),
-        ))
-    return tuple(capas)
+def checksum(obj):
+    texto=json.dumps(obj,sort_keys=True,ensure_ascii=False,default=str)
+    return hashlib.sha256(texto.encode('utf-8')).hexdigest()
 
 
-def formatear(valor: float | None, decimales: int=3) -> str:
-    return "No válido" if valor is None or not isfinite(valor) else f"{valor:.{decimales}f}"
+def valor(v,dec=3):
+    if v is None or (isinstance(v,(int,float)) and not math.isfinite(v)):
+        return 'No válido'
+    return f'{v:.{dec}f}'
 
 
-st.caption("GEO APP / GEOTECNIA / PROTOTIPO TÉCNICO")
-st.title("Presiones admisibles · Zapatas B × L")
-st.markdown('<p class="small-intro">Hundimiento (CTE DB-SE-C), asientos elásticos por estratos y balasto. Malla rectangular con B ≤ L.</p>',unsafe_allow_html=True)
+def figura_mapa(rows,etiqueta):
+    campo=MAPA[etiqueta]
+    bs=sorted({r['B_m'] for r in rows});ls=sorted({r['L_m'] for r in rows})
+    dd={(r['B_m'],r['L_m']):r for r in rows}
+    cats={'Hundimiento':0.,'No valido':0.5,'Asientos':1.}
+    z=[];textos=[];anotaciones=[]
+    for b in bs:
+        fila=[];hov=[]
+        for l in ls:
+            r=dd.get((b,l))
+            if r is None:
+                fila.append(None);hov.append('Fuera de la malla B ≤ L');continue
+            vv=r[campo]
+            fila.append(cats.get(vv,.5) if campo=='limitacion' else vv)
+            lines=[f'B={b:.2f} m · L={l:.2f} m']
+            for item,field in [('Hundimiento neto','q_hund_neta_mpa'),('Hundimiento bruto','q_hund_bruta_mpa'),
+                  ('Asientos neto','q_asiento_neta_mpa'),('Asientos bruto','q_asiento_bruta_mpa'),
+                  ('Servicio neto','q_serv_neta_mpa'),('Servicio bruto','q_serv_bruta_mpa')]:
+                lines.append(f'{item}: {valor(r[field])} MPa')
+            lines.append(f"ks,BL: {valor(r['ks_bl_mn_m3'],2)} MN/m³")
+            lines.append(f"Ksp30: {valor(r['ksp30_mn_m3'],2)} MN/m³")
+            lines.append(f"Gobierna: {r['limitacion']}")
+            hov.append('<br>'.join(lines))
+            if len(bs)*len(ls)<=150:
+                t = {'Hundimiento':'H','Asientos':'A','No valido':'!'}.get(vv,'?') if campo=='limitacion' else valor(vv,2)
+                anotaciones.append(dict(x=l,y=b,text=t,showarrow=False,font=dict(size=9,color='#142d48')))
+        z.append(fila);textos.append(hov)
+    categorico=campo=='limitacion'
+    fig=go.Figure(go.Heatmap(x=ls,y=bs,z=z,text=textos,hoverongaps=False,
+       hovertemplate='%{text}<extra></extra>',xgap=2,ygap=2,
+       colorscale=([[0,'#4c79b8'],[.499,'#4c79b8'],[.50,'#a6a6a6'],[.51,'#e6a565'],[1,'#e6a565']]
+           if categorico else [[0,'#d7e6f1'],[0.5,'#8daed4'],[1,'#344b9d']]),
+       showscale=not categorico,colorbar=dict(title='MN/m³' if 'balasto' in etiqueta.lower() or 'Ksp30' in etiqueta else 'MPa')))
+    fig.update_layout(title=etiqueta,template='plotly_white',xaxis_title='L (m)',yaxis_title='B (m)',
+                      height=min(850,max(430, 300+len(bs)*28)),margin=dict(l=30,r=30,t=65,b=30),
+                      annotations=anotaciones)
+    return fig
 
-with st.sidebar:
-    st.subheader("Análisis de cimentaciones")
-    st.caption("Complete las entradas en las primeras tres pestañas y pulse «Calcular» en Resultados.")
-    st.divider()
-    st.info("Presiones de comparación: **netas**. También se proporcionan las equivalentes **brutas**.")
-    st.caption("Hipótesis: carga vertical centrada, base horizontal, dimensiones B y L ya equivalentes si existen excentricidades.")
-    st.divider()
-    st.caption("Comparativa corrida: longitudes internas originales fijas, L de asientos = 100 m y L de hundimiento = 1000 m.")
-    st.caption("Herramienta de predimensionamiento pendiente de validación profesional completa.")
 
-tab_ini,tab_hund,tab_as,tab_res = st.tabs(["Datos iniciales","Hundimiento","Asientos","Resultados"])
+def figura_zapata(b,l):
+    fig=go.Figure()
+    fig.add_shape(type='rect',x0=-l/2,x1=l/2,y0=-b/2,y1=b/2,fillcolor='#c9dcf0',line=dict(color='#335f9a',width=3))
+    fig.update_layout(template='plotly_white',height=190,margin=dict(t=10,b=10,l=10,r=10),
+                      xaxis=dict(title='L (m)',scaleanchor='y'),yaxis=dict(title='B (m)'))
+    return fig
 
-with tab_ini:
-    st.header("Datos iniciales")
-    uno,dos=st.columns([1.0,1.2],gap="large")
-    with uno:
-        st.subheader("Identificación del proyecto")
-        peticionario=st.text_input("Peticionario",value="")
-        trabajo=st.text_input("Trabajo",value="")
-        expediente=st.text_input("Expediente",value="")
-    with dos:
-        st.subheader("Barrido dimensional")
-        st.caption("Introduzca rangos en metros. Se evalúan automáticamente todas las parejas 0 < B ≤ L.")
-        ba,bb,bc=st.columns(3)
-        with ba: bmin=st.number_input("Bmin (m)",min_value=0.05,value=1.5,step=0.25,format="%.2f")
-        with bb: bmax=st.number_input("Bmax (m)",min_value=0.05,value=3.0,step=0.25,format="%.2f")
-        with bc: incr_b=st.number_input("incrB (m)",min_value=0.01,value=0.5,step=0.05,format="%.2f")
-        la,lb,lc=st.columns(3)
-        with la: lmin=st.number_input("Lmin (m)",min_value=0.05,value=1.5,step=0.25,format="%.2f")
-        with lb: lmax=st.number_input("Lmax (m)",min_value=0.05,value=5.0,step=0.25,format="%.2f")
-        with lc: incr_l=st.number_input("incrL (m)",min_value=0.01,value=0.5,step=0.05,format="%.2f")
-        st.caption("Si el máximo no coincide exactamente con un incremento, no se añade un último tramo irregular.")
-    st.info("B y L se consideran **dimensiones equivalentes** B* y L*. No se calculan excentricidades ni giros de carga.")
 
-with tab_hund:
-    st.header("Hundimiento · Resistencia del terreno")
-    st.caption("Expresión 4.8 del CTE DB-SE-C y factores de forma F.3–F.5 para zapatas rectangulares.")
-    c1,c2,c3=st.columns(3,gap="large")
+def figura_bulbo(df,prof_capa,prof_act):
+    fig=go.Figure()
+    fig.add_trace(go.Scatter(x=df['Delta sigma vertical (kPa)'],y=df['z bajo base (m)'],name='Δσz (Boussinesq)',mode='lines'))
+    fig.add_trace(go.Scatter(x=df['umbral CTE (kPa)'],y=df['z bajo base (m)'],name='Umbral de influencia',line=dict(dash='dash')))
+    fig.add_hline(y=prof_capa,line_dash='dot',annotation_text='Fin perfil elástico')
+    if prof_act is not None: fig.add_hline(y=prof_act,line_dash='dot',line_color='#36987a',annotation_text='Profundidad activa')
+    fig.update_layout(template='plotly_white',title='Bulbo de tensiones verticales',height=440,
+                      xaxis_title='Tensión (kPa)',yaxis_title='Profundidad bajo base (m)')
+    fig.update_yaxes(autorange='reversed')
+    return fig
+
+
+st.caption('GEOTECNIA / CTE DB-SE-C / HERRAMIENTA DE PREDIMENSIONAMIENTO')
+st.title('ZapatasCTE v4.2 · Presiones admisibles B × L')
+st.info('Versión completa autónoma reconstruida a partir de la funcionalidad pública v4. No es una copia exacta de GitHub ni acredita aprobación normativa. Solo carga vertical centrada y asiento elástico inmediato.')
+t_ini,t_h,t_as,t_res=st.tabs(['Datos iniciales','Hundimiento','Asientos','Resultados'])
+
+with t_ini:
+    st.subheader('Identificación y barrido geométrico')
+    c1,c2=st.columns([1,2],gap='large')
     with c1:
-        st.subheader("Situación de cálculo")
-        drenaje=st.selectbox("Condición",["Persistente a largo plazo","Transitoria a corto plazo (sin drenaje)"])
-        sin_drenaje=drenaje=="Transitoria a corto plazo (sin drenaje)"
-        profundidad_base=st.number_input("Profundidad D (m)",min_value=0.0,value=0.5,step=0.1)
-        seguridad=st.selectbox("Situación para γR",["Situación persistente","Situación transitoria","Situación extraordinaria"],index=1)
-        considerar_superior=st.toggle("Aplicar factores de profundidad d",value=False,
-            help="CTE Anejo F: sólo si D >= 2 m, sin taludes próximos y con permanencia garantizada del terreno superior.")
+        pet=st.text_input('Peticionario',value='')
+        obra=st.text_input('Trabajo',value='')
+        exp=st.text_input('Expediente',value='')
     with c2:
-        st.subheader("Parámetros resistentes")
-        if sin_drenaje:
-            st.caption("Condición sin drenaje: φ = 0° impuesto por el modelo.")
-        phi=st.number_input("Ángulo de rozamiento φ' (°)",min_value=0.0,max_value=89.0,
-                            value=0.0 if sin_drenaje else 30.0,step=0.5,disabled=sin_drenaje,
-                            key="phi_ud" if sin_drenaje else "phi_drenado")
-        cohesion=st.number_input("c' / cu (kPa)",min_value=0.0,value=0.0 if not sin_drenaje else 50.0,step=5.0,
-                                 key="cohesion_ud" if sin_drenaje else "cohesion_drenado")
-        cu_aumenta=st.toggle("Perfil lineal cu(z)",value=False,disabled=not sin_drenaje)
-        ua,ub=st.columns(2)
-        with ua:
-            cu_z0=st.number_input("z0 cu (m)",value=0.0,step=0.5,disabled=not cu_aumenta)
-            cu_0=st.number_input("cu0 (kPa)",min_value=0.1,value=50.0,step=5.0,disabled=not cu_aumenta)
-        with ub:
-            cu_z1=st.number_input("z1 cu (m)",value=10.0,step=0.5,disabled=not cu_aumenta)
-            cu_1=st.number_input("cu1 (kPa)",min_value=0.1,value=150.0,step=5.0,disabled=not cu_aumenta)
+        x1,x2,x3=st.columns(3)
+        with x1: bmin=st.number_input('Bmin (m)',value=1.5,min_value=.05,step=.25)
+        with x2: bmax=st.number_input('Bmax (m)',value=3.,min_value=.05,step=.25)
+        with x3: db=st.number_input('Incremento B (m)',value=.5,min_value=.01,step=.05)
+        x1,x2,x3=st.columns(3)
+        with x1: lmin=st.number_input('Lmin (m)',value=1.5,min_value=.05,step=.25)
+        with x2: lmax=st.number_input('Lmax (m)',value=5.,min_value=.05,step=.25)
+        with x3: dl=st.number_input('Incremento L (m)',value=.5,min_value=.01,step=.05)
+    st.caption('Se calculan exclusivamente B>0, L>=B. B y L deben ser dimensiones eficaces si existe excentricidad; esta aplicación no las calcula.')
+
+with t_h:
+    st.subheader('Hundimiento · CTE DB-SE-C')
+    c1,c2,c3=st.columns(3,gap='large')
+    with c1:
+        drenaje=st.selectbox('Condición',('Drenada','No drenada'))
+        sin_drenaje=drenaje=='No drenada'
+        D=st.number_input('Profundidad de apoyo D (m)',min_value=0.,value=.5,step=.1)
+        gammaR=st.selectbox('Coeficiente de resistencia γR',[3.,2.],help='Defecto 3; verifique situación de proyecto y factor aplicable.')
+        factor_prof=st.checkbox('Factores de profundidad d (D>=2 m, sin talud)',value=False)
+    with c2:
+        phi=st.number_input('Rozamiento φ (°)',min_value=0.,max_value=89.,value=0. if sin_drenaje else 30.,step=.5,disabled=sin_drenaje)
+        cohesion=st.number_input('c′ / cu (kPa)',min_value=0.,value=50. if sin_drenaje else 0.,step=5.)
+        perfil_cu=st.checkbox('cu aumenta linealmente con z',disabled=not sin_drenaje)
+        cu_z0=st.number_input('z0 cu (m)',value=0.,disabled=not perfil_cu)
+        cu0=st.number_input('cu0 (kPa)',min_value=.1,value=50.,disabled=not perfil_cu)
+        cu_z1=st.number_input('z1 cu (m)',min_value=.1,value=10.,disabled=not perfil_cu)
+        cu1=st.number_input('cu1 (kPa)',min_value=.1,value=150.,disabled=not perfil_cu)
     with c3:
-        st.subheader("Agua, sobrecarga y talud")
-        nf=st.number_input("Nivel freático bajo rasante (m)",min_value=0.0,value=6.6,step=0.1)
-        gamma_ef=st.number_input("Peso específico sumergido γ' (kN/m³)",min_value=0.1,value=18.0,step=0.5)
-        gamma_ap=st.number_input("Peso específico aparente (kN/m³)",min_value=0.1,value=18.0,step=0.5)
-        flujo=st.toggle("Flujo ascendente",value=False)
-        gradiente=st.number_input("Gradiente vertical",value=0.4,step=0.05,disabled=not flujo)
-        considerar_sobrecarga=st.toggle("Incluir q0 alrededor de la base",value=True)
-        sc1,sc2=st.columns(2)
-        with sc1: gamma_sob=st.number_input("γ sobrecarga (kN/m³)",min_value=0.1,value=18.0,step=0.5,disabled=not considerar_sobrecarga)
-        with sc2: altura_sob=st.number_input("Altura sobrecarga (m)",min_value=0.0,value=0.5,step=0.1,disabled=not considerar_sobrecarga)
-        q0_vista = gamma_sob * altura_sob if considerar_sobrecarga else 0.0
-        st.metric("Sobrecarga calculada q₀", f"{q0_vista:.2f} kN/m²", help="q₀ = γ sobrecarga × altura; cambia al editar los valores, sin pulsar Calcular. Si la sobrecarga no está incluida, q₀ = 0.")
-        beta=st.number_input("Pendiente β (°)",min_value=0.0,max_value=89.0,value=0.0,step=0.5)
-    st.caption("q₀ = γ × h se toma como presión representativa en el contorno de la base; en cálculo drenado debe representar la presión EFECTIVA y en no drenado la TOTAL. Verifique agua y permanencia de la sobrecarga. No se consideran cargas inclinadas ni excéntricas.")
-    st.caption("Sin cargas horizontales, momentos ni factores de inclinación i; se exige comprobación externa para cargas no centradas o inclinadas.")
+        nf=st.number_input('Nivel freático bajo rasante (m)',min_value=0.,value=6.6,step=.1)
+        gam_ap=st.number_input('Peso aparente γ (kN/m³)',min_value=.1,value=18.,step=.5)
+        gam_sub=st.number_input('Peso sumergido γ′ (kN/m³)',min_value=.1,value=9.,step=.5,
+                                help='Peso sumergido, no saturado. γsat = γ′ + 9.81 kN/m³.')
+        flujo=st.checkbox('Flujo ascendente',value=False)
+        grad=st.number_input('Gradiente hidráulico',min_value=0.,value=.4,step=.05,disabled=not flujo)
+        q0_on=st.checkbox('Sobrecarga q0 en contorno',value=True)
+        gam_q0=st.number_input('γ sobrecarga (kN/m³)',min_value=.1,value=18.,disabled=not q0_on)
+        alt_q0=st.number_input('Altura sobrecarga (m)',min_value=0.,value=.5,disabled=not q0_on)
+        beta=st.number_input('Inclinación de talud β (°)',min_value=0.,max_value=89.,value=0.,step=.5)
+        st.metric('q0 de contorno',f'{gam_q0*alt_q0 if q0_on else 0:.2f} kPa')
+    st.caption('No se calculan carga horizontal, momento, excentricidad, deslizamiento ni vuelco. q0 y descarga previa a excavación son magnitudes distintas.')
 
-with tab_as:
-    st.header("Asientos · Terreno deformable")
-    st.caption("Steinbrenner por capas elásticas. Profundidades z medidas desde la base de la zapata (z=0).")
-    izq,der=st.columns([0.9,2.1],gap="large")
-    with izq:
-        asiento_adm=st.number_input("Asiento admisible (cm)",min_value=0.01,value=5.0,step=0.5)
-        tipo_balasto=st.selectbox("Tipo de terreno para Ksp30",["Cohesivo","Granular"],
-            help="Relación de escala E.6 (cohesivo), E.7 (granular) y factor rectangular E.8.")
-        metodo=st.radio("Asiento bajo el centro",[
-            "Superposición 4 × (B/2 × L/2) — Recomendado",
-            "Aproximación 2 × (B × L)",
-        ],help="La superposición de cuatro cuadrantes es el modo recomendado; la aproximación permite compararse con el Excel original.")
-        if metodo.startswith("Superposición"):
-            st.success("s_centro = 4 × s_esquina(B/2,L/2)")
-            metodo_id="superposicion"
+with t_as:
+    st.subheader('Asientos inmediatos y coeficiente de balasto')
+    c1,c2=st.columns([0.9,2.1],gap='large')
+    with c1:
+        asiento_adm=st.number_input('Asiento admisible (cm)',min_value=.01,value=5.,step=.5)
+        tipo=st.selectbox('Tipo de terreno para Ksp30',('Cohesivo','Granular'))
+        criterio_txt=st.selectbox('Conversión geométrica del balasto',(
+            'Literal CTE (E.6/E.7 + E.8 según geometría)',
+            'Continua (adaptación técnica NO literal)'),help='El método continuo normaliza E.8 por su factor 1.5 en B=L, no es regla literal.')
+        criterio='continuo' if criterio_txt.startswith('Continua') else 'literal_cte'
+        st.caption('E.6: cohesivo · E.7: granular · E.8: rectangular. Solo dos tipos de suelo.')
+        metodo=st.radio('Asiento bajo centro',('Superposición de cuatro cuadrantes','Aproximación histórica 2 × esquina'))
+        metodo_id='superposicion' if metodo.startswith('Superposición') else 'excel'
+        descarga_on=st.checkbox('Introducir tensión retirada por excavación',value=False)
+        sigma_man=st.number_input('Tensión retirada (kPa)',min_value=0.,value=9.,disabled=not descarga_on)
+        paso=st.number_input('Paso del bulbo (m)',min_value=.02,max_value=2.,value=.1,step=.05)
+        z_man_on=st.checkbox('Profundidad del bulbo manual',value=False)
+        z_man=st.number_input('Profundidad gráfica (m)',min_value=.5,value=20.,step=.5,disabled=not z_man_on)
+        if criterio=='literal_cte':
+            st.warning('La combinación literal de fórmulas cuadrada/rectangular tiene salto en B=L.')
         else:
-            st.warning("s_centro = 2 × s_esquina(B,L): aproximación histórica, no recomendada para estratificados.")
-            metodo_id="excel"
-        st.caption("El balasto se obtiene de la flexibilidad elástica calculada y se transforma a placa de 30 cm según el material elegido.")
-        st.divider()
-        st.subheader("Presion inicial en la base")
-        descarga_manual = st.toggle("Introducir tension de tierras excavadas manualmente", value=False,
-            help="Si se desactiva, se estima con D, nivel freatico y pesos especificos. No es q0 de hundimiento.")
-        sigma_descarga = (st.number_input("Tension retirada (kPa)",min_value=0.0,value=9.0,step=1.0)
-                          if descarga_manual else None)
-        st.caption("Se distingue la descarga previa por excavacion del q0 de contorno empleado en hundimiento.")
-        st.divider()
-        st.subheader("Diagnostico de tensiones")
-        modo_profundidad = st.selectbox("Profundidad del grafico", ["Automatica","Manual"])
-        z_manual = (st.number_input("Profundidad maxima (m)",min_value=0.5,value=20.0,step=0.5)
-                    if modo_profundidad == "Manual" else None)
-        paso_tensiones = st.number_input("Paso deseado del bulbo (m)",min_value=0.02,max_value=2.0,value=0.10,step=0.05)
-        st.caption("Criterio de influencia: min(10% de q neta, 5% de sigma'v0); calculado con Boussinesq bajo el centro.")
-    with der:
-        st.subheader("Perfil de deformabilidad")
-        capas_df=st.data_editor(
-            pd.DataFrame({"Unidad":["NIVEL 1","NIVEL 2"],"z sup. (m)":[0.0,2.5],
-                "z inf. (m)":[2.5,10.0],"E (MPa)":[15.0,1200.0],"nu":[0.30,0.20]}),
-            num_rows="dynamic",hide_index=True,use_container_width=True,key="perfil_capas",
-            column_config={
-                "Unidad":st.column_config.TextColumn(required=True),
-                "z sup. (m)":st.column_config.NumberColumn(min_value=0.0,step=0.5,format="%.2f"),
-                "z inf. (m)":st.column_config.NumberColumn(min_value=0.0,step=0.5,format="%.2f"),
-                "E (MPa)":st.column_config.NumberColumn(min_value=0.01,step=1.0,format="%.2f"),
-                "nu":st.column_config.NumberColumn(min_value=0.0,max_value=0.499,step=0.01,format="%.3f"),
-            },
-        )
-        st.caption("Estratos contiguos sin solapes ni huecos. E > 0 y 0 ≤ ν < 0,5.")
+            st.warning('Criterio continuo propuesto: no es E.8 literal; exige justificación del proyectista.')
+    with c2:
+        st.caption('Las profundidades se miden desde la base. El perfil debe comenzar en z=0 y sus capas ser contiguas.')
+        capas_df=st.data_editor(pd.DataFrame({
+           'Unidad':['NIVEL 1','NIVEL 2'],'z sup. (m)':[0.,2.5],
+           'z inf. (m)':[2.5,10.], 'E (MPa)':[15.,1200.], 'nu':[.30,.20]}),
+           num_rows='dynamic',use_container_width=True,hide_index=True,key='tabla_estratos')
 
-# Los controles de entrada no ejecutan cálculos pesados en cada edición.
-# El identificador también incorpora el perfil completo para detectar resultados obsoletos.
-entrada_actual = {
-    "proyecto": [peticionario, trabajo, expediente],
-    "rango": [bmin, bmax, incr_b, lmin, lmax, incr_l],
-    "hundimiento": [drenaje, profundidad_base, seguridad, considerar_superior,
-        phi if not sin_drenaje else 0.0, cohesion, cu_aumenta, cu_z0, cu_0,
-        cu_z1, cu_1, nf, gamma_ef, gamma_ap, flujo, gradiente,
-        considerar_sobrecarga, gamma_sob, altura_sob, beta],
-    "asientos": [asiento_adm, tipo_balasto, metodo_id, descarga_manual, sigma_descarga, modo_profundidad, z_manual, paso_tensiones],
-    "capas": capas_df.to_dict(orient="records"),
-}
-firma_actual = hashlib.sha256(json.dumps(entrada_actual,sort_keys=True,default=str,
-    ensure_ascii=False).encode("utf-8")).hexdigest()
+p=Parametros(D_m=D,nf_m=nf,gamma_ap_kn_m3=gam_ap,gamma_sub_kn_m3=gam_sub,
+    drenaje=drenaje,phi_deg=phi if not sin_drenaje else 0.,cohesion_kpa=cohesion,
+    gamma_R=gammaR,incluir_q0=q0_on,gamma_q0_kn_m3=gam_q0,altura_q0_m=alt_q0,
+    factor_profundidad=factor_prof,beta_deg=beta,flujo_ascendente=flujo,gradiente=grad,
+    cu_gradiente=perfil_cu,cu_z0_m=cu_z0,cu0_kpa=cu0,cu_z1_m=cu_z1,cu1_kpa=cu1,
+    asiento_adm_cm=asiento_adm,metodo_asiento=metodo_id,tipo_balasto=tipo,
+    criterio_balasto=criterio,descarga_manual_kpa=sigma_man if descarga_on else None)
+entrada=dict(proyecto=[pet,obra,exp],malla=[bmin,bmax,db,lmin,lmax,dl],parametros=asdict(p),
+             capas=capas_df.to_dict(orient='records'),paso=paso,zmax=z_man if z_man_on else None)
+firma=checksum(entrada)
 
-with tab_res:
-    if st.button("Calcular", type="primary", use_container_width=True, key="calcular_malla"):
+with t_res:
+    if st.button('Calcular',type='primary',use_container_width=True):
         try:
-            rango = RangoGeometrico(bmin,bmax,incr_b,lmin,lmax,incr_l)
-            geometrias = generar_geometrias(rango)
-            capas = capas_desde_tabla(capas_df)
-            bs = tuple(sorted({b for b,l in geometrias}))
-            h = DatosHundimiento(
-                situacion_drenaje=drenaje,forma="Rectangular",anchos_m=bs,
-                profundidad_base_m=profundidad_base,nivel_freatico_m=nf,
-                flujo_ascendente=flujo,gradiente_vertical=gradiente,inclinacion_talud_deg=beta,
-                talud_transitorio_sin_drenaje=sin_drenaje,phi_deg=0.0 if sin_drenaje else phi,
-                cohesion_kpa=cohesion,cu_aumenta_con_profundidad=cu_aumenta,
-                cu_z_inicial_m=cu_z0,cu_inicial_kpa=cu_0,cu_z_final_m=cu_z1,cu_final_kpa=cu_1,
-                gamma_efectivo_kn_m3=gamma_ef,gamma_aparente_kn_m3=gamma_ap,
-                considerar_sobrecarga=considerar_sobrecarga,gamma_sobrecarga_kn_m3=gamma_sob,
-                altura_sobrecarga_m=altura_sob,considerar_terreno_sobre_base=considerar_superior,
-                situacion_seguridad=seguridad,longitud_corrida_m=LONGITUD_CORRIDA_INTERNA_M,
-            )
-            s = DatosAsientos(asiento_admisible_cm=asiento_adm,
-                longitud_corrida_m=LONGITUD_CORRIDA_INTERNA_M,
-                capas=capas,metodo_centro=metodo_id,tipo_material_balasto=tipo_balasto,
-                descarga_excavacion_kpa=sigma_descarga)
-            resultados = calcular_malla(geometrias,h,s)
-            tabla = tabla_malla(resultados)
-            corridas = calcular_corridas(tuple(sorted(set(tabla["B (m)"]))),h,s)
-            st.session_state["ultimo_calculo"] = {
-                "firma": firma_actual, "resultados": resultados, "tabla": tabla,
-                "corridas": corridas, "h": h, "s": s,
-                "proyecto": DatosProyecto(peticionario,trabajo,expediente),
-                "paso_bulbo": paso_tensiones, "z_bulbo": z_manual,
-            }
-            st.success(f"Cálculo completado: {len(resultados)} geometrías B × L.")
-        except (ValueError,TypeError,OverflowError,ZeroDivisionError,ArithmeticError) as exc:
-            st.error(f"No se han actualizado los resultados. Revise los datos: {exc}")
-    guardado = st.session_state.get("ultimo_calculo")
-    if guardado is None:
-        st.info("No hay cálculos realizados. Complete los datos de entrada y pulse «Calcular».")
+            capas=tuple(Estrato(str(x['Unidad']),float(x['z sup. (m)']),float(x['z inf. (m)']),
+                                 float(x['E (MPa)']),float(x['nu'])) for x in entrada['capas'])
+            geom=dimensiones(bmin,bmax,db,lmin,lmax,dl)
+            rows=ejecutar_malla(geom,p,capas)
+            st.session_state['ultimo_calculo']=dict(firma=firma,rows=rows,p=p,capas=capas,
+                proyecto=[pet,obra,exp],paso=paso,zmax=z_man if z_man_on else None)
+            st.success(f'Calculadas {len(rows)} combinaciones B × L.')
+        except (ValueError,TypeError,ArithmeticError,OverflowError,KeyError) as e:
+            st.error(f'Cálculo cancelado. Revise los parámetros: {e}')
+    actual=st.session_state.get('ultimo_calculo')
+    if actual is None:
+        st.info('Introduzca datos y pulse Calcular para visualizar los resultados.')
         st.stop()
-    resultados=guardado["resultados"]
-    tabla=guardado["tabla"]
-    corridas=guardado["corridas"]
-    h_cal=guardado["h"]
-    s_cal=guardado["s"]
-    proyecto_cal=guardado["proyecto"]
-    desactualizado=firma_actual != guardado["firma"]
+    rows=actual['rows'];pp=actual['p'];capas=actual['capas']
+    desactualizado=firma!=actual['firma']
     if desactualizado:
-        st.warning("Resultados pendientes de actualizar: se muestran los resultados del último cálculo. Pulse «Calcular» para aplicar los datos modificados.")
-    # Sin bloque de KPIs ni título general, como se acordó.
-    with st.sidebar:
-        st.divider()
-        st.caption(f"Último cálculo: {len(resultados)} geometrías")
-        if desactualizado:
-            st.warning("Resultados pendientes de actualizar")
-        st.download_button("Descargar tabla CSV",data=tabla.to_csv(index=False).encode("utf-8-sig"),
-            file_name="cimentaciones_BxL_resultados.csv",mime="text/csv",
-            use_container_width=True,disabled=desactualizado)
-    an_tab,co_tab,met_tab=st.tabs(["Mapa B × L y ficha","Tabla general y curvas","Método y advertencias"])
-    with an_tab:
-        mapa_col,ficha_col=st.columns([1.4,1.0],gap="large")
-        with mapa_col:
-            metrica=st.selectbox("Variable representada",list(CAMPOS_MAPA),key="metrica_mapa")
-            st.caption("Cada casilla corresponde a una combinación B ≤ L. Pulse una casilla o seleccione una geometría en la ficha.")
-            event=st.plotly_chart(mapa_calor(tabla,metrica),use_container_width=True,
-                on_select="rerun",selection_mode="points",key="mapa_puntos")
-            if any(r.q_serv_neta_mpa is None for r in resultados):
-                st.warning("Algunas geometrías carecen de margen neto positivo. Consulte la tabla y las advertencias.")
-        with ficha_col:
-            st.subheader("Ficha de la zapata")
-            opciones=[f"B={r.b_m:.2f} m · L={r.l_m:.2f} m" for r in resultados]
-            idx=st.selectbox("Geometría",range(len(opciones)),format_func=lambda i:opciones[i],key="geometria_ficha")
+        st.warning('Resultados obsoletos: se muestran los datos del cálculo anterior. Pulse Calcular para actualizar; descargas deshabilitadas.')
+    tabla=tabla_resultados(rows)
+    tb_mapa,tb_tabla,tb_met=st.tabs(['Mapa B × L y ficha','Tabla general y curvas','Método y advertencias'])
+    with tb_mapa:
+        iz,dr=st.columns([1.35,1.0],gap='large')
+        with iz:
+            metrica=st.selectbox('Variable representada',list(MAPA),key='metrica_mapa')
+            if '(bruta)' in metrica:
+                st.caption('Bruta = neta + tensión preexistente retirada en la base; no confundir con q0 de contorno.')
+            chart=figura_mapa(rows,metrica)
+            event=st.plotly_chart(chart,use_container_width=True,key='graf_mapa',on_select='rerun',selection_mode='points')
+        with dr:
+            st.subheader('Ficha de la zapata')
+            opciones=[f'B={r["B_m"]:.2f} m · L={r["L_m"]:.2f} m' for r in rows]
+            idx=st.selectbox('Geometría',range(len(opciones)),format_func=lambda i:opciones[i])
+            seleccionado=rows[idx]
             try:
                 pts=event.selection.points
                 if pts:
-                    xb=float(pts[0]["y"]); xl=float(pts[0]["x"])
-                    seleccionado=next((r for r in resultados if abs(r.b_m-xb)<1e-8 and abs(r.l_m-xl)<1e-8),resultados[idx])
-                else:
-                    seleccionado=resultados[idx]
-            except (AttributeError,KeyError,IndexError,TypeError,ValueError):
-                seleccionado=resultados[idx]
-            f1,f2,f3=st.columns(3)
-            f1.metric("B",f"{seleccionado.b_m:.2f} m")
-            f2.metric("L",f"{seleccionado.l_m:.2f} m")
-            f3.metric("Área",f"{seleccionado.area_m2:.2f} m²")
-            st.plotly_chart(grafico_geom(seleccionado.b_m,seleccionado.l_m),use_container_width=True)
-            fa,fb=st.columns(2)
-            fa.metric("Hundimiento neto",f"{seleccionado.q_hund_neta_mpa:.3f} MPa")
-            fb.metric("Asientos neto",f"{seleccionado.q_asiento_neta_mpa:.3f} MPa")
-            st.metric("Presión de servicio neta",formatear(seleccionado.q_serv_neta_mpa)+" MPa")
-            st.write(f"**Gobierna:** {seleccionado.limitacion}")
-            with st.expander("Detalle de presiones, balasto y factores"):
-                st.write(f"q0 del contorno (hundimiento) = {seleccionado.q0_kpa/1000:.3f} MPa")
-                st.write(f"Tension preexistente en la base = {seleccionado.sigma_pre_base_kpa/1000:.3f} MPa")
-                st.write(f"Presion limite por asiento bruta = {seleccionado.q_asiento_bruta_mpa:.3f} MPa")
-                st.write(f"Hundimiento bruto = {seleccionado.q_hund_bruta_mpa:.3f} MPa")
-                st.write(f"Servicio bruto = {formatear(seleccionado.q_serv_bruta_mpa)} MPa")
-                st.write(f"k_s,BL = {seleccionado.ks_bl_mn_m3:.2f} MN/m³")
-                st.write(f"Ksp30 ({s_cal.tipo_material_balasto.lower()}) = {seleccionado.ksp30_mn_m3:.2f} MN/m³")
-                st.write(f"Factores de forma: sc={seleccionado.sc:.3f}, sq={seleccionado.sq:.3f}, sγ={seleccionado.sgamma:.3f}")
-            if seleccionado.avisos:
-                for aviso in seleccionado.avisos:
-                    st.warning(aviso)
+                    b_s=float(pts[0]['y']);l_s=float(pts[0]['x'])
+                    seleccionado=next((r for r in rows if abs(r['B_m']-b_s)<1e-7 and abs(r['L_m']-l_s)<1e-7),seleccionado)
+            except (AttributeError,TypeError,KeyError,IndexError,ValueError):
+                pass
+            c1,c2,c3=st.columns(3)
+            c1.metric('B',f"{seleccionado['B_m']:.2f} m")
+            c2.metric('L',f"{seleccionado['L_m']:.2f} m")
+            c3.metric('Área',f"{seleccionado['area_m2']:.2f} m²")
+            st.plotly_chart(figura_zapata(seleccionado['B_m'],seleccionado['L_m']),use_container_width=True)
+            st.metric('Presión de servicio neta',valor(seleccionado['q_serv_neta_mpa'])+' MPa')
+            st.write('**Gobierna:**',seleccionado['limitacion'])
+            st.markdown('**Comparación simultánea de presiones (MPa)**')
+            comp=pd.DataFrame([{'Criterio':nombre,'Neta (MPa)':seleccionado[neta], 'Bruta (MPa)':seleccionado[bruta]}
+                for nombre,neta,bruta in [('Hundimiento','q_hund_neta_mpa','q_hund_bruta_mpa'),
+                ('Asientos','q_asiento_neta_mpa','q_asiento_bruta_mpa'),
+                ('Servicio','q_serv_neta_mpa','q_serv_bruta_mpa')]])
+            st.dataframe(comp,hide_index=True,use_container_width=True)
+            with st.expander('Detalle de presiones, balasto y factores',expanded=True):
+                st.write(f"q0 contorno = {seleccionado['q0_kpa']:.2f} kPa; tensión preexistente = {seleccionado['sigma_pre_base_kpa']:.2f} kPa")
+                st.write(f"ks,BL = {seleccionado['ks_bl_mn_m3']:.2f} MN/m³")
+                st.write(f"ks,B equivalente = {seleccionado['ks_b_equiv_mn_m3']:.2f} MN/m³")
+                st.write(f"Ksp30 = {seleccionado['ksp30_mn_m3']:.2f} MN/m³ ({seleccionado['tipo_balasto']})")
+                st.write(f"Criterio = {seleccionado['criterio_balasto']}; {seleccionado['referencia_balasto']}")
+                st.write(f"Factor geométrico = {seleccionado['factor_forma_balasto']:.6f}; factor escala = {seleccionado['factor_escala_balasto']:.6f}")
+                st.write(f"sc={seleccionado['sc']:.3f}; sq={seleccionado['sq']:.3f}; sγ={seleccionado['sgamma']:.3f}")
+                contraste=comparar_criterios(seleccionado['ks_bl_mn_m3'],seleccionado['B_m'],seleccionado['L_m'],pp.tipo_balasto)
+                st.caption(f"Contraste Ksp30: literal = {contraste['ksp30_literal_mn_m3']:.2f}; continuo = {contraste['ksp30_continuo_mn_m3']:.2f} MN/m³")
+            if seleccionado['avisos']:
+                for a in seleccionado['avisos']:
+                    st.warning(a)
+            ficha=dict(version=VERSION,fecha_normativa='CTE DB-SE-C Anejo E.5 y F.1',
+                       proyecto=actual['proyecto'],parametros=asdict(pp),resultado=seleccionado)
+            st.download_button('Descargar ficha JSON',data=json.dumps(ficha,indent=2,ensure_ascii=False,default=str),
+                        file_name=f"ficha_B{seleccionado['B_m']:g}_L{seleccionado['L_m']:g}.json",
+                        mime='application/json',disabled=desactualizado)
         st.divider()
-        st.subheader("Diagnóstico de asientos elásticos de la zapata seleccionada")
-        st.caption("Detalle de Steinbrenner: desglose por estratos, suma acumulada y control INDEPENDIENTE de tensiones verticales por Boussinesq.")
-        opcion_presion = st.radio("Presión de referencia", ["Servicio neto", "Límite neto por asientos"],
-                                 horizontal=True, key="presion_diagnostico")
-        q_ref = (seleccionado.q_serv_neta_mpa if opcion_presion=="Servicio neto"
-                 else seleccionado.q_asiento_neta_mpa)
-        if q_ref is None or q_ref <= 0:
-            st.warning("No existe presion de referencia positiva; seleccione el limite por asientos.")
+        st.subheader('Diagnóstico de asientos elásticos')
+        referencia=st.radio('Presión de referencia',('Servicio neto','Límite neto por asientos'),horizontal=True)
+        q_ref=seleccionado['q_serv_neta_mpa'] if referencia=='Servicio neto' else seleccionado['q_asiento_neta_mpa']
+        if q_ref is None or q_ref<=0:
+            st.warning('Presión no positiva para el diagnóstico. Seleccione límite por asientos.')
         else:
-            try:
-                filas = contribuciones_steinbrenner(seleccionado.b_m, seleccionado.l_m, s_cal, q_ref)
-                tabla_capas = pd.DataFrame(filas)
-                perfil = calcular_perfil_bulbo(seleccionado.b_m, seleccionado.l_m, q_ref,
-                    h_cal, s_cal, paso_m=guardado["paso_bulbo"],
-                    profundidad_manual_m=guardado["z_bulbo"])
-                total_mm = filas[-1]["Asiento acumulado (mm)"]
-                s1, s2, s3 = st.columns(3)
-                s1.metric("Asiento elástico", f"{total_mm:.2f} mm")
-                s2.metric("Profundidad activa (CTE)",
-                          f"{perfil.profundidad_influencia_m:.2f} m" if perfil.profundidad_influencia_m is not None else "No alcanzada")
-                s3.metric("Profundidad 90% del asiento (por capas)",
-                    f"{profundidad_porcentaje_asiento(filas,90):.2f} m" if profundidad_porcentaje_asiento(filas,90) is not None else "N/D")
-                if perfil.suficiente:
-                    st.success("El perfil alcanza la profundidad activa estimada por tensiones en el eje central.")
-                else:
-                    st.warning("El perfil NO demuestra cubrir la profundidad activa estimada. Revisar capas mas profundas.")
-                c_bulbo, c_acum = st.columns(2,gap="large")
-                with c_bulbo: st.plotly_chart(figura_bulbo(perfil),use_container_width=True)
-                with c_acum: st.plotly_chart(figura_asiento_acumulado(tabla_capas),use_container_width=True)
-                st.plotly_chart(figura_contribuciones(tabla_capas),use_container_width=True)
-                st.dataframe(tabla_capas,hide_index=True,use_container_width=True,
-                    column_config={"Asiento (mm)":st.column_config.NumberColumn(format="%.3f"),
-                                   "Contribucion (%)":st.column_config.NumberColumn(format="%.2f")})
-                c_ex1, c_ex2 = st.columns(2)
-                with c_ex1:
-                    st.download_button("Descargar contribuciones por estrato (CSV)",
-                    data=tabla_capas.to_csv(index=False).encode("utf-8-sig"),
-                    file_name=f"asientos_B{seleccionado.b_m:g}_L{seleccionado.l_m:g}.csv",
-                    mime="text/csv",disabled=desactualizado)
-                with c_ex2:
-                    tabla_tensiones = pd.DataFrame({"z bajo base (m)":perfil.z_m,
-                        "Delta sigma vertical (kPa)":perfil.delta_sigma_kpa,
-                        "sigma efectiva inicial (kPa)":perfil.sigma_efectiva_inicial_kpa,
-                        "umbral CTE (kPa)":perfil.umbral_cte_kpa})
-                    st.download_button("Descargar bulbo de tensiones (CSV)",
-                        data=tabla_tensiones.to_csv(index=False).encode("utf-8-sig"),
-                        file_name=f"bulbo_B{seleccionado.b_m:g}_L{seleccionado.l_m:g}.csv",
-                        mime="text/csv",disabled=desactualizado)
-                for mensaje in perfil.avisos: st.info(mensaje)
-                st.caption("Boussinesq: bulbo de tension en semiespacio homogeneo. El asiento por estratos es aproximado; "
-                           "la profundidad 90% se informa solo en los limites de capa conocidos. "
-                           "No se calculan consolidacion primaria/secundaria ni asiento diferencial.")
-            except (ValueError,ZeroDivisionError,OverflowError) as exc:
-                st.error(f"No se pudo generar el diagnostico elastico: {exc}")
-    with co_tab:
-        st.subheader("Tabla completa B × L")
-        st.dataframe(tabla,hide_index=True,use_container_width=True,height=410,
-                     column_config={
-                         "q servicio neta (MPa)":st.column_config.NumberColumn(format="%.4f"),
-                         "q servicio bruta (MPa)":st.column_config.NumberColumn(format="%.4f"),
-                         "Ksp30 (MN/m³)":st.column_config.NumberColumn(format="%.2f"),
-                     })
-        ancho_curva=st.selectbox("Ancho B para comparación de longitudes L",sorted(set(tabla["B (m)"])))
-        st.plotly_chart(curvas_seccion(tabla,ancho_curva),use_container_width=True)
-        st.download_button("Descargar resultados B × L (CSV)",data=tabla.to_csv(index=False).encode("utf-8-sig"),
-            file_name="resultados_zapatas_rectangulares.csv",mime="text/csv",
-            disabled=desactualizado,help="Recalcule para descargar datos correspondientes a las entradas actuales." if desactualizado else None)
-        st.divider()
-        st.subheader("Comparativa de zapatas corridas")
-        st.caption(f"Aproximación histórica con longitudes INTERNAS no editables: L(asientos)={LONGITUD_CORRIDA_INTERNA_M:.0f} m; L(hundimiento)={LONGITUD_CORRIDA_HUNDIMIENTO_M:.0f} m. No corresponde a una única zapata B×L física.")
+            desglose=pd.DataFrame(contribuciones_asiento(seleccionado['B_m'],seleccionado['L_m'],capas,pp.metodo_asiento,q_ref))
+            perf,prof_act=bulbo_tensiones(seleccionado['B_m'],seleccionado['L_m'],pp,capas,q_ref,actual['paso'],actual['zmax'])
+            c1,c2=st.columns(2)
+            with c1:
+                st.metric('Asiento elástico',f"{desglose['Asiento (mm)'].sum():.2f} mm")
+                st.plotly_chart(figura_bulbo(perf,capas[-1].z1,prof_act),use_container_width=True)
+            with c2:
+                st.metric('Profundidad activa por tensiones',f'{prof_act:.2f} m' if prof_act is not None else 'No alcanzada')
+                f=go.Figure(go.Scatter(x=desglose['Asiento acumulado (mm)'],y=desglose['z inf. (m)'],mode='lines+markers'))
+                f.update_layout(template='plotly_white',height=440,title='Asiento acumulado (mm)',xaxis_title='mm',yaxis_title='z bajo base (m)')
+                f.update_yaxes(autorange='reversed')
+                st.plotly_chart(f,use_container_width=True)
+            if prof_act is None or prof_act>capas[-1].z1:
+                st.warning('No queda demostrada la cobertura de la profundidad de influencia con el perfil disponible.')
+            st.dataframe(desglose,hide_index=True,use_container_width=True)
+            b1,b2=st.columns(2)
+            with b1:
+                st.download_button('Descargar asientos por estrato CSV',data=desglose.to_csv(index=False).encode('utf-8-sig'),
+                                   file_name='asientos_por_estratos.csv',disabled=desactualizado)
+            with b2:
+                st.download_button('Descargar perfil de tensiones CSV',data=perf.to_csv(index=False).encode('utf-8-sig'),
+                                   file_name='bulbo_de_tensiones.csv',disabled=desactualizado)
+    with tb_tabla:
+        st.subheader('Tabla general B × L')
+        st.dataframe(tabla,hide_index=True,use_container_width=True,height=450)
+        st.download_button('Descargar tabla completa CSV',tabla.to_csv(index=False).encode('utf-8-sig'),
+                           file_name='ZapatasCTE_v42_resultados.csv',disabled=desactualizado,mime='text/csv')
+        b_c=st.selectbox('Ancho B para curvas comparativas',sorted({r['B_m'] for r in rows}))
+        df_b=pd.DataFrame([r for r in rows if r['B_m']==b_c])
+        graf=go.Figure()
+        for titulo,col in [('Hundimiento neto','q_hund_neta_mpa'),('Asientos neto','q_asiento_neta_mpa'),('Servicio neto','q_serv_neta_mpa'),
+                           ('Hundimiento bruto','q_hund_bruta_mpa'),('Asientos bruto','q_asiento_bruta_mpa'),('Servicio bruto','q_serv_bruta_mpa')]:
+            graf.add_trace(go.Scatter(x=df_b['L_m'],y=df_b[col],name=titulo,mode='lines+markers'))
+        graf.update_layout(template='plotly_white',height=450,xaxis_title='L (m)',yaxis_title='Presión (MPa)',title=f'B = {b_c:g} m')
+        st.plotly_chart(graf,use_container_width=True)
+        st.subheader('Comparativa corrida histórica')
+        st.caption('Referencia exclusivamente orientativa: L=100 m en asiento y L=1.000 m en hundimiento, conforme a la convención histórica descrita en v4.')
         try:
-            tc=tabla_malla(corridas)
-            if len(tc):
-                tc.insert(2,"L hundimiento (m)",LONGITUD_CORRIDA_HUNDIMIENTO_M)
-                tc=tc.rename(columns={"L (m)":"L asientos (m)"})
-                st.dataframe(tc,hide_index=True,use_container_width=True)
-                st.download_button("Descargar comparativa corrida (CSV)",data=tc.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="resultados_zapatas_corridas.csv",mime="text/csv",disabled=desactualizado)
-            else:
-                st.warning("B es mayor que la longitud equivalente interna; no se calcula la comparación corrida.")
-        except (ValueError,OverflowError) as exc:
-            st.warning(f"No ha podido completarse la comparación corrida: {exc}")
-    with met_tab:
-        st.subheader("Criterio de comparación")
-        st.latex(r"q_{h,d}^{bruta}=\frac{q_h}{\gamma_R}; \quad q_{h,d}^{neta}=q_{h,d}^{bruta}-\sigma_{v0,exc}")
-        st.latex(r"q_{asientos}^{neta}=\frac{s_{adm}}{s(q_{neta}=1)}; \quad q_{serv}^{neta}=\min(q_{h,d}^{neta},q_{asientos}^{neta})")
-        st.latex(r"q_{serv}^{bruta}=q_{serv}^{neta}+\sigma_{v0,exc}")
-        st.caption("sigma_v0,exc: tension preexistente retirada en la base (automatica o manual). Es diferente de q0 de contorno usado en hundimiento. Revisar hipotesis en presencia de agua.")
-        st.subheader("Advertencias generales del modelo")
-        for w in avisos_globales(h_cal,s_cal,True):
-            st.warning(w)
-        st.subheader("Advertencias de geometrías")
-        n_alertas=sum(bool(r.avisos) for r in resultados)
-        st.write(f"{n_alertas} combinaciones presentan al menos un aviso específico.")
-        if n_alertas:
-            st.dataframe(tabla.loc[tabla["Avisos"].str.len()>0,["B (m)","L (m)","Avisos"]],
-                hide_index=True,use_container_width=True)
-        st.markdown("**Referencias:** CTE DB-SE-C, §4.3.2.1 y Anejo F (hundimiento); Anejo E.5 (balasto). "
-                    "[Documento oficial](https://www.codigotecnico.org/pdf/Documentos/SE/DBSE-C.pdf).")
-    st.caption(f"Trabajo: {proyecto_cal.trabajo or 'Sin especificar'} · Expediente: {proyecto_cal.expediente or 'Sin especificar'}")
+            corridas=[calcular_corrida_historica(float(b),pp,capas) for b in sorted({r['B_m'] for r in rows}) if b<=100]
+            df_corrida=tabla_resultados(corridas)
+            st.dataframe(df_corrida,hide_index=True,use_container_width=True)
+            st.download_button('Descargar comparativa corrida CSV',df_corrida.to_csv(index=False).encode('utf-8-sig'),
+                               file_name='ZapatasCTE_corrida_historica.csv',disabled=desactualizado,mime='text/csv')
+        except ValueError as error:
+            st.warning(f'No se pudo obtener la comparativa corrida: {error}')
+    with tb_met:
+        st.subheader('Método, convenciones y advertencias')
+        st.markdown('''
+        - **Hundimiento:** expresión resistente clásica de CTE DB-SE-C para carga centrada y vertical, con coeficiente γR elegido.
+        - **Asientos:** Steinbrenner por capas y superposición de cuatro cuadrantes; aproximación histórica opcional.
+        - **Presiones:** q_hund bruta se convierte en neta descontando la tensión retirada antes de ejecutar la cimentación; asientos se calculan con presión neta.
+        - **Balasto:** ks,BL = q_neta/s_elástico (E.5). Ksp30 es equivalencia inversa de E.6 o E.7, con E.8 literal o adaptación continua explícitamente no literal.
+        - **Limitaciones:** no modela consolidación, plastificación, interacción entre zapatas, excentricidades, cargas horizontales, deslizamiento, vuelco ni cálculo estructural del hormigón.
+        - **Calidad:** modelo computacional sujeto a revisión; no constituye un certificado de cumplimiento normativo.
+        ''')
+        st.code(f'Versión: {VERSION} · SHA-256 entradas: {actual["firma"]}',language='text')
