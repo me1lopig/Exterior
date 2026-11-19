@@ -5,6 +5,7 @@ Prototipo técnico; no sustituye la verificación del proyecto conforme al CTE.
 from __future__ import annotations
 
 from math import isfinite
+from dataclasses import replace
 import hashlib
 import json
 
@@ -13,6 +14,10 @@ import streamlit as st
 
 from calculos.agua import GAMMA_AGUA_KN_M3, gamma_sumergido_desde_saturado
 from calculos.capacidad_portante import _peso_especifico_representativo
+from calculos.analisis_corridas import (
+    convergencia_corrida, convergencia_porcentaje_final,
+    comparativa_corridas, sensibilidad_nivel_freatico,
+)
 from calculos.diagnostico_asientos import (
     calcular_perfil_bulbo, contribuciones_steinbrenner, profundidad_porcentaje_asiento,
     descarga_preexistente_kpa,
@@ -33,6 +38,10 @@ from utiles.tablas_malla import CAMPOS_MAPA, tabla_malla
 from visualizacion.graficos_malla import curvas_seccion, grafico_geom, mapa_calor, grafico_presiones_corridas
 from visualizacion.graficos_bulbo_2d import figura_seccion_bulbo
 from visualizacion.metodologia import mostrar_compendio
+from visualizacion.graficos_corridas import (
+    mapa_calor_corridas, grafico_balasto, grafico_convergencia,
+    grafico_comparativa, grafico_sensibilidad,
+)
 
 st.set_page_config(page_title="Cimentaciones superficiales · B × L", page_icon="▦", layout="wide")
 st.markdown("""
@@ -157,6 +166,20 @@ with tab_hund:
         flujo=st.toggle("Flujo ascendente",value=False)
         gradiente=st.number_input("Gradiente vertical ascendente iᵥ (medio en 1,5 B)",
                                   min_value=0.0,value=0.4,step=0.05,disabled=not flujo)
+        st.markdown("**Vista previa de γk (sin ejecutar la malla)**")
+        b_vista=st.number_input("Anchura B para γk (m)",min_value=0.05,
+                                value=float(bmin),step=0.25,key="b_vista_gamma")
+        if gamma_ef > 0:
+            h_vista=replace(DatosHundimiento(),profundidad_base_m=profundidad_base,
+                nivel_freatico_m=nf,gamma_efectivo_kn_m3=gamma_ef,
+                gamma_aparente_kn_m3=gamma_ap,flujo_ascendente=flujo,
+                gradiente_vertical=gradiente)
+            gamma_vista=_peso_especifico_representativo(h_vista,b_vista)
+            st.metric("γk para B seleccionada",f"{gamma_vista:.2f} kN/m³")
+            st.caption("Se actualiza al cambiar NF, D, B, γ' / γsat, γaparente o gradiente. "
+                       "Los resultados de hundimiento se actualizan al pulsar «Calcular».")
+        else:
+            st.warning("γk no calculable: compruebe γsat y γ'.")
         considerar_sobrecarga=st.toggle("Incluir q0 alrededor de la base",value=True)
         sc1,sc2=st.columns(2)
         with sc1: gamma_sob=st.number_input("γ sobrecarga (kN/m³)",min_value=0.1,value=18.0,step=0.5,disabled=not considerar_sobrecarga)
@@ -291,8 +314,9 @@ with tab_res:
         st.download_button("Descargar tabla CSV",data=tabla.to_csv(index=False).encode("utf-8-sig"),
             file_name="cimentaciones_BxL_resultados.csv",mime="text/csv",
             use_container_width=True,disabled=desactualizado)
-    an_tab,co_tab,met_tab=st.tabs(["Mapa B × L y ficha","Tabla general y curvas","Metodología y formulaciones"])
+    an_tab,co_tab,met_tab=st.tabs(["Zapatas B × L","Zapatas corridas · aproximación","Metodología y formulaciones"])
     with an_tab:
+        st.subheader("Zapatas cuadradas y rectangulares B × L")
         mapa_col,ficha_col=st.columns([1.4,1.0],gap="large")
         with mapa_col:
             metrica=st.selectbox("Variable representada",list(CAMPOS_MAPA),key="metrica_mapa")
@@ -426,40 +450,165 @@ with tab_res:
                                "No se calculan consolidacion primaria/secundaria ni asiento diferencial.")
             except (ValueError,ZeroDivisionError,OverflowError) as exc:
                 st.error(f"No se pudo generar el diagnostico elastico: {exc}")
-    with co_tab:
-        st.subheader("Tabla completa B × L")
+        st.divider()
+        st.subheader("Tabla completa y curvas B × L")
         st.dataframe(tabla,hide_index=True,use_container_width=True,height=410,
                      column_config={
                          "q servicio neta (MPa)":st.column_config.NumberColumn(format="%.4f"),
                          "q servicio bruta (MPa)":st.column_config.NumberColumn(format="%.4f"),
                          "Ksp30 (MN/m³)":st.column_config.NumberColumn(format="%.2f"),
                      })
-        ancho_curva=st.selectbox("Ancho B para comparación de longitudes L",sorted(set(tabla["B (m)"])))
+        ancho_curva=st.selectbox("Ancho B para comparar longitudes L",
+                                sorted(set(tabla["B (m)"])),key="b_curvas_bxl")
         st.plotly_chart(curvas_seccion(tabla,ancho_curva),use_container_width=True)
-        st.download_button("Descargar resultados B × L (CSV)",data=tabla.to_csv(index=False).encode("utf-8-sig"),
+        st.plotly_chart(grafico_balasto(tabla,b=ancho_curva),use_container_width=True)
+        st.download_button("Descargar resultados B × L (CSV)",
+            data=tabla.to_csv(index=False).encode("utf-8-sig"),
             file_name="resultados_zapatas_rectangulares.csv",mime="text/csv",
-            disabled=desactualizado,help="Recalcule para descargar datos correspondientes a las entradas actuales." if desactualizado else None)
+            disabled=desactualizado)
+
         st.divider()
-        st.subheader("Comparativa de zapatas corridas")
-        st.caption(f"Aproximación histórica con longitudes INTERNAS no editables: L(asientos)={LONGITUD_CORRIDA_INTERNA_M:.0f} m; L(hundimiento)={LONGITUD_CORRIDA_HUNDIMIENTO_M:.0f} m. No corresponde a una única zapata B×L física.")
-        try:
-            tc=tabla_malla(corridas)
-            if len(tc):
-                tc.insert(2,"L hundimiento (m)",LONGITUD_CORRIDA_HUNDIMIENTO_M)
-                tc=tc.rename(columns={"L (m)":"L asientos (m)"})
-                st.dataframe(tc,hide_index=True,use_container_width=True)
-                tipo_presion_corrida=st.radio("Presiones a representar (corridas)",
-                    ["Netas","Brutas"],horizontal=True,key="presiones_corridas")
-                st.plotly_chart(grafico_presiones_corridas(tc,tipo_presion_corrida),
-                    use_container_width=True)
-                st.caption("Comparativa histórica: asientos con L=100 m y hundimiento con L=1000 m. "
-                           "Las presiones son resultados del modelo existente, no de una banda infinita.")
-                st.download_button("Descargar comparativa corrida (CSV)",data=tc.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="resultados_zapatas_corridas.csv",mime="text/csv",disabled=desactualizado)
-            else:
-                st.warning("B es mayor que la longitud equivalente interna; no se calcula la comparación corrida.")
-        except (ValueError,OverflowError) as exc:
-            st.warning(f"No ha podido completarse la comparación corrida: {exc}")
+        st.subheader("Sensibilidad al nivel freático — zapata B × L seleccionada")
+        st.caption("Análisis paramétrico exploratorio: se modifica NF manteniendo fijos los demás "
+                   "parámetros resistentes; no se reestima E, ν, asientos ni la interacción con el agua.")
+        nf1,nf2=st.columns(2)
+        with nf1:
+            nf_min=st.number_input("NF mínimo bajo rasante (m)",min_value=0.0,
+                value=max(0.,h_cal.profundidad_base_m-1.),step=0.5,key="nf_sens_min")
+        with nf2:
+            nf_max=st.number_input("NF máximo bajo rasante (m)",min_value=0.0,
+                value=max(h_cal.nivel_freatico_m,h_cal.profundidad_base_m+2*seleccionado.b_m,
+                          nf_min+0.5),step=0.5,key="nf_sens_max")
+        if nf_max>nf_min:
+            datos_nf=sensibilidad_nivel_freatico(seleccionado.b_m,seleccionado.l_m,
+                h_cal,s_cal,nf_min,nf_max)
+            st.plotly_chart(grafico_sensibilidad(datos_nf),use_container_width=True)
+            with st.expander("Tabla de sensibilidad NF"):
+                st.dataframe(datos_nf,hide_index=True,use_container_width=True)
+                st.download_button("Descargar sensibilidad NF (CSV)",
+                    data=datos_nf.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="sensibilidad_nivel_freatico.csv",mime="text/csv",
+                    disabled=desactualizado)
+            if h_cal.flujo_ascendente:
+                st.info("Con flujo ascendente γk depende de γ' e iᵥ y no varía con NF "
+                        "en el modelo actual; la descarga de excavación sí puede variar.")
+            elif abs(h_cal.gamma_aparente_kn_m3-h_cal.gamma_efectivo_kn_m3)<1e-10:
+                st.info("γaparente = γ': γk resulta constante al desplazar el NF.")
+        else:
+            st.warning("El NF máximo debe superar al NF mínimo.")
+    with co_tab:
+        st.subheader("Zapatas corridas · comparativa histórica")
+        st.caption(f"**Aproximación numérica, no B × ∞ estricto**: "
+                   f"L_asientos={LONGITUD_CORRIDA_INTERNA_M:.0f} m; "
+                   f"L_hundimiento={LONGITUD_CORRIDA_HUNDIMIENTO_M:.0f} m.")
+        tc=tabla_malla(corridas)
+        if not tc.empty:
+            tc.insert(2,"L hundimiento (m)",LONGITUD_CORRIDA_HUNDIMIENTO_M)
+            tc=tc.rename(columns={"L (m)":"L asientos (m)"})
+            c_mapa,c_ficha=st.columns([1.25,1.0],gap="large")
+            with c_mapa:
+                metrica_corrida=st.selectbox("Variable del mapa de corridas",
+                    list(CAMPOS_MAPA),key="variable_mapa_corridas")
+                event_corrida=st.plotly_chart(
+                    mapa_calor_corridas(tc,metrica_corrida),
+                    use_container_width=True,on_select="rerun",
+                    selection_mode="points",key="mapa_corridas")
+            with c_ficha:
+                st.subheader("Ficha de zapata corrida")
+                bs_corridas=[r.b_m for r in corridas]
+                idx_corrida=st.selectbox("Anchura B (m)",range(len(bs_corridas)),
+                    format_func=lambda i:f"B = {bs_corridas[i]:.2f} m",
+                    key="ancho_ficha_corrida")
+                corrida_sel=corridas[idx_corrida]
+                try:
+                    if event_corrida.selection.points:
+                        elegido=float(event_corrida.selection.points[0]["y"])
+                        corrida_sel=next((r for r in corridas if abs(r.b_m-elegido)<1e-8),
+                                         corrida_sel)
+                except (AttributeError,KeyError,TypeError,IndexError,ValueError):
+                    pass
+                st.metric("Anchura B",f"{corrida_sel.b_m:.2f} m")
+                st.metric("Hundimiento neto",f"{corrida_sel.q_hund_neta_mpa:.3f} MPa")
+                st.metric("Asientos neto",f"{corrida_sel.q_asiento_neta_mpa:.3f} MPa")
+                st.metric("Servicio neto",formatear(corrida_sel.q_serv_neta_mpa)+" MPa")
+                st.write(f"**Gobierna:** {corrida_sel.limitacion}")
+                with st.expander("Datos y factores de la corrida seleccionada"):
+                    st.write(f"Longitud usada en hundimiento: {LONGITUD_CORRIDA_HUNDIMIENTO_M:.0f} m")
+                    st.write(f"Longitud usada en asientos: {LONGITUD_CORRIDA_INTERNA_M:.0f} m")
+                    st.write(f"γk = {_peso_especifico_representativo(h_cal,corrida_sel.b_m):.2f} kN/m³")
+                    st.write(f"sc = {corrida_sel.sc:.4f}; sq = {corrida_sel.sq:.4f}; "
+                             f"sγ = {corrida_sel.sgamma:.4f}")
+                    st.write(f"σv0,exc = {corrida_sel.sigma_pre_base_kpa:.2f} kPa")
+                    st.write(f"q hund. bruta = {corrida_sel.q_hund_bruta_mpa:.4f} MPa")
+                    st.write(f"q asientos bruta = {corrida_sel.q_asiento_bruta_mpa:.4f} MPa")
+                    st.write(f"ks,BL = {corrida_sel.ks_bl_mn_m3:.3f} MN/m³")
+                    st.write(f"Ksp30 = {corrida_sel.ksp30_mn_m3:.3f} MN/m³")
+                for aviso in corrida_sel.avisos:
+                    st.caption(aviso)
+            st.divider()
+            st.subheader("Curvas y tabla de zapatas corridas")
+            tipo_presion_corrida=st.radio("Presiones a representar (corridas)",
+                ["Netas","Brutas"],horizontal=True,key="presiones_corridas")
+            st.plotly_chart(grafico_presiones_corridas(tc,tipo_presion_corrida),
+                use_container_width=True)
+            st.plotly_chart(grafico_balasto(tc,corrida=True),use_container_width=True)
+            st.dataframe(tc,hide_index=True,use_container_width=True)
+            st.download_button("Descargar comparativa corrida (CSV)",
+                data=tc.to_csv(index=False).encode("utf-8-sig"),
+                file_name="resultados_zapatas_corridas.csv",mime="text/csv",
+                disabled=desactualizado)
+            st.divider()
+            st.subheader("Bulbo de tensiones 2D — banda infinita ideal")
+            q_corrida=st.number_input("Presión neta del bulbo ideal (kPa)",
+                min_value=0.1,
+                value=float(1000*(corrida_sel.q_serv_neta_mpa
+                      if corrida_sel.q_serv_neta_mpa is not None
+                      and corrida_sel.q_serv_neta_mpa>0 else corrida_sel.q_asiento_neta_mpa)),
+                step=10.0,key="q_bulbo_corrida")
+            st.plotly_chart(figura_seccion_bulbo(
+                corrida_sel.b_m,None,h_cal.profundidad_base_m,
+                h_cal.nivel_freatico_m,s_cal.capas,q_corrida,
+                corrida=True,zmax_m=guardado["z_bulbo"]),
+                use_container_width=True)
+            st.caption("Banda infinita matemática de Boussinesq. El bulbo no utiliza L=100 ni "
+                       "L=1000 m ni se emplea directamente para obtener el asiento o la presión admisible.")
+            st.divider()
+            st.subheader("Auditoría exploratoria de la aproximación a corrida")
+            st.caption("Los gráficos siguientes comparan longitudes FINITAS y el límite algebraico "
+                       "de hundimiento al tender B/L a cero. No se declara convergencia de asientos "
+                       "en un semiespacio infinito ni un nuevo valor admisible de diseño.")
+            try:
+                conv=convergencia_corrida(corrida_sel.b_m,h_cal,s_cal)
+                variacion=convergencia_porcentaje_final(conv)
+                st.metric("Variación entre las dos mayores L/B (asientos)",
+                          f"{variacion:.3f} %")
+                st.plotly_chart(grafico_convergencia(conv),use_container_width=True)
+                st.dataframe(conv,hide_index=True,use_container_width=True)
+                st.download_button("Descargar convergencia (CSV)",
+                    data=conv.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="convergencia_corrida.csv",mime="text/csv",
+                    disabled=desactualizado)
+                if variacion>1.0:
+                    st.warning("La variación final de la presión por asientos supera el 1 % "
+                               "entre las dos mayores relaciones L/B ensayadas.")
+                else:
+                    st.info("La variación entre las dos longitudes finitas mayores es ≤1 %. "
+                            "Esto no demuestra por sí solo validez de L infinito.")
+                comp=comparativa_corridas(corrida_sel.b_m,h_cal,s_cal)
+                st.subheader("Comparación de hipótesis de cálculo")
+                st.plotly_chart(grafico_comparativa(comp),use_container_width=True)
+                st.dataframe(comp,hide_index=True,use_container_width=True)
+                st.download_button("Descargar comparación de hipótesis (CSV)",
+                    data=comp.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="comparacion_metodos_corridas.csv",mime="text/csv",
+                    disabled=desactualizado)
+                st.warning("El límite B/L=0 mostrado solo proporciona hundimiento: "
+                           "no existe aquí un valor validado de asiento ni de presión de servicio "
+                           "para L infinito. No usar como dimensionamiento independiente.")
+            except (ValueError,ZeroDivisionError,OverflowError) as exc:
+                st.warning(f"No se pudo completar el estudio exploratorio de corridas: {exc}")
+        else:
+            st.warning("Ningún ancho B es compatible con la aproximación de longitud interna.")
     with met_tab:
         mostrar_compendio(
             h_cal, s_cal, seleccionado, resultados, tabla,

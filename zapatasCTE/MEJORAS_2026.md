@@ -104,3 +104,66 @@ balasto sigue pendiente de auditoría.
 
 Pruebas específicas: `tests/test_memoria_calculo.py`, además del conjunto
 original `python -m unittest discover -s tests -v`.
+
+## PROP-07, PROP-08 y PROP-17: resultados separados por geometría
+
+**Resultados** contiene tres subpestañas:
+1. **Zapatas B × L**: mapa de calor de nueve variables, ficha individual,
+   geometría, bulbo y asientos, tabla de resultados, curvas frente a L, balasto,
+   sensibilidad al nivel freático y descargas CSV.
+2. **Zapatas corridas · aproximación**: mapa de calor de **una columna**
+   (mismas nueve variables), ficha específica B, tabla y gráfico de presiones
+   netas/brutas frente a B, curvas de balasto, bulbo 2D para banda infinita,
+   análisis de convergencia y comparativa de modelos.
+3. **Metodología y formulaciones**: conserva PROP-13 y su memoria B × L.
+
+El mapa de corridas y su ficha leen los resultados históricos existentes;
+las celdas inválidas se representan como tales, sin inventar ceros.
+La comparativa de corridas sigue usando **L_asientos=100 m** y
+**L_hundimiento=1000 m**; el bulbo de banda infinita es independiente.
+
+## PROP-09 y PROP-10: auditoría exploratoria y convergencia
+
+Se incorpora un barrido de relaciones L/B = 2, 5, 10, 20, 50, 100,
+200 y 500 usando zapatas rectangulares **finitas** y los mismos parámetros
+geotécnicos. Se muestra el cambio relativo de la presión neta por asiento
+entre las dos mayores longitudes y se exporta una tabla de resultados.
+Un cambio menor del 1 % **no demuestra la convergencia matemática en
+L infinito**, la adecuación del método estratificado, ni validez como ELS.
+
+## PROP-11 y PROP-12: contraste limitado, no nuevo cálculo ELS de B × ∞
+
+Se incorpora el **límite algebraico del término de hundimiento**
+cuando B/L -> 0 dentro de la formulación ya implementada, y se compara
+con la corrida histórica y una zapata rectangular finita L/B=200.
+La solución límite de hundimiento se presenta sin presión por asientos
+ni servicio: **no se ha implementado un modelo de asiento específico
+de deformación plana validado**. PROP-11 permanece parcialmente pendiente
+de un modelo documentado y pruebas de referencia para asientos B × ∞.
+Las nuevas tablas y gráficas están etiquetadas como diagnósticas, no
+sustituyen la comprobación de proyecto.
+
+## PROP-14 a PROP-16: agua y balasto
+
+- Vista preliminar dinámica de gamma_k con B seleccionable, que responde
+  a NF, profundidad D, gamma', gamma_sat (si corresponde), gamma aparente
+  y gradiente ascendente sin pulsar Calcular. No recalcula automáticamente
+  los resultados globales, que conservan el control de obsolescencia.
+- Curvas de ks,BL y Ksp30 para corridas frente a B y para B × L frente
+  a L con ancho B fijo, con unidades MN/m3 y geometrías etiquetadas.
+- Análisis paramétrico de nivel freático en la zapata B × L seleccionada:
+  gamma_k, hundimiento neto y bruto frente a NF, manteniendo constantes
+  los demás parámetros del modelo. No se alteran E y nu, no se acopla
+  infiltración ni se incorpora asentamiento adicional; se exporta CSV.
+
+## Verificación y alcance
+
+Pruebas nuevas: `tests/test_propuestas_07_17.py` para mapas, casos sin
+servicio, balasto, convergencia, límite de hundimiento, comparación
+histórica, influencia de NF y flujo ascendente. Ejecutar toda la suite
+con `python -m unittest discover -s tests -v`.
+
+Las mejoras solo añaden visualización y diagnósticos basados en
+funciones existentes. **No se modifica el motor principal de presiones
+admisibles ni el algoritmo de asientos**. El desarrollo matemático y
+la validación externa de asientos de banda infinita siguen pendientes.
