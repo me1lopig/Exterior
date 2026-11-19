@@ -1,63 +1,33 @@
-# ZapatasCTE v4.2 — paquete autónomo completo (reconstrucción funcional)
+# Zapatas Streamlit v4 - elasticidad y profundidad activa
 
-Este ZIP **contiene una aplicación Streamlit completa y ejecutable**, con interfaz, motor geotécnico, visualizaciones, módulos, pruebas y documentación. No requiere descargar otro repositorio ni aplicar parches. **No es una copia exacta de `Exterior/zapatasCTE`**: se ha reconstruido a partir de la documentación y código público v4 consultable, al no disponer de los archivos originales descargables en este entorno. Las salidas requieren contraste profesional y comparación con la v4 original antes de sustituirla en producción.
+Aplicacion de predimensionamiento de zapatas rectangulares B x L, con comparativa corrida historica. Reproduce el alcance funcional de la hoja SUELOS y corrige la formula de asientos del prototipo anterior.
 
 ## Arranque
 
-Requiere **Python 3.11 o posterior**, conexión a internet en el equipo de instalación para descargar las dependencias Python y un navegador moderno.
+1. Crear entorno virtual de Python 3.11+ y activarlo.
+2. Ejecutar `pip install -r requirements.txt`.
+3. Ejecutar `streamlit run app.py`.
 
-En la carpeta descomprimida:
+## Interfaz
 
-```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux / macOS: source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
-```
+- **Datos iniciales:** datos del proyecto y malla `Bmin, Bmax, incrB, Lmin, Lmax, incrL`, con `0 < B <= L`.
+- **Hundimiento:** parametros resistentes, condiciones de agua, q0 de contorno, talud, profundidad y seguridad.
+- **Asientos:** asiento admisible, estratos E/nu, metodos `Superposicion 4 x (B/2 x L/2)` (defecto) o `Aproximacion 2 x (B x L)`, selector Cohesivo / Granular para Ksp30; tension inicial auto o manual; profundidad y paso del grafico del bulbo.
+- **Resultados:** boton `Calcular`, resultados netos/brutos, mapas azules con anotaciones, tabla CSV, ficha y diagnostico del asiento de la zapata seleccionada. Seleccion de presion de referencia: servicio o limite por asientos.
 
-Alternativa: `INICIAR_WINDOWS.bat` o `INICIAR_LINUX_MAC.sh` (crean entorno e instalan las dependencias). La aplicación se abre normalmente en `http://localhost:8501`.
+## Nuevo en v4
 
-## Alcance
+- Steinbrenner corregido: `1 - nu - 2nu^2`, con regresion externa (cinco casos ministeriales).
+- Presion previa de excavacion separada de `q0` del contorno, con opcion manual.
+- Bulbo `Delta sigma_z(z)` (Boussinesq centro rectangular), umbral CTE y aviso de profundidad investigada insuficiente.
+- Tabla de contribucion por estratos y asiento acumulado (mm / %), grafico vertical y barras.
+- Exportacion CSV de contribuciones y del perfil de tensiones.
+- Los resultados se calculan solo cuando se pulsa `Calcular` y se avisa si las entradas han cambiado.
 
-- Datos de proyecto y malla de zapatas B × L, con B ≤ L.
-- Hundimiento en situaciones drenada y no drenada, sobrecarga `q0`, geometría, profundidad, talud, flujo y nivel freático bajo las hipótesis programadas.
-- Asiento inmediato por estratos con Steinbrenner y selección entre superposición central y aproximación histórica de Excel.
-- Presiones netas y brutas: hundimiento, asiento y servicio, sin confundirse `q0` con la descarga previa por excavación.
-- Módulo de balasto `ks,BL` obtenido de presión neta/asiento y `Ksp30` equivalente para tipo `Cohesivo` o `Granular` (CTE DB-SE-C E.5 a E.8).
-- Dos criterios de conversión geométrica: `literal_cte` (por defecto) y `continuo` (adaptación técnica **no literal**; debe justificarse).
-- Mapa B × L con **nueve variables**, los seis pares de presiones netas y brutas, dos balastos y estado límite; ficha de geometría y comparación neta/bruta, factores y avisos; gráficos del bulbo de Boussinesq, asiento acumulado y curvas de comparación.
-- Comparación histórica de zapata corrida, etiquetada como **aproximada** (`L_asiento=100 m; L_hundimiento=1.000 m`).
-- Descargas CSV/JSON y bloqueo de descargas tras modificar entradas sin recalcular. Ficha JSON con entradas, criterios y avisos.
+## Comprobaciones
 
-### Hipótesis / restricciones técnicas importantes
+`python -m unittest discover -s tests -v`
 
-1. **Predimensionamiento, no verificación completa de ELU/ELS.** Solo carga vertical centrada, base horizontal y valores B,L introducidos. No calcula las excentricidades, la distribución de presiones por momentos, fuerzas horizontales, deslizamiento, vuelco o dimensionamiento estructural.
-2. El asiento es **elástico e inmediato**. No calcula consolidación primaria/secundaria, diferenciales ni interacción entre cimentaciones. El uso de capas por diferencias de soluciones homogéneas es una aproximación.
-3. `Ksp30` se obtiene como **equivalencia inversa** de expresiones de balasto, no por ensayo de placa. El resultado cambia según se elija cohesivo o granular, aunque `ks,BL` permanece invariante.
-4. La regla `literal_cte` conserva un salto al pasar de B=L a B<L; la regla `continuo` evita matemáticamente el salto normalizando E.8 respecto a 1,5 en B=L, pero **no es aplicación literal del CTE**.
-5. `gamma_sub` representa peso específico **sumergido**, no peso saturado. En la versión reconstruida su valor de ejemplo es `9 kN/m³`, mientras que en el formulario v4 público figuraba otro valor inicial; comprobar los pesos del estudio real.
-6. `gamma_R` se introduce con opciones 3 y 2, según la situación escogida; debe contrastarse con el caso real, el CTE y el resto de la verificación de seguridad.
-7. Los datos de ejemplo son **sintéticos**, no parámetros recomendados para ninguna obra.
+Consultar `METODOLOGIA_ASIENTOS.md` para ecuaciones, controles, bibliografia y limitaciones. Consultar `VALIDACION.md` para el registro de las pruebas.
 
-## Pruebas
-
-```bash
-python -m pytest -q
-```
-
-La entrega incluye `tests/test_engine.py` y `tests/test_smoke_interfaz.py`. El segundo utiliza una **simulación de la API de Streamlit**, no un navegador real.
-
-## Documentos
-
-- `docs/METODO_Y_LIMITACIONES.md`: hipótesis y variables del cálculo.
-- `docs/VALIDACION.md`: batería de pruebas y pruebas no ejecutadas.
-- `docs/CAMBIOS.md`: relación de cambios reconstruidos.
-- `ejemplos/`: entradas y resultados sintéticos de referencia.
-
-Fuente pública utilizada como guía de alcance funcional: https://github.com/me1lopig/Exterior/tree/main/zapatasCTE
-Documento normativo para cotejo: https://www.codigotecnico.org/pdf/Documentos/SE/DBSE-C.pdf
-
-**Estado:** reconstrucción funcional verificada computacionalmente en pruebas unitarias y de interfaz simulada; **no contrastada todavía con el código original íntegro, una hoja Excel original ni una sesión real de navegador**. Revisar y firmar por técnico competente antes de uso profesional.
-
-Licencia del código generado: GNU GPLv3 o posterior, por compatibilidad con el proyecto público de referencia.
+**Atencion:** modelo lineal elastico estratificado aproximado. Las condiciones de drenaje, descarga/recarga y profundidad del reconocimiento requieren criterio geotecnico. No se consideran consolidacion, distorsion angular, zapatas vecinas, cargas excentricas ni comportamiento plastico. La v4 no reproduce exactamente los resultados erroneos de la v3/Excel en el coeficiente de Poisson.
