@@ -8,6 +8,7 @@ from math import atan, exp, pi, radians, sin, tan
 import numpy as np
 
 from modelos.datos import DatosHundimiento
+from .agua import GAMMA_AGUA_KN_M3
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ def _cohesion_representativa(datos: DatosHundimiento, ancho_m: float) -> float:
 
 def _peso_especifico_representativo(datos: DatosHundimiento, ancho_m: float) -> float:
     if datos.flujo_ascendente:
-        return datos.gamma_efectivo_kn_m3 - datos.gradiente_vertical * 10.0
+        return datos.gamma_efectivo_kn_m3 - datos.gradiente_vertical * GAMMA_AGUA_KN_M3
     fraccion_sobre_nf = max(
         0.0,
         min(datos.nivel_freatico_m - datos.profundidad_base_m, ancho_m),

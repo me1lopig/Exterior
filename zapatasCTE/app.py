@@ -11,6 +11,8 @@ import json
 import pandas as pd
 import streamlit as st
 
+from calculos.agua import GAMMA_AGUA_KN_M3, gamma_sumergido_desde_saturado
+from calculos.capacidad_portante import _peso_especifico_representativo
 from calculos.diagnostico_asientos import (
     calcular_perfil_bulbo, contribuciones_steinbrenner, profundidad_porcentaje_asiento,
     descarga_preexistente_kpa,
@@ -29,6 +31,7 @@ from modelos.datos import CapaSuelo, DatosAsientos, DatosHundimiento, DatosProye
 from modelos.geometrias import RangoGeometrico, generar_geometrias, serie_rango
 from utiles.tablas_malla import CAMPOS_MAPA, tabla_malla
 from visualizacion.graficos_malla import curvas_seccion, grafico_geom, mapa_calor
+from visualizacion.graficos_bulbo_2d import figura_seccion_bulbo
 
 st.set_page_config(page_title="Cimentaciones superficiales · B × L", page_icon="▦", layout="wide")
 st.markdown("""
@@ -134,10 +137,25 @@ with tab_hund:
     with c3:
         st.subheader("Agua, sobrecarga y talud")
         nf=st.number_input("Nivel freático bajo rasante (m)",min_value=0.0,value=6.6,step=0.1)
-        gamma_ef=st.number_input("Peso específico sumergido γ' (kN/m³)",min_value=0.1,value=18.0,step=0.5)
+        modo_gamma=st.selectbox("Origen del peso específico sumergido γ'",[
+            "Introducir γ' directamente","Calcular γ' a partir de γsat"])
+        gamma_sat=None
+        if modo_gamma=="Introducir γ' directamente":
+            gamma_ef=st.number_input("Peso específico sumergido γ' (kN/m³)",
+                                    min_value=0.1,value=18.0,step=0.5)
+        else:
+            gamma_sat=st.number_input("Peso específico saturado γsat (kN/m³)",
+                                      min_value=0.01,value=20.0,step=0.5)
+            gamma_ef=gamma_sat-GAMMA_AGUA_KN_M3
+            if gamma_ef > 0:
+                st.metric("Peso específico sumergido calculado γ'",f"{gamma_ef:.2f} kN/m³")
+            else:
+                st.error("γsat debe superar al peso específico del agua (9,81 kN/m³).")
+        st.caption("γ' = γsat - γagua. Se utiliza γagua = 9,81 kN/m³; verifique los parámetros geotécnicos.")
         gamma_ap=st.number_input("Peso específico aparente (kN/m³)",min_value=0.1,value=18.0,step=0.5)
         flujo=st.toggle("Flujo ascendente",value=False)
-        gradiente=st.number_input("Gradiente vertical",value=0.4,step=0.05,disabled=not flujo)
+        gradiente=st.number_input("Gradiente vertical ascendente iᵥ (medio en 1,5 B)",
+                                  min_value=0.0,value=0.4,step=0.05,disabled=not flujo)
         considerar_sobrecarga=st.toggle("Incluir q0 alrededor de la base",value=True)
         sc1,sc2=st.columns(2)
         with sc1: gamma_sob=st.number_input("γ sobrecarga (kN/m³)",min_value=0.1,value=18.0,step=0.5,disabled=not considerar_sobrecarga)
@@ -204,7 +222,7 @@ entrada_actual = {
     "rango": [bmin, bmax, incr_b, lmin, lmax, incr_l],
     "hundimiento": [drenaje, profundidad_base, seguridad, considerar_superior,
         phi if not sin_drenaje else 0.0, cohesion, cu_aumenta, cu_z0, cu_0,
-        cu_z1, cu_1, nf, gamma_ef, gamma_ap, flujo, gradiente,
+        cu_z1, cu_1, nf, modo_gamma, gamma_sat, gamma_ef, gamma_ap, flujo, gradiente,
         considerar_sobrecarga, gamma_sob, altura_sob, beta],
     "asientos": [asiento_adm, tipo_balasto, metodo_id, descarga_manual, sigma_descarga, modo_profundidad, z_manual, paso_tensiones],
     "capas": capas_df.to_dict(orient="records"),
@@ -215,6 +233,8 @@ firma_actual = hashlib.sha256(json.dumps(entrada_actual,sort_keys=True,default=s
 with tab_res:
     if st.button("Calcular", type="primary", use_container_width=True, key="calcular_malla"):
         try:
+            if modo_gamma!="Introducir γ' directamente":
+                gamma_sumergido_desde_saturado(gamma_sat)
             rango = RangoGeometrico(bmin,bmax,incr_b,lmin,lmax,incr_l)
             geometrias = generar_geometrias(rango)
             capas = capas_desde_tabla(capas_df)
@@ -310,6 +330,15 @@ with tab_res:
                 st.write(f"Servicio bruto = {formatear(seleccionado.q_serv_bruta_mpa)} MPa")
                 st.write(f"k_s,BL = {seleccionado.ks_bl_mn_m3:.2f} MN/m³")
                 st.write(f"Ksp30 ({s_cal.tipo_material_balasto.lower()}) = {seleccionado.ksp30_mn_m3:.2f} MN/m³")
+                gamma_k=_peso_especifico_representativo(h_cal,seleccionado.b_m)
+                if h_cal.flujo_ascendente:
+                    caso_gamma="F.17: flujo ascendente (gradiente medio en 1,5 B)"
+                else:
+                    z_nf=h_cal.nivel_freatico_m-h_cal.profundidad_base_m
+                    caso_gamma=("NF en o sobre base: γ'" if z_nf<=0 else
+                                "NF a ≥B bajo base: γaparente" if z_nf>=seleccionado.b_m else
+                                "F.16: interpolación por profundidad de NF")
+                st.write(f"Peso específico de hundimiento γk = {gamma_k:.2f} kN/m³ · {caso_gamma}")
                 st.write(f"Factores de forma: sc={seleccionado.sc:.3f}, sq={seleccionado.sq:.3f}, sγ={seleccionado.sgamma:.3f}")
             if seleccionado.avisos:
                 for aviso in seleccionado.avisos:
@@ -341,32 +370,58 @@ with tab_res:
                     st.success("El perfil alcanza la profundidad activa estimada por tensiones en el eje central.")
                 else:
                     st.warning("El perfil NO demuestra cubrir la profundidad activa estimada. Revisar capas mas profundas.")
-                c_bulbo, c_acum = st.columns(2,gap="large")
-                with c_bulbo: st.plotly_chart(figura_bulbo(perfil),use_container_width=True)
-                with c_acum: st.plotly_chart(figura_asiento_acumulado(tabla_capas),use_container_width=True)
-                st.plotly_chart(figura_contribuciones(tabla_capas),use_container_width=True)
-                st.dataframe(tabla_capas,hide_index=True,use_container_width=True,
-                    column_config={"Asiento (mm)":st.column_config.NumberColumn(format="%.3f"),
-                                   "Contribucion (%)":st.column_config.NumberColumn(format="%.2f")})
-                c_ex1, c_ex2 = st.columns(2)
-                with c_ex1:
-                    st.download_button("Descargar contribuciones por estrato (CSV)",
-                    data=tabla_capas.to_csv(index=False).encode("utf-8-sig"),
-                    file_name=f"asientos_B{seleccionado.b_m:g}_L{seleccionado.l_m:g}.csv",
-                    mime="text/csv",disabled=desactualizado)
-                with c_ex2:
-                    tabla_tensiones = pd.DataFrame({"z bajo base (m)":perfil.z_m,
-                        "Delta sigma vertical (kPa)":perfil.delta_sigma_kpa,
-                        "sigma efectiva inicial (kPa)":perfil.sigma_efectiva_inicial_kpa,
-                        "umbral CTE (kPa)":perfil.umbral_cte_kpa})
-                    st.download_button("Descargar bulbo de tensiones (CSV)",
-                        data=tabla_tensiones.to_csv(index=False).encode("utf-8-sig"),
-                        file_name=f"bulbo_B{seleccionado.b_m:g}_L{seleccionado.l_m:g}.csv",
+                seccion_tab, existente_tab = st.tabs(["Sección y bulbo 2D", "Tensiones 1D y asientos"])
+                with seccion_tab:
+                    modelo_2d=st.radio("Geometría del bulbo 2D",
+                        ["B × L de la zapata seleccionada","Corrida ideal (longitud infinita)"],
+                        horizontal=True,key="modelo_2d")
+                    es_corrida_2d=modelo_2d.startswith("Corrida")
+                    if es_corrida_2d:
+                        q_2d=st.number_input("Presión neta para corrida ideal (kPa)",
+                            min_value=0.1,value=float(q_ref*1000),step=10.0,
+                            help="Valor de partida de la zapata seleccionada; no procede de la comparativa corrida histórica.")
+                    else:
+                        q_2d=float(q_ref*1000)
+                        st.caption(f"Presión neta de referencia: {q_2d:.2f} kPa.")
+                    figura_2d=figura_seccion_bulbo(
+                        seleccionado.b_m, None if es_corrida_2d else seleccionado.l_m,
+                        h_cal.profundidad_base_m,h_cal.nivel_freatico_m,s_cal.capas,
+                        q_2d,corrida=es_corrida_2d,
+                        zmax_m=guardado["z_bulbo"])
+                    st.plotly_chart(figura_2d,use_container_width=True)
+                    st.caption("Isobaras: Δσz/q neta de Boussinesq (incremento de tensión vertical total). "
+                               "No equivale automáticamente a Δσ' en situación no drenada. "
+                               "Estratos y NF son referencias visuales; no modifican las isobaras homogéneas.")
+                    if not perfil.suficiente:
+                        st.warning("El perfil E, ν no cubre la profundidad activa: "
+                                   "el bulbo no implica que se haya calculado asiento bajo la última capa.")
+                with existente_tab:
+                    c_bulbo, c_acum = st.columns(2,gap="large")
+                    with c_bulbo: st.plotly_chart(figura_bulbo(perfil),use_container_width=True)
+                    with c_acum: st.plotly_chart(figura_asiento_acumulado(tabla_capas),use_container_width=True)
+                    st.plotly_chart(figura_contribuciones(tabla_capas),use_container_width=True)
+                    st.dataframe(tabla_capas,hide_index=True,use_container_width=True,
+                        column_config={"Asiento (mm)":st.column_config.NumberColumn(format="%.3f"),
+                                       "Contribucion (%)":st.column_config.NumberColumn(format="%.2f")})
+                    c_ex1, c_ex2 = st.columns(2)
+                    with c_ex1:
+                        st.download_button("Descargar contribuciones por estrato (CSV)",
+                        data=tabla_capas.to_csv(index=False).encode("utf-8-sig"),
+                        file_name=f"asientos_B{seleccionado.b_m:g}_L{seleccionado.l_m:g}.csv",
                         mime="text/csv",disabled=desactualizado)
-                for mensaje in perfil.avisos: st.info(mensaje)
-                st.caption("Boussinesq: bulbo de tension en semiespacio homogeneo. El asiento por estratos es aproximado; "
-                           "la profundidad 90% se informa solo en los limites de capa conocidos. "
-                           "No se calculan consolidacion primaria/secundaria ni asiento diferencial.")
+                    with c_ex2:
+                        tabla_tensiones = pd.DataFrame({"z bajo base (m)":perfil.z_m,
+                            "Delta sigma vertical (kPa)":perfil.delta_sigma_kpa,
+                            "sigma efectiva inicial (kPa)":perfil.sigma_efectiva_inicial_kpa,
+                            "umbral CTE (kPa)":perfil.umbral_cte_kpa})
+                        st.download_button("Descargar bulbo de tensiones (CSV)",
+                            data=tabla_tensiones.to_csv(index=False).encode("utf-8-sig"),
+                            file_name=f"bulbo_B{seleccionado.b_m:g}_L{seleccionado.l_m:g}.csv",
+                            mime="text/csv",disabled=desactualizado)
+                    for mensaje in perfil.avisos: st.info(mensaje)
+                    st.caption("Boussinesq: bulbo de tension en semiespacio homogeneo. El asiento por estratos es aproximado; "
+                               "la profundidad 90% se informa solo en los limites de capa conocidos. "
+                               "No se calculan consolidacion primaria/secundaria ni asiento diferencial.")
             except (ValueError,ZeroDivisionError,OverflowError) as exc:
                 st.error(f"No se pudo generar el diagnostico elastico: {exc}")
     with co_tab:

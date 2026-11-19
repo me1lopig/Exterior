@@ -10,10 +10,8 @@ from math import atan2, hypot, pi
 import numpy as np
 
 from calculos.asientos import _asiento_esquina_en_profundidad_m
+from calculos.agua import GAMMA_AGUA_KN_M3
 from modelos.datos import DatosAsientos, DatosHundimiento
-
-GAMMA_AGUA_KN_M3 = 9.81
-
 
 def tension_inicial_kpa(profundidad_rasante_m: float, h: DatosHundimiento, *, efectiva: bool) -> float:
     """Tension vertical geostatica estimada con peso superior/aparente y gamma sumergido.

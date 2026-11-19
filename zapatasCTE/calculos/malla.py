@@ -5,6 +5,7 @@ from math import isfinite
 from dataclasses import replace
 
 from calculos.asientos import asiento_centro_cm
+from calculos.agua import GAMMA_AGUA_KN_M3
 from calculos.diagnostico_asientos import descarga_preexistente_kpa
 from calculos.capacidad_portante import calcular_hundimiento_rectangular
 from calculos.servicio import convertir_ksbl_a_ksp30
@@ -34,7 +35,7 @@ def validar_entrada(h: DatosHundimiento, s: DatosAsientos) -> list[str]:
         errores.append("CTE Anejo F: no aplicar factores de profundidad con D < 2 m.")
     if h.considerar_terreno_sobre_base and h.inclinacion_talud_deg > 0:
         errores.append("CTE Anejo F: no combinar factores de profundidad con proximidad a talud.")
-    if h.flujo_ascendente and h.gamma_efectivo_kn_m3 - h.gradiente_vertical * 10 <= 0:
+    if h.flujo_ascendente and h.gamma_efectivo_kn_m3 - h.gradiente_vertical * GAMMA_AGUA_KN_M3 <= 0:
         errores.append("El peso específico corregido por flujo ascendente debe ser positivo.")
     return errores
 
@@ -72,7 +73,7 @@ def avisos_globales(h: DatosHundimiento, s: DatosAsientos, geometria_incluye_cor
     if geometria_incluye_corrida:
         avisos.append("Comparativa corrida de la hoja original: L de asientos = 100 m y L de hundimiento = 1000 m, ambos internos. No representa una única zapata de longitud física finita.")
     if h.flujo_ascendente:
-        avisos.append("Flujo ascendente: se reproduce la corrección aproximada de peso específico del modelo de origen.")
+        avisos.append("Flujo ascendente: gamma_k = gamma' - i_v * gamma_agua (CTE F.17); i_v debe ser el gradiente medio en 1,5 B bajo la base.")
     return avisos
 
 

@@ -10,8 +10,8 @@ from utiles.tablas_malla import CAMPOS_MAPA
 # Paleta solicitada: azul claro -> azul marino. Las regiones fuera de B<=L
 # conservan fondo gris claro, y no se interpolan.
 AZULES = [
-    [0.00, "#d7e6f1"], [0.25, "#adcae1"],
-    [0.50, "#82a8d2"], [0.75, "#587fc5"], [1.00, "#344b9d"],
+    [0.00, "#eff6fb"], [0.25, "#dcecf7"],
+    [0.50, "#c4def0"], [0.75, "#a5cce7"], [1.00, "#78add4"],
 ]
 COLOR_FONDO = "#f3f4f6"
 COLORES_LIMITACION = {"Hundimiento": 0.0, "No válido": 0.5, "Asientos": 1.0}
@@ -75,7 +75,8 @@ def mapa_calor(df: pd.DataFrame, etiqueta: str) -> go.Figure:
             else:
                 texto=f"{value:.3f}" if "(MPa)" in col else f"{value:.2f}"
                 intensidad=(value-zmin)/(zmax-zmin)
-                color="#ffffff" if intensidad >= 0.58 else "#123a57"
+                # La escala azul clara admite texto oscuro en todos los valores.
+                color="#17324b"
             fig.add_annotation(x=float(l),y=float(b),text=texto,showarrow=False,
                                font={"size":fontsize,"color":color},opacity=1)
     if categorico:
