@@ -227,7 +227,7 @@ with tab_as:
         st.subheader("Perfil de deformabilidad")
         capas_df=st.data_editor(
             pd.DataFrame({"Unidad":["NIVEL 1","NIVEL 2"],"z sup. (m)":[0.0,2.5],
-                "z inf. (m)":[2.5,10.0],"E (MPa)":[15.0,1200.0],"nu":[0.30,0.20]}),
+                "z inf. (m)":[2.5,10.0],"E (MPa)":[15.0,30.0],"nu":[0.30,0.20]}),
             num_rows="dynamic",hide_index=True,use_container_width=True,key="perfil_capas",
             column_config={
                 "Unidad":st.column_config.TextColumn(required=True),
