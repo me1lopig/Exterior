@@ -140,6 +140,54 @@ def curvas_seccion(df: pd.DataFrame, b: float) -> go.Figure:
     return fig
 
 
+
+def grafico_presiones_corridas(df: pd.DataFrame, tipo: str = "Netas") -> go.Figure:
+    """Presiones de la comparativa histórica corrida frente al ancho B.
+
+    Se reutilizan las columnas ya calculadas por tabla_malla; no se altera
+    el modelo (L de asientos = 100 m, L de hundimiento = 1000 m).
+    Los servicios sin margen positivo se muestran como huecos, nunca como 0.
+    """
+    if tipo not in ("Netas", "Brutas"):
+        raise ValueError("El tipo de presión debe ser 'Netas' o 'Brutas'.")
+    campos = (
+        ("q hund. neta (MPa)", "q asientos neta (MPa)", "q servicio neta (MPa)")
+        if tipo == "Netas" else
+        ("q hund. bruta (MPa)", "q asientos bruta (MPa)", "q servicio bruta (MPa)")
+    )
+    columnas = ["B (m)", *campos]
+    if df.empty or any(c not in df.columns for c in columnas):
+        raise ValueError("No existen resultados de corridas para representar.")
+    datos = df.sort_values("B (m)")
+    fig = go.Figure()
+    for columna, nombre, color in zip(
+        campos,
+        ("Hundimiento", "Asientos", "Servicio (gobierna)"),
+        ("#286b9b", "#d18c35", "#db4757"),
+    ):
+        fig.add_trace(go.Scatter(
+            x=datos["B (m)"],
+            y=pd.to_numeric(datos[columna], errors="coerce"),
+            mode="lines+markers",
+            connectgaps=False,
+            name=nombre,
+            line={"color": color, "width": 3 if "servicio" in columna else 2},
+            marker={"size": 8},
+            hovertemplate="B=%{x:.2f} m<br>Presión=%{y:.4f} MPa<extra>%{fullData.name}</extra>",
+        ))
+    fig.update_layout(
+        title=f"Zapatas corridas · Presiones {tipo.lower()} según B",
+        template="plotly_white",
+        height=430,
+        margin={"l": 45, "r": 20, "t": 65, "b": 55},
+        legend={"orientation": "h", "y": 1.12},
+        xaxis_title="Anchura B (m)",
+        yaxis_title=f"Presión {tipo.lower()} (MPa)",
+        hovermode="x unified",
+    )
+    return fig
+
+
 def grafico_geom(b: float, l: float) -> go.Figure:
     fig=go.Figure()
     fig.add_shape(type="rect",x0=-l/2,x1=l/2,y0=-b/2,y1=b/2,

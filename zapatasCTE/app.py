@@ -30,7 +30,7 @@ from calculos.malla import (
 from modelos.datos import CapaSuelo, DatosAsientos, DatosHundimiento, DatosProyecto
 from modelos.geometrias import RangoGeometrico, generar_geometrias, serie_rango
 from utiles.tablas_malla import CAMPOS_MAPA, tabla_malla
-from visualizacion.graficos_malla import curvas_seccion, grafico_geom, mapa_calor
+from visualizacion.graficos_malla import curvas_seccion, grafico_geom, mapa_calor, grafico_presiones_corridas
 from visualizacion.graficos_bulbo_2d import figura_seccion_bulbo
 
 st.set_page_config(page_title="Cimentaciones superficiales · B × L", page_icon="▦", layout="wide")
@@ -446,6 +446,12 @@ with tab_res:
                 tc.insert(2,"L hundimiento (m)",LONGITUD_CORRIDA_HUNDIMIENTO_M)
                 tc=tc.rename(columns={"L (m)":"L asientos (m)"})
                 st.dataframe(tc,hide_index=True,use_container_width=True)
+                tipo_presion_corrida=st.radio("Presiones a representar (corridas)",
+                    ["Netas","Brutas"],horizontal=True,key="presiones_corridas")
+                st.plotly_chart(grafico_presiones_corridas(tc,tipo_presion_corrida),
+                    use_container_width=True)
+                st.caption("Comparativa histórica: asientos con L=100 m y hundimiento con L=1000 m. "
+                           "Las presiones son resultados del modelo existente, no de una banda infinita.")
                 st.download_button("Descargar comparativa corrida (CSV)",data=tc.to_csv(index=False).encode("utf-8-sig"),
                     file_name="resultados_zapatas_corridas.csv",mime="text/csv",disabled=desactualizado)
             else:

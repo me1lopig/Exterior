@@ -14,7 +14,7 @@ from calculos.servicio import convertir_ksbl_a_ksp30
 from modelos.datos import CapaSuelo, DatosAsientos, DatosHundimiento
 from modelos.geometrias import RangoGeometrico, generar_geometrias, serie_rango
 from utiles.tablas_malla import tabla_malla
-from visualizacion.graficos_malla import mapa_calor,curvas_seccion
+from visualizacion.graficos_malla import mapa_calor,curvas_seccion,grafico_presiones_corridas
 
 
 class MallaRectangularTest(unittest.TestCase):
@@ -98,6 +98,28 @@ class MallaRectangularTest(unittest.TestCase):
     def test_corrida_interna_100(self):
         res=calcular_corridas((1.5,2),self.h,self.s)
         self.assertTrue(all(r.l_m==100 for r in res))
+
+    def test_grafico_corridas_presiones_netas_brutas_y_sin_servicio(self):
+        corridas=calcular_corridas((1.5,2.,2.5),self.h,self.s)
+        tabla=tabla_malla(corridas)
+        for modo,sufijo in (("Netas","neta"),("Brutas","bruta")):
+            fig=grafico_presiones_corridas(tabla,modo)
+            self.assertEqual(len(fig.data),3)
+            self.assertEqual(list(fig.data[0].x),sorted(tabla["B (m)"].tolist()))
+            for i,columna in enumerate((f"q hund. {sufijo} (MPa)",
+                                       f"q asientos {sufijo} (MPa)",
+                                       f"q servicio {sufijo} (MPa)")):
+                np.testing.assert_allclose(fig.data[i].y,tabla.sort_values("B (m)")[columna])
+            self.assertIn("Presión",fig.layout.yaxis.title.text)
+        inv=tabla.copy()
+        inv.loc[inv.index[1],"q servicio neta (MPa)"]=None
+        fig=grafico_presiones_corridas(inv,"Netas")
+        self.assertTrue(np.isnan(fig.data[2].y[1]))
+        self.assertFalse(fig.data[2].connectgaps)
+        with self.assertRaises(ValueError):
+            grafico_presiones_corridas(tabla,"Efectivas")
+        with self.assertRaises(ValueError):
+            grafico_presiones_corridas(tabla.iloc[0:0])
 
     def test_tabla_graficos_generan_figuras(self):
         g=generar_geometrias(RangoGeometrico())

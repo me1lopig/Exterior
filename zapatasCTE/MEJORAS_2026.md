@@ -27,6 +27,20 @@ No sustituye componentes ni modifica por defecto los datos de un proyecto.
   El modo corrida independiente no reutiliza longitudes arbitrarias de
   la comparación histórica de cálculo.
 
+## PROP-06: gráfico de presiones para cimentaciones corridas
+
+En **Resultados → Tabla general y curvas → Comparativa de zapatas corridas**,
+debajo de la tabla se representan las presiones de hundimiento, asientos
+y servicio frente a la anchura B, con selector **Netas / Brutas**.
+El gráfico reutiliza `tabla_malla(corridas)` y no efectúa nuevos cálculos
+geotécnicos. Si no existe presión de servicio válida, la curva muestra
+un hueco, no un valor artificial igual a cero.
+
+Como la tabla histórica, utiliza longitudes diferentes para los
+dos cálculos: `L_asientos=100 m` y `L_hundimiento=1000 m`.
+No representa una única cimentación corrida física, ni la solución de
+banda infinita del nuevo gráfico de isobaras.
+
 ## Alcance y limitaciones
 
 - Las isobaras son **incrementos de tensión vertical total** respecto a
