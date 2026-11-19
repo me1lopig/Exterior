@@ -32,6 +32,7 @@ from modelos.geometrias import RangoGeometrico, generar_geometrias, serie_rango
 from utiles.tablas_malla import CAMPOS_MAPA, tabla_malla
 from visualizacion.graficos_malla import curvas_seccion, grafico_geom, mapa_calor, grafico_presiones_corridas
 from visualizacion.graficos_bulbo_2d import figura_seccion_bulbo
+from visualizacion.metodologia import mostrar_compendio
 
 st.set_page_config(page_title="Cimentaciones superficiales · B × L", page_icon="▦", layout="wide")
 st.markdown("""
@@ -263,6 +264,7 @@ with tab_res:
                 "corridas": corridas, "h": h, "s": s,
                 "proyecto": DatosProyecto(peticionario,trabajo,expediente),
                 "paso_bulbo": paso_tensiones, "z_bulbo": z_manual,
+                "origen_gamma": modo_gamma, "gamma_sat_kn_m3": gamma_sat,
             }
             st.success(f"Cálculo completado: {len(resultados)} geometrías B × L.")
         except (ValueError,TypeError,OverflowError,ZeroDivisionError,ArithmeticError) as exc:
@@ -289,7 +291,7 @@ with tab_res:
         st.download_button("Descargar tabla CSV",data=tabla.to_csv(index=False).encode("utf-8-sig"),
             file_name="cimentaciones_BxL_resultados.csv",mime="text/csv",
             use_container_width=True,disabled=desactualizado)
-    an_tab,co_tab,met_tab=st.tabs(["Mapa B × L y ficha","Tabla general y curvas","Método y advertencias"])
+    an_tab,co_tab,met_tab=st.tabs(["Mapa B × L y ficha","Tabla general y curvas","Metodología y formulaciones"])
     with an_tab:
         mapa_col,ficha_col=st.columns([1.4,1.0],gap="large")
         with mapa_col:
@@ -459,20 +461,10 @@ with tab_res:
         except (ValueError,OverflowError) as exc:
             st.warning(f"No ha podido completarse la comparación corrida: {exc}")
     with met_tab:
-        st.subheader("Criterio de comparación")
-        st.latex(r"q_{h,d}^{bruta}=\frac{q_h}{\gamma_R}; \quad q_{h,d}^{neta}=q_{h,d}^{bruta}-\sigma_{v0,exc}")
-        st.latex(r"q_{asientos}^{neta}=\frac{s_{adm}}{s(q_{neta}=1)}; \quad q_{serv}^{neta}=\min(q_{h,d}^{neta},q_{asientos}^{neta})")
-        st.latex(r"q_{serv}^{bruta}=q_{serv}^{neta}+\sigma_{v0,exc}")
-        st.caption("sigma_v0,exc: tension preexistente retirada en la base (automatica o manual). Es diferente de q0 de contorno usado en hundimiento. Revisar hipotesis en presencia de agua.")
-        st.subheader("Advertencias generales del modelo")
-        for w in avisos_globales(h_cal,s_cal,True):
-            st.warning(w)
-        st.subheader("Advertencias de geometrías")
-        n_alertas=sum(bool(r.avisos) for r in resultados)
-        st.write(f"{n_alertas} combinaciones presentan al menos un aviso específico.")
-        if n_alertas:
-            st.dataframe(tabla.loc[tabla["Avisos"].str.len()>0,["B (m)","L (m)","Avisos"]],
-                hide_index=True,use_container_width=True)
-        st.markdown("**Referencias:** CTE DB-SE-C, §4.3.2.1 y Anejo F (hundimiento); Anejo E.5 (balasto). "
-                    "[Documento oficial](https://www.codigotecnico.org/pdf/Documentos/SE/DBSE-C.pdf).")
+        mostrar_compendio(
+            h_cal, s_cal, seleccionado, resultados, tabla,
+            origen_gamma=guardado.get("origen_gamma"),
+            gamma_sat_kn_m3=guardado.get("gamma_sat_kn_m3"),
+            desactualizado=desactualizado,
+        )
     st.caption(f"Trabajo: {proyecto_cal.trabajo or 'Sin especificar'} · Expediente: {proyecto_cal.expediente or 'Sin especificar'}")

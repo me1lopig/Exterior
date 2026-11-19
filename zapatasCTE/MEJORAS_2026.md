@@ -77,3 +77,30 @@ ejecutar con `python -m unittest discover -s tests -v` desde `zapatasCTE`.
 
 El programa continúa siendo una herramienta de predimensionamiento
 sujeta a revisión geotécnica y validación profesional.
+
+## PROP-13: compendio de fórmulas y memoria numérica de cálculo
+
+La tercera subpestaña de Resultados se denomina **Metodología y formulaciones**.
+Contiene cuatro apartados: **Hundimiento**, **Asientos (Steinbrenner)**,
+**Servicio y balasto** y **Controles y advertencias**. Los factores
+ampliables documentan las ecuaciones usadas por el motor de ZapatasCTE,
+los límites de aplicación, las unidades y las referencias identificables.
+
+La memoria numérica B × L se vincula a la geometría seleccionada en la
+ficha del mapa. Incluye N, s, d, t, γR, γk, términos de cohesión,
+sobrecarga, peso específico y talud, descarga de excavación, flexibilidad
+de asiento, presiones y balasto. La función `elaborar_memoria` recomputa
+esos términos y contrasta hundimiento y asiento con la salida original;
+no altera las presiones ni interpreta la comparativa histórica de corridas
+como una única geometría física. Si cambian las entradas, se avisa de que
+los resultados visualizados corresponden al último cálculo guardado.
+
+**Importante:** la memoria refleja el algoritmo implementado, incluido su
+uso de γR como divisor de la suma total, y **no acredita una verificación
+normativa integral** de todos los casos. Para asientos estratificados se
+mantiene la aproximación de Steinbrenner por saltos en interfaces sin
+solución rigurosa de continuidad multicapa. La transición E.6-E.8 de
+balasto sigue pendiente de auditoría.
+
+Pruebas específicas: `tests/test_memoria_calculo.py`, además del conjunto
+original `python -m unittest discover -s tests -v`.
