@@ -107,9 +107,13 @@ def calcular_perfil_bulbo(b: float, l: float, q_neta_mpa: float,
     if not (b > 0 and l >= b and q_neta_mpa > 0 and paso_m > 0):
         raise ValueError("Parametros invalidos para bulbo de tensiones.")
     prof_perfil = max(c.z_inferior_m for c in s.capas)
-    max_z = profundidad_manual_m if profundidad_manual_m is not None else max(prof_perfil*1.1, 20*b)
-    if max_z <= 0:
-        raise ValueError("La profundidad de representacion debe ser positiva.")
+    # La profundidad solicitada para la vista no debe truncar la BUSQUEDA de Z_CTE.
+    # Se explora al menos el perfil completo y 20B; el limite manual puede ampliar
+    # el intervalo, pero nunca acortarlo para declarar falsamente un cruce ausente.
+    if profundidad_manual_m is not None and (
+            not np.isfinite(profundidad_manual_m) or profundidad_manual_m <= 0):
+        raise ValueError("La profundidad de representacion debe ser positiva y finita.")
+    max_z = max(prof_perfil*1.1, 20*b, profundidad_manual_m or 0.0)
     n = min(1500, max(100, int(max_z / paso_m)+1))
     z = np.linspace(0, max_z, n)
     influencia = np.array([factor_boussinesq_centro(b,l,float(zz)) for zz in z])

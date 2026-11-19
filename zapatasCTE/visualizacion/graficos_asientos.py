@@ -7,22 +7,34 @@ import plotly.graph_objects as go
 from calculos.diagnostico_asientos import PerfilBulbo
 
 
-def figura_bulbo(perfil: PerfilBulbo) -> go.Figure:
+def figura_bulbo(perfil: PerfilBulbo, *, b_m: float | None = None) -> go.Figure:
+    """INC-03C: curvas independientes que determinan Z_CTE bajo el eje."""
     fig = go.Figure()
-    fig.add_scatter(x=perfil.delta_sigma_kpa, y=perfil.z_m, name="Incremento Boussinesq",
+    q10_kpa = float(perfil.delta_sigma_kpa[0]) * 0.10  # z[0] = 0: Delta sigma = q
+    fig.add_scatter(x=perfil.delta_sigma_kpa, y=perfil.z_m, name="Δσz Boussinesq",
                     mode="lines", line=dict(color="#3562b3", width=3))
-    fig.add_scatter(x=perfil.umbral_cte_kpa, y=perfil.z_m, name="Umbral CTE: min(10% q, 5% sigma'v0)",
-                    mode="lines", line=dict(color="#db8250", dash="dash"))
-    fig.add_hline(y=perfil.profundidad_modelo_m, line_dash="dot", line_color="#8592a3",
-                  annotation_text="Fin del perfil de E")
+    fig.add_scatter(x=[q10_kpa]*len(perfil.z_m), y=perfil.z_m,
+                    name="10 % de q neta",mode="lines",
+                    line=dict(color="#ce7d32", width=2, dash="dot"))
+    fig.add_scatter(x=0.05*perfil.sigma_efectiva_inicial_kpa, y=perfil.z_m,
+                    name="5 % de σ'v0",mode="lines",
+                    line=dict(color="#9263a6", width=2, dash="dash"))
+    fig.add_scatter(x=perfil.umbral_cte_kpa, y=perfil.z_m,
+                    name="Umbral CTE = mínimo de ambos",mode="lines",
+                    line=dict(color="#c94f59", width=2, dash="dashdot"))
+    fig.add_hline(y=perfil.profundidad_modelo_m, line_dash="dashdot",
+                  line_color="#495568",annotation_text="Fin del perfil")
+    if b_m is not None:
+        fig.add_hline(y=2*b_m, line_dash="dot",line_color="#8067aa",
+                      annotation_text="2B (orientativo)")
     if perfil.profundidad_influencia_m is not None:
         fig.add_hline(y=perfil.profundidad_influencia_m, line_dash="dash",
-                      line_color="#29755c", annotation_text="Prof. activa estimada")
+                      line_color="#c94f59", annotation_text="Z_CTE")
     fig.update_yaxes(autorange="reversed", title="z bajo la base (m)")
-    fig.update_xaxes(title="Incremento de tension (kPa)", rangemode="tozero")
-    fig.update_layout(template="plotly_white", title="Bulbo de tensiones en eje central",
-                      legend=dict(orientation="h", y=-0.25), height=400,
-                      margin=dict(l=20, r=20, t=55, b=85))
+    fig.update_xaxes(title="Incremento / umbrales de tensión (kPa)", rangemode="tozero")
+    fig.update_layout(template="plotly_white", title="Determinación de Z_CTE bajo el eje central",
+                      legend=dict(orientation="h", y=-0.29), height=480,
+                      margin=dict(l=20, r=20, t=55, b=125))
     return fig
 
 

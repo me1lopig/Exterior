@@ -14,7 +14,10 @@ COLORES_ESTRATOS = ("#e8c8a7", "#ead7af", "#d6d8c0", "#e3c5ba", "#bfcfcb")
 def figura_seccion_bulbo(b: float, l: float | None, d: float,
                          nivel_freatico_m: float, capas: tuple[CapaSuelo, ...],
                          presion_neta_kpa: float, *, corrida: bool = False,
-                         zmax_m: float | None = None) -> go.Figure:
+                         zmax_m: float | None = None,
+                         zcte_m: float | None = None,
+                         profundidad_perfil_m: float | None = None,
+                         mostrar_2b: bool = False) -> go.Figure:
     """Sección perpendicular a L, con z medido desde rasante en la vista.
 
     Los estratos recibidos se definen desde la BASE (z=0 de capas); no se
@@ -66,6 +69,31 @@ def figura_seccion_bulbo(b: float, l: float | None, d: float,
             hovertemplate=f"Isobara {nivel:.0%}: {nivel*presion_neta_kpa:.2f} kPa"
                           "<br>x=%{x:.2f} m<br>Profundidad=%{y:.2f} m<extra></extra>",
         ))
+    # INC-03A: referencias de profundidad BAJO LA BASE, sin alterar las isobaras.
+    # Z_CTE es el cruce calculado bajo el eje, NO el contorno de la isobara 10 %.
+    referencias = (
+        (zcte_m, "#c94f59", "dash", f"Z_CTE = {zcte_m:.2f} m" if zcte_m is not None else "",
+         x[-1]-.05*xlim, "right", 14),
+        (2*b if mostrar_2b else None, "#8067aa", "dot", f"2B = {2*b:.2f} m",
+         x[0]+.05*xlim, "left", -14),
+        (profundidad_perfil_m, "#495568", "dashdot",
+         f"Fin del perfil = {profundidad_perfil_m:.2f} m" if profundidad_perfil_m is not None else "",
+         x[-1]-.05*xlim, "right", -14),
+    )
+    for profundidad, color, trazo, etiqueta, posicion_x, ancla, desplazamiento in referencias:
+        if profundidad is None:
+            continue
+        if not np.isfinite(profundidad) or profundidad < 0:
+            raise ValueError("Profundidad de referencia no válida.")
+        cota = d + profundidad
+        if cota > ymax:
+            continue
+        fig.add_shape(type="line", x0=x[0],x1=x[-1],y0=cota,y1=cota,
+                      line={"color":color,"width":2.5 if trazo=="dash" else 1.5,"dash":trazo})
+        fig.add_annotation(x=posicion_x,y=cota,text=etiqueta,showarrow=False,
+                           yshift=desplazamiento,xanchor=ancla,
+                           font={"size":11,"color":color},
+                           bgcolor="rgba(255,255,255,0.80)")
     # Nivel freático y zapata por encima de las curvas.
     if nivel_freatico_m <= ymax:
         fig.add_shape(type="line", x0=x[0],x1=x[-1],y0=nivel_freatico_m,

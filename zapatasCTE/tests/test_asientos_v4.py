@@ -84,6 +84,29 @@ class AsientosV4Test(unittest.TestCase):
         self.assertFalse(p2.suficiente)
         self.assertTrue(any('antes' in w for w in p2.avisos))
 
+    def test_inc03_zcte_no_depende_de_profundidad_manual_del_grafico(self):
+        base=calcular_perfil_bulbo(2,3,.15,self.h,self.s)
+        corto=calcular_perfil_bulbo(2,3,.15,self.h,self.s,profundidad_manual_m=.5)
+        self.assertIsNotNone(base.profundidad_influencia_m)
+        self.assertAlmostEqual(base.profundidad_influencia_m,
+                               corto.profundidad_influencia_m,places=8)
+        self.assertEqual(base.suficiente,corto.suficiente)
+
+    def test_inc03_curvas_umbrales_y_referencias(self):
+        perfil=calcular_perfil_bulbo(2,3,.15,self.h,self.s)
+        grafico=figura_bulbo(perfil,b_m=2)
+        nombres=[tr.name for tr in grafico.data]
+        self.assertTrue(any("Boussinesq" in n for n in nombres))
+        self.assertTrue(any("10 %" in n for n in nombres))
+        self.assertTrue(any("5 %" in n for n in nombres))
+        self.assertTrue(any("mínimo" in n for n in nombres))
+        self.assertEqual(len(grafico.data),4)
+        self.assertAlmostEqual(float(grafico.data[1].x[0]),15.0)
+        self.assertAlmostEqual(float(grafico.data[2].x[0]),
+                               .05*perfil.sigma_efectiva_inicial_kpa[0])
+        self.assertTrue(any("Z_CTE" in (a.text or "")
+                            for a in grafico.layout.annotations))
+
     def test_distincion_q0_contorno_y_descarga_excavacion(self):
         h=replace(self.h,gamma_sobrecarga_kn_m3=18,altura_sobrecarga_m=3)
         r=calcular_geometria(2,3,h,self.s)

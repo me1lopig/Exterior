@@ -415,29 +415,57 @@ with tab_res:
                           f"{perfil.profundidad_influencia_m:.2f} m" if perfil.profundidad_influencia_m is not None else "No alcanzada")
                 s3.metric("Profundidad 90% del asiento (por capas)",
                     f"{profundidad_porcentaje_asiento(filas,90):.2f} m" if profundidad_porcentaje_asiento(filas,90) is not None else "N/D")
+                # INC-03A/D: referencias comparables, siempre medidas bajo la base.
+                c_cte,c_2b,c_perfil=st.columns(3)
+                c_cte.metric("Z_CTE bajo la base",
+                    f"{perfil.profundidad_influencia_m:.2f} m"
+                    if perfil.profundidad_influencia_m is not None else "No determinada")
+                c_2b.metric("2B · orientativo",f"{2*seleccionado.b_m:.2f} m")
+                c_perfil.metric("Fin del perfil E, ν",f"{perfil.profundidad_modelo_m:.2f} m")
                 if perfil.suficiente:
-                    st.success("El perfil alcanza la profundidad activa estimada por tensiones en el eje central.")
+                    st.success("El perfil E, ν alcanza Z_CTE bajo el eje central (comprobación tensional).")
+                elif perfil.profundidad_influencia_m is None:
+                    st.warning("No se ha determinado Z_CTE en el intervalo de búsqueda; "
+                               "no se puede demostrar la suficiencia del perfil.")
                 else:
-                    st.warning("El perfil NO demuestra cubrir la profundidad activa estimada. Revisar capas mas profundas.")
+                    faltante=perfil.profundidad_influencia_m-perfil.profundidad_modelo_m
+                    st.warning(f"Perfil insuficiente: faltan al menos {faltante:.2f} m "
+                               "de caracterización bajo la base para alcanzar Z_CTE. "
+                               "La presión admisible por asientos sigue calculada con el perfil disponible; "
+                               "no debe considerarse verificada hasta ampliar o justificar el reconocimiento.")
+                st.caption("Z_CTE: cruce en el eje central entre Δσz de Boussinesq "
+                           "y min(10 % de q neta, 5 % de σ'v0). "
+                           "2B es orientativo; ninguno de estos límites recorta el motor de Steinbrenner.")
                 seccion_tab, existente_tab = st.tabs(["Sección y bulbo 2D", "Tensiones 1D y asientos"])
                 with seccion_tab:
                     q_2d=float(q_ref*1000)
                     st.caption(f"Presión neta de referencia: {q_2d:.2f} kPa.")
+                    # Se amplía la vista si es necesario para incluir las tres referencias.
+                    z_visible=max(
+                        6*seleccionado.b_m,2*seleccionado.l_m,
+                        1.1*perfil.profundidad_modelo_m,
+                        1.1*(perfil.profundidad_influencia_m or 0.0),
+                        2.2*seleccionado.b_m,
+                        guardado["z_bulbo"] or 0.0,
+                    )
                     figura_2d=figura_seccion_bulbo(
                         seleccionado.b_m,seleccionado.l_m,
                         h_cal.profundidad_base_m,h_cal.nivel_freatico_m,s_cal.capas,
-                        q_2d,corrida=False,
-                        zmax_m=guardado["z_bulbo"])
+                        q_2d,corrida=False,zmax_m=z_visible,
+                        zcte_m=perfil.profundidad_influencia_m,
+                        profundidad_perfil_m=perfil.profundidad_modelo_m,
+                        mostrar_2b=True)
                     st.plotly_chart(figura_2d,use_container_width=True)
                     st.caption("Isobaras: Δσz/q neta de Boussinesq (incremento de tensión vertical total). "
                                "No equivale automáticamente a Δσ' en situación no drenada. "
                                "Estratos y NF son referencias visuales; no modifican las isobaras homogéneas.")
-                    if not perfil.suficiente:
-                        st.warning("El perfil E, ν no cubre la profundidad activa: "
-                                   "el bulbo no implica que se haya calculado asiento bajo la última capa.")
+                    st.caption("Líneas horizontales: Z_CTE (cruce tensional bajo el eje), "
+                               "2B (referencia) y profundidad final del perfil. "
+                               "La vista se amplía automáticamente para mostrarlas.")
                 with existente_tab:
                     c_bulbo, c_acum = st.columns(2,gap="large")
-                    with c_bulbo: st.plotly_chart(figura_bulbo(perfil),use_container_width=True)
+                    with c_bulbo: st.plotly_chart(
+                        figura_bulbo(perfil,b_m=seleccionado.b_m),use_container_width=True)
                     with c_acum: st.plotly_chart(figura_asiento_acumulado(tabla_capas),use_container_width=True)
                     st.plotly_chart(figura_contribuciones(tabla_capas),use_container_width=True)
                     st.dataframe(tabla_capas,hide_index=True,use_container_width=True,
@@ -459,7 +487,10 @@ with tab_res:
                             file_name=f"bulbo_B{seleccionado.b_m:g}_L{seleccionado.l_m:g}.csv",
                             mime="text/csv",disabled=desactualizado)
                     for mensaje in perfil.avisos: st.info(mensaje)
-                    st.caption("Boussinesq: bulbo de tension en semiespacio homogeneo. El asiento por estratos es aproximado; "
+                    st.caption("Las cuatro curvas permiten auditar el cruce Z_CTE; las tensiones iniciales "
+                               "se estiman con los pesos específicos introducidos, no con una estratigrafía "
+                               "geostática individualizada. Boussinesq: bulbo en semiespacio homogéneo. "
+                               "El asiento por estratos es aproximado; "
                                "la profundidad 90% se informa solo en los limites de capa conocidos. "
                                "No se calculan consolidacion primaria/secundaria ni asiento diferencial.")
             except (ValueError,ZeroDivisionError,OverflowError) as exc:

@@ -72,6 +72,15 @@ class MejorasZapatasTest(unittest.TestCase):
         fig=figura_seccion_bulbo(2,3,1.5,4.2,capas,200)
         self.assertEqual(len(fig.data),6)
         self.assertTrue(any("freático" in (a.text or "").lower() for a in fig.layout.annotations))
+        referencias=figura_seccion_bulbo(
+            2,3,1.5,4.2,capas,200,zmax_m=12,
+            zcte_m=6.0,profundidad_perfil_m=9.0,mostrar_2b=True)
+        etiquetas=[a.text for a in referencias.layout.annotations]
+        self.assertTrue(any("Z_CTE = 6.00" in (e or "") for e in etiquetas))
+        self.assertTrue(any("2B = 4.00" in (e or "") for e in etiquetas))
+        self.assertTrue(any("Fin del perfil = 9.00" in (e or "") for e in etiquetas))
+        self.assertTrue(any(abs(sh.y0-7.5)<1e-8 for sh in referencias.layout.shapes
+                            if sh.type=="line"))
         fig_corrida=figura_seccion_bulbo(2,None,1.5,4.2,capas,200,corrida=True)
         self.assertEqual(len(fig_corrida.data),6)
         with self.assertRaises(ValueError):

@@ -79,6 +79,9 @@ class InterfazSmokeTest(unittest.TestCase):
             self.assertTrue(all(html.count('<tr class=')==3 for html in fake.pressure_tables))
             self.assertTrue(all('fila-servicio' in html for html in fake.pressure_tables))
             self.assertNotIn('Geometría del bulbo 2D',fake.radiolabels)
+            self.assertTrue(any('Z_CTE bajo la base' in k for k,v in fake.metrics))
+            self.assertTrue(any('2B · orientativo' in k for k,v in fake.metrics))
+            self.assertTrue(any('Fin del perfil E, ν' in k for k,v in fake.metrics))
 
             fake.click_calcular=False
             fake.ancho_max=2.0
