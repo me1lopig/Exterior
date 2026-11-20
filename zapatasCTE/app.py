@@ -106,9 +106,10 @@ def mostrar_tabla_presiones(resultado) -> None:
     )
 
 
-st.caption("GEO APP / GEOTECNIA / PROTOTIPO TÉCNICO")
+
 st.title("Presiones admisibles · Zapatas B × L")
 st.markdown('<p class="small-intro">Hundimiento (CTE DB-SE-C), asientos elásticos por estratos y balasto. Malla rectangular con B ≤ L.</p>',unsafe_allow_html=True)
+st.markdown("Siguiendo la directiva I.T.Q 404")
 
 with st.sidebar:
     st.subheader("Análisis de cimentaciones")
