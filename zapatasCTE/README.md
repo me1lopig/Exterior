@@ -1,98 +1,33 @@
-# 🧭 Carga admisible CTE DB SE-C — zapatasCTE
+# Zapatas Streamlit v4 - elasticidad y profundidad activa
 
-Aplicación Streamlit para calcular presiones y cargas admisibles de cimentaciones directas (zapatas aisladas y zapatas corridas) en mallas de dimensiones B × L. Integra los criterios del CTE DB SE-C con el método multicapa de Steinbrenner para el cálculo del hundimiento.
+Aplicacion de predimensionamiento de zapatas rectangulares B x L, con comparativa corrida historica. Reproduce el alcance funcional de la hoja SUELOS y corrige la formula de asientos del prototipo anterior.
 
-⚠️ Aviso: esta herramienta NO realiza dimensionamiento estructural, comprobaciones de deslizamiento o estabilidad global, ni usa métodos basados en SPT/CPTU u OpenSeesPy. Antes de usarla en un proyecto real, verifique la edición normativa aplicable.
+## Arranque
 
----
+1. Crear entorno virtual de Python 3.11+ y activarlo.
+2. Ejecutar `pip install -r requirements.txt`.
+3. Ejecutar `streamlit run app.py`.
 
-## ✨ Características principales
+## Interfaz
 
-- Cálculo de resistencia de hundimiento según CTE DB SE-C (ELU) y comprobación por asiento (ELS).
-- Método de Steinbrenner multicapa para cimentación rígida (punto característico) con uso de E_s y ν por capa.
-- Soporte de estados drenados y no drenados (perfil cu constante o cu(z)).
-- Generación de tablas de presiones y cargas límite para una malla B–L.
-- Comprobación opcional de una geometría dada con acciones V–H–M.
+- **Datos iniciales:** datos del proyecto y malla `Bmin, Bmax, incrB, Lmin, Lmax, incrL`, con `0 < B <= L`.
+- **Hundimiento:** parametros resistentes, condiciones de agua, q0 de contorno, talud, profundidad y seguridad.
+- **Asientos:** asiento admisible, estratos E/nu, metodos `Superposicion 4 x (B/2 x L/2)` (defecto) o `Aproximacion 2 x (B x L)`, selector Cohesivo / Granular para Ksp30; tension inicial auto o manual; profundidad y paso del grafico del bulbo.
+- **Resultados:** boton `Calcular`, resultados netos/brutos, mapas azules con anotaciones, tabla CSV, ficha y diagnostico del asiento de la zapata seleccionada. Seleccion de presion de referencia: servicio o limite por asientos.
 
----
+## Nuevo en v4
 
-## 🧭 Flujo de uso
+- Steinbrenner corregido: `1 - nu - 2nu^2`, con regresion externa (cinco casos ministeriales).
+- Presion previa de excavacion separada de `q0` del contorno, con opcion manual.
+- Bulbo `Delta sigma_z(z)` (Boussinesq centro rectangular), umbral CTE y aviso de profundidad investigada insuficiente.
+- Tabla de contribucion por estratos y asiento acumulado (mm / %), grafico vertical y barras.
+- Exportacion CSV de contribuciones y del perfil de tensiones.
+- Los resultados se calculan solo cuando se pulsa `Calcular` y se avisa si las entradas han cambiado.
 
-1. Definir metadatos del proyecto: nombre, tipología y cota de apoyo.
-2. Introducir la estratigrafía: capas con espesor, c' (cohesión efectiva), φ' (ángulo eficaz), γ (peso unitario), E_s (Módulo elástico) y ν (coeficiente de Poisson).
-3. Seleccionar el estrato representativo para el hundimiento.
-4. Para condiciones no drenadas, elegir entre cu constante o un perfil tabulado cu(z). En este régimen φ' se fija a cero.
-5. Definir rangos y paso de B y L, asiento admisible y profundidad de influencia.
-6. Calcular la tabla de presiones y cargas límite.
-7. Si es necesario, activar la comprobación de una geometría con acciones V–H–M.
+## Comprobaciones
 
----
+`python -m unittest discover -s tests -v`
 
-## 📈 Resultados por cada geometría B × L
+Consultar `METODOLOGIA_ASIENTOS.md` para ecuaciones, controles, bibliografia y limitaciones. Consultar `VALIDACION.md` para el registro de las pruebas.
 
-- qd (ELU): resistencia bruta de cálculo.
-- qd (ELS): presión bruta limitada por asiento.
-- q_adm = min(qd ELU, qd ELS): presión admisible final.
-- N_adm: axil admisible descontando los pesos configurados.
-- Criterio gobernante y estado de cobertura del perfil.
-
----
-
-## 🪨 Asientos
-
-El método principal es Steinbrenner multicapa para cimentaciones rígidas utilizando el punto característico. Cada capa considera su módulo elástico E_s y su coeficiente de Poisson ν. La presión neta se utiliza para el cálculo de asientos y también se presentan presiones brutas para comparar con qd.
-
-Requisitos del perfil:
-- El perfil debe cubrir de forma continua desde la base de la zapata hasta D + ZI.
-- Para control adicional del modelo de hundimiento se verifica la cobertura hasta D + 1.5·B.
-
----
-
-## 🛠️ Instalación
-
-Recomendado: Python 3.11 o 3.12.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate       # macOS / Linux
-# .venv\Scripts\Activate.ps1  # Windows PowerShell
-pip install -r requirements.txt
-streamlit run app.py
-```
-
----
-
-## ✅ Pruebas
-
-Ejecute el conjunto de pruebas unitarias:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-Las pruebas cubren escenarios drenados y no drenados, geometría efectiva, perfil cu(z), nivel freático, cobertura estratigráfica, sobrecarga integrada, el método de Steinbrenner y la generación de la malla de capas.
-
----
-
-## 📐 Convenciones
-
-- Longitudes y profundidades: m
-- Fuerzas: kN (en zapata corrida: kN/m)
-- Tensiones y resistencias: kPa
-- Módulos elásticos: MPa
-- Pesos unitarios: kN/m³
-- Profundidades positivas desde la superficie hacia abajo
-- El perfil cu(z) usa profundidades absolutas desde la superficie
-
----
-
-## 📚 Referencias
-
-- CTE DB SE-C — Cimientos: https://www.codigotecnico.org/pdf/Documentos/SE/DBSE-C.pdf
-
----
-
-## 🧾 Notas finales
-
-- Esta aplicación está pensada como herramienta de apoyo al cálculo geotécnico; cualquier resultado presentado debe revisarse y justificarse en la documentación del proyecto.
-
+**Atencion:** modelo lineal elastico estratificado aproximado. Las condiciones de drenaje, descarga/recarga y profundidad del reconocimiento requieren criterio geotecnico. No se consideran consolidacion, distorsion angular, zapatas vecinas, cargas excentricas ni comportamiento plastico. La v4 no reproduce exactamente los resultados erroneos de la v3/Excel en el coeficiente de Poisson.

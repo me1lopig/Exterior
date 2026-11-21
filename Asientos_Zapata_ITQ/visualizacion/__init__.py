@@ -1,0 +1,2 @@
+"""Gráficos interactivos de resultados."""
+

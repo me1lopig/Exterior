@@ -1,180 +1,104 @@
-# 🌐 Exterior — Programas de visibilidad exterior (Geotecnia)
+# GeoPerfil 2D v0.8.4 — Ajuste de curvas N20 y contactos a bordes del perfil
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-See%20LICENSE-lightgrey)](./LICENSE)
+Aplicacion Python/Streamlit para dibujar perfiles geologicos manualmente a partir de sondeos y ensayos de campo. La geologia se interpreta mediante contactos y lentejones en el MiniCAD; los ensayos no generan correlaciones geologicas automaticas.
 
-## Qué es
-Colección de aplicaciones y utilidades en Python (principalmente interfaces Streamlit) para análisis geotécnico exterior: estabilidad de taludes, consolidación 1D, mejora con columnas de grava, asentamientos de zapatas (FEM), dimensionado de pilotes y utilidades de tablas/parametrización. Está orientado a uso académico, investigación y evaluaciones preliminares de diseño.
+## Importacion unica: libros originales de campana
 
-### Stack
-- Lenguaje(s): Python (100%)
-- Entorno / runtime: Streamlit (aplicaciones interactivas), scripts y módulos numéricos
-- Librerías destacadas: numpy, pandas, plotly / matplotlib, openpyxl, python-docx (y utilidades para exportar informes)
+- **Importacion simultanea de varios archivos Excel**: `PERFIL1.xlsx` define PK y cotas reales, `BKFL.XLSX` litologias, `DPRG.XLSX` penetracion dinamica, `ISPT.XLSX` SPT y `ListadoLab.XLSX` laboratorio.
+- Reconocimiento por **cabeceras del archivo**, no por nombre literal. PERFIL1 es obligatorio; los cuatro restantes son opcionales. Para un perfil geologico dibujable es necesario al menos BKFL.
+- Interfaz de **validar antes de aplicar**. Se informa del numero de sondeos, curvas, ensayos y muestras; el usuario confirma expresamente antes de sustituir la campana o descartar contactos anteriores.
+- La columna **Cota** de PERFIL1 indica la elevacion real de cada punto (m). Cero es valido; vacio es error. La columna **Distancia** es el PK acumulado (m). **STA es un punto topografico del terreno**, no un sondeo, penetracion ni otro trabajo de campo. Su PK y su cota forman parte de la superficie del perfil.
+- La topografia observada procede de **todos los puntos de PERFIL1**, incluido STA, sin inventar cotas fuera del primer y ultimo punto; entre PK se interpola linealmente.
+- Los intervalos BKFL se conservan con estrato, descripcion y origen. Los codigos `EST_*` no se equiparan automaticamente a unidades geotecnicas `UG-*` del laboratorio.
+- DPRG conserva los golpes originales separados por profundidad de 0,20 m; **el subtipo de penetracion debe confirmarse**. No interpreta rechazo ni convierte los golpes en SPT. La tabla interna se denomina `Ensayos_DPSH` por compatibilidad con v0.7, aunque se registra el tipo como `PENETROMETRO (subtipo no confirmado)`.
+- Los SPT se muestran como **`SPT 24/13/4/4`** a su cota, sin reemplazar los incrementos por N. Se deduplican los SPT presentes tanto en ISPT como en ListadoLab, dando prioridad a ISPT y avisando si hay discrepancias.
+- Muestras no SPT y resultados de laboratorio resumidos disponibles como **capas optativas**, con codigo UG, USCS, IP, RCS donde existan datos. Se guardan los registros completos de ListadoLab en el proyecto.
+- Controles de visibilidad de terreno, sondeos, contactos, rellenos, curvas de penetracion, SPT, muestras, laboratorio y guitarra. Tamano de letra **general, ensayos y guitarra** de 6 a 18 pt; parametros serializados en JSON.
+- Exportaciones HTML, PNG, SVG, PDF y DXF comparten estas capas. En DXF, los SPT, muestras y laboratorio son textos editables en capas CAD especificas.
+- **Solo existe la entrada multifichero**. Se han retirado la plantilla Excel unica, la edicion de tablas de entrada y el inicio automatico con datos demostrativos. Los proyectos JSON guardados siguen siendo recuperables.
 
-## Organización del repositorio
-Estructura anotada (entradas de primer nivel relevantes):
+## Interfaz v0.8.3
 
-```text
-.agent_files/           # plantillas y estilos generados (JSON) para informes
-AsientosZapata/         # Aplicaciones FEM para cálculo de asientos de zapatas
-ColumnasGrava/          # App Streamlit + motor (método Priebe) + generación de informes
-Consolidacion/          # Simulador 1D de consolidación (Terzaghi) + Streamlit
-Losas/                  # Módulos FEM/mesher/postprocessing para losas (esqueleto)
-MMC_tensores/           # Herramientas para operaciones con tensores (MMC)
-PilotesCTE/             # Scripts para dimensionado/análisis de pilotes (CTE)
-TaludesTemporales/      # Recursos y app de taludes temporales; incluye documentación AUDIT
-ZapatasGCOC/            # App y scripts de zapatas (GCOC) — interfaz e implementación
-expansividad/           # App para análisis de expansividad del terreno
-slope_stability_app/    # App principal de estabilidad de taludes (GeoSlope) y módulos internos
-spt/                    # Interpretación SPT / herramienta SPT
-tablas/                 # Generador y librería de tablas/parametrización (engines)
-tests/                  # Suite pytest (geometría, validación de entradas, sensibilidad, estabilidad)
-LICENSE                 # Licencia del proyecto
-README.md               # Este archivo
-```
+- Cabecera azul oscuro con operaciones **Nuevo**, **Abrir** (proyecto JSON) y **Guardar** (descarga del proyecto). Nuevo y Abrir solicitan confirmación antes de sustituir trabajo existente. El guardado MiniCAD se mantiene independiente de la descarga del JSON.
+- Pestañas superiores en este orden: **Datos**, **Trazado**, **Perfil**, **Unidades**, **Interpretación** y **Exportar**. Los metadatos y las escalas del proyecto están en un apartado desplegable de **Datos**.
+- Panel **izquierdo** contextual: capas geológicas, capas de ensayos, guitarra y tres tamaños de letra (general, ensayos y guitarra). El perfil y sus exportaciones usan estas preferencias. Las preferencias se restauran correctamente al abrir otro proyecto.
+- Barra horizontal de herramientas del MiniCAD **encima del lienzo**, agrupada en Dibujo, Rellenos y Vista. Incluye seleccionar, dibujar/borrar contacto, dibujar/borrar lentejón, finalizar, rellenar/quitar relleno, limpiar, deshacer/rehacer, mover, encuadrar y ajuste magnético. El desplazamiento con la mano es adicional a **Mayús+arrastrar** y al botón central; el zoom con rueda sigue disponible.
+- Los puntos **STA solo aportan PK/cota a la superficie**: no se dibujan símbolos ni etiquetas STA en el trazado, en el MiniCAD, en el perfil ni en la guitarra. La topografía sigue incluyendo esos datos de forma exacta.
+- **Unidades** muestra la tabla de colores/códigos importados, sin introducir una segunda fuente editable. La clasificación de polígonos sigue siendo manual en Interpretación.
+- Las modificaciones estéticas no cambian el motor de contactos, cotas, SPT, lectura DPRG, construcción de zonas ni las coordenadas de exportación.
 
-Cómo encaja (resumen)
-- Cada carpeta suele ser una aplicación o módulo independiente: entrada de parámetros → motor numérico (cálculo) → visualización (Streamlit / Plotly) → exportación (Excel/Word).
-- Los módulos reutilizables (por ejemplo motores de cálculo, generación de informes, tablas de parámetros) están organizados dentro de cada carpeta para mantener cohesión por dominio.
+## Instalacion
 
-## Resumen de carpetas y programas principales
-(qué hace cada programa, archivos clave y notas de ejecución)
+En macOS o Linux, dentro de la carpeta `perfil_geologico`:
 
-- AsientosZapata/
-  - app_asientos_FEM_4.py, app_asientos_FEM_4_0.py
-    - Aplicaciones que usan un solver FEM para estimar asientos de zapatas. Manejan la interfaz de parámetros, generación de mallado y llamadas al motor numérico.
-  - funciones_asientos.py, funciones_asientos_0.py
-    - Motor y utilidades FEM: ensamblaje de matrices, condiciones de contorno, resolución y postprocesado de asientos.
-  - requirements.txt
-    - Dependencias locales (instalar con `pip install -r AsientosZapata/requirements.txt`).
-
-- ColumnasGrava/
-  - app.py
-    - Interfaz Streamlit que aplica el método de Priebe para columnas de grava: geometría, cálculo de Ac/A, parámetros equivalentes y análisis de sensibilidad.
-  - funciones_grava.py
-    - Cálculos numéricos (área de columna, relación de sustitución, coeficientes intermedios).
-  - informes.py
-    - Exportadores a Excel (.xlsx) y Word (.docx) (usa openpyxl / python-docx).
-  - README.md (detallado): explica metodología, fórmulas y ejemplos.
-  - Ejecución: `streamlit run ColumnasGrava/app.py`
-
-- Consolidacion/
-  - consolidacion_streamlit_3.py
-    - Simulador 1D basado en la ecuación de Terzaghi. Implementa métodos explícito e implícito (FDM), condiciones de contorno, cálculo de isócronas y exporte de resultados.
-  - README.md (completo): teoría, ejemplos de uso y generación de informes.
-  - Ejecución: `streamlit run Consolidacion/consolidacion_streamlit_3.py`
-
-- Losas/
-  - fem_engine.py, mesher.py, postprocessing.py, app.py (esqueleto)
-    - Conjunto orientado al análisis por elementos finitos de losas: generación de mallado, motor FEM (ensamblado) y postprocesado. Algunos ficheros son plantillas o módulos reutilizables.
-  - Ejecución: revisar `Losas/requirements.txt` y lanzar la app o integrar el motor en un script.
-
-- MMC_tensores/
-  - app.py
-    - Interfaz/ejemplo para operaciones tensoriales relevantes en mecánica de medios continuos.
-  - tensor_operations.py
-    - Funciones para manipulaciones y transformaciones de tensores (contracciones, invariantes, etc.).
-
-- PilotesCTE/
-  - PilotesCTE_2.py
-    - Script de cálculo y dimensionado de pilotes conforme a criterios de la normativa (CTE). Incluye rutinas de comprobación y salida de resultados.
-  - README.md: explicación de uso y ejemplos.
-
-- ZapatasGCOC/
-  - app.py, zapatas_GCOC_1.py, README.md
-    - Herramientas orientadas al cálculo de zapatas según criterios GCOC: cálculo geométrico, comprobaciones y tablas de resultados.
-
-- TaludesTemporales/
-  - README.md y AUDIT.md
-    - Documentación extensa, listas de verificación y notas de auditoría. Puede integrar componentes de `slope_stability_app`.
-
-- slope_stability_app/
-  - app.py (GeoSlope)
-    - Aplicación para estabilidad de taludes por equilibrio límite (Fellenius, Bishop simplificado). Estructura modular:
-      - calculations/ — funciones de cálculo
-      - models/       — clases de dominio (perfil, capas)
-      - services/     — utilidades (IO, export)
-      - visualization/— renderizado y gráficas
-    - Ejecución: `streamlit run slope_stability_app/app.py`
-
-- spt/
-  - app.py, README.md
-    - Herramienta SPT: entrada de ensayos, interpretación y tablas de correlación.
-
-- tablas/
-  - app.py, build_data.py, soil_params_engine.py
-    - Librería y app para construir y servir tablas de parámetros de suelos. `build_data.py` genera las fuentes de datos internas.
-  - Ejecución: `streamlit run tablas/app.py` o importar `tablas.soil_params_engine`.
-
-- expansividad/
-  - app.py
-    - App para analizar riesgos y efectos asociados a suelos expansivos.
-
-- agent_files/
-  - estilos_informes_geotecnicos.json
-    - Plantilla/estilos en JSON para la generación automatizada de informes (empleada por módulos de informes).
-
-- tests/
-  - test_geometry.py, test_input_validation.py, test_sensitivity_and_report.py, test_stability.py
-    - Suite pytest que cubre geometría, validación de entradas, sensibilidad de parámetros y estabilidad numérica.
-
-## Cómo ejecutarlo
-Ruta mínima desde clonación hasta ejecutar una app
-
-1. Clonar el repositorio:
 ```bash
-git clone https://github.com/me1lopig/Exterior.git
-cd Exterior
-```
-
-2. Crear y activar entorno virtual:
-```bash
-python -m venv .venv
-# macOS / Linux
+python3 -m venv .venv
 source .venv/bin/activate
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
+python3 -m pip install -r requirements.txt
+python3 -m streamlit run app.py
 ```
 
-3. Instalar dependencias por módulo (recomendado — cada app mantiene su requirements):
+En Windows, active `.venv\Scripts\activate` y ejecute `python -m pip install -r requirements.txt` y `python -m streamlit run app.py`.
+
+## Procedimiento con varios archivos
+
+1. Abra la pestaña **Datos** y seleccione **Importar campana desde varios archivos Excel**.
+2. Seleccione juntos `PERFIL1.xlsx`, `BKFL.XLSX`, `DPRG.XLSX`, `ISPT.XLSX` y/o `ListadoLab.XLSX`. Los nombres pueden ser diferentes, pero las cabeceras deben coincidir con los formatos reconocidos.
+3. Pulse **Validar archivos**, revise estaciones y advertencias y confirme la sustitucion.
+4. Pulse **Aplicar campana validada**. Las tablas derivadas quedan bloqueadas para impedir inconsistencias con PERFIL1. Para corregir datos, modifique el original y vuelva a importar. La interpretacion anterior se descarta solo tras confirmacion.
+5. En **Trazado**, revise el eje de PK acumulados y la guitarra. El eje es de solo lectura para una campana importada por PK.
+6. En **Interpretación**, utilice la barra MiniCAD horizontal (selección, contactos, lentejones, rellenos, desplazamiento y ajuste magnético).
+7. En **Perfil**, active las capas y ajuste los tamaños de letra desde el panel lateral izquierdo; cambie la escala gráfica de golpes en la zona central.
+8. En **Exportar**, descargue PDF, PNG, SVG, DXF, HTML, Excel o proyecto JSON. Guarde el JSON para poder reabrir la campana y su interpretacion.
+
+La carpeta `ejemplos/campana_multifichero_sintetica/` contiene cinco libros inventados expresamente para probar el importador. No se entrega ninguna plantilla de entrada unica.
+
+## Trazabilidad de los datos
+
+Las tablas internas derivadas que usa el motor (`Sondeos`, `Intervalos`, `Unidades`, `Ensayos_DPSH`, `Lecturas_DPSH`, `Eje`) se mantienen para el motor de GeoPerfil. Ademas, la nueva importacion agrega `Estaciones`, `SPT`, `Muestras`, `Laboratorio`, `Laboratorio_original` y `Fuentes`. Las tablas contienen nombre del archivo, numero de fila e identificadores donde corresponde. `Fuentes` incluye hash SHA-256 del libro; la aplicacion **no guarda los bytes originales del Excel en el JSON**. Conserve sus originales separadamente.
+
+SPT y laboratorio son datos observados de campo/ensayo. Las zonas geologicas dibujadas y clasificadas constituyen interpretacion del tecnico, no medicion de los libros.
+
+## Pruebas
+
+Desde la carpeta superior que contiene `perfil_geologico`:
+
 ```bash
-pip install -r ColumnasGrava/requirements.txt
-pip install -r Consolidacion/requirements.txt
-# repetir por cada carpeta que se vaya a usar
+python3 -m pytest -q perfil_geologico/tests
+python3 -m compileall -q perfil_geologico
 ```
 
-4. Ejecutar una app Streamlit (ejemplos):
-```bash
-# GeoSlope (estabilidad de taludes)
-streamlit run slope_stability_app/app.py
+La versión **v0.8.4 ha superado 88 pruebas automatizadas** (incluidas las 79 anteriores). Incluye regresiones del importador, topografia con STA, guardado, capas y DXF, ademas de pruebas de navegador del MiniCAD y una prueba integral con los cinco libros aportados en esta conversacion. El DXF fue releido con `ezdxf`; las imagenes fueron generadas y revisadas. No se pudo ejecutar una sesión completa de Streamlit aquí porque Streamlit no estaba instalado. Se comprobó el MiniCAD en Chromium mediante Playwright, incluyendo que las bocas y puntos de inicio estén sobre la línea del terreno, pero no toda la interfaz Streamlit. Debe validarse localmente en macOS antes de usarlo en un trabajo real; la apertura del DXF en AutoCAD sigue pendiente.
 
-# Consolidación 1D
-streamlit run Consolidacion/consolidacion_streamlit_3.py
+## Correccion v0.8.3: posicion real de los reconocimientos
 
-# Columnas de grava (Priebe)
-streamlit run ColumnasGrava/app.py
+- Sondeos y penetrómetros comienzan **exactamente en el PK y la Cota indicados en PERFIL1**, sin desplazamiento vertical de la geometría. Los datos de entrada nunca se alteran automáticamente.
+- La cota del terreno de PDF/PNG/SVG se obtiene ahora de **todos los puntos de PERFIL1**, como en MiniCAD, Plotly y DXF. Se ha corregido un error anterior del PDF que utilizaba únicamente cotas de sondeos.
+- Se representa la posición de inicio de cada reconocimiento con una marca de boca y, en el caso del penetrómetro, un eje fino desde la cota de inicio hasta la profundidad final. La curva de golpes sigue comenzando en la **primera lectura real**, normalmente 0,20 m por debajo, sin inventar una lectura N20 a profundidad 0.
+- Los puntos STA contribuyen a la geometría de la línea del terreno **sin símbolos ni etiquetas individuales**.
+- La aplicación verifica diferencias de más de **0,001 m** entre la cota de los reconocimientos y la superficie interpolada de PERFIL1. Si hay discrepancia bloquea la representación para solicitar corrección en el archivo, sin mover el ensayo automáticamente.
+- Se incluyen pruebas de regresión con terreno quebrado, con los Excel aportados por el usuario, la salida DXF y el componente MiniCAD en Chromium.
 
-# Zapatas (GCOC)
-streamlit run ZapatasGCOC/app.py
-```
+## Limitaciones importantes
 
-5. Ejecutar tests:
-```bash
-pytest -q
-```
+- Las escalas H/V aplican la exageracion en la visualizacion, pero en perfiles muy cortos y profundos la composicion de PDF/PNG/SVG se ajusta para ser legible. **Esa salida ajustada NO garantiza escala fisica de impresion** y se rotula expresamente. Para planos medidos, revise el DXF y su ventana de impresion.
+- Los reconocimientos de PERFIL1 se ubican sobre un **perfil definido por PK**. Esta modalidad no crea coordenadas UTM reales: X se utiliza internamente como PK e Y=0. La entrada clasica con coordenadas XY se ha eliminado de la interfaz; el proyecto usa PK y cotas de PERFIL1.
+- Si solo hay un sondeo litologico BKFL, las superficies fuera del sondeo siguen siendo interpretacion manual; no se infiere continuidad lateral.
+- El terreno se interpola entre cotas de todos los puntos de PERFIL1 (incluido STA); no sustituye un modelo digital del terreno.
+- El nivel freatico indicado como cero en libros de ensayo no se dibuja automaticamente como nivel de agua.
+- Las etiquetas densas pueden solaparse al activar muchas capas y letras grandes. En tal caso desactive capas o reduzca la fuente.
+- El DXF usa coordenadas de perfil X=PK, Y=cota, no coordenadas UTM. Las tramas HATCH de unidades geologicas dependen de la interpretacion que el usuario complete.
+- La aplicacion aun requiere validacion funcional completa con navegador + Streamlit local y revision del perfil por profesional geotecnico.
 
-Requisitos
-- Python 3.8+ (algunos módulos pueden requerir 3.9+)
-- Instalar las dependencias que aparecen en `*/requirements.txt` antes de ejecutar cada app
-- Entorno virtual recomendado
+## Novedades v0.8.4 - contactos hasta los bordes y penetraciones contenidas
 
-## Cómo encajan los módulos
-- Las apps comparten un patrón: `app.py` (Streamlit) importa el motor de cálculo y los módulos de export (`informes.py` / `motor_calculo.py`).
-- Los resultados se visualizan con Plotly/Matplotlib y pueden exportarse a Excel/Word mediante openpyxl/python-docx.
-- `tablas/` actúa como fuente común de parámetros de suelo que otras apps pueden reutilizar.
-
-## Propuestas y siguientes pasos
-1. ¿Quieres que cree una rama y abra un PR con esta traducción para revisión antes de dejarlo en `main`?
-2. ¿Prefieres que añada un script `setup.sh` o un Makefile para instalar dependencias por módulo automáticamente?
-3. ¿Deseas que agregue badges de CI (pytest) y un workflow básico en `.github/workflows`?
-
+- El MiniCAD permite terminar contactos en la topografia, en el borde izquierdo,
+  el derecho y el limite inferior sin sobrepasarlos. Las guias azules aparecen
+  durante el modo de dibujo y permiten captura exacta a cualquier nivel de zoom.
+- Las curvas N20 se ajustan automaticamente al espacio disponible sin cambiar
+  el PK del penetrómetro, la cota de inicio ni las lecturas. El ensayo extremo
+  derecho puede dibujar su curva hacia la izquierda. La escala horizontal de
+  **representacion de golpes** puede reducirse respecto a la solicitada para
+  respetar los limites del perfil.
+- Los valores observados siempre tienen prioridad en la captura magnetica.
+- Consulte `CAMBIOS_v0.8.4.md` y ejecute `pytest -q` antes de uso.
