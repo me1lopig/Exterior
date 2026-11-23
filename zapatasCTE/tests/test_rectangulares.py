@@ -7,7 +7,7 @@ import unittest
 
 import numpy as np
 
-from calculos.asientos import asiento_centro_cm
+from calculos.asientos import asiento_centro_cm, asiento_esquina_cm
 from calculos.capacidad_portante import calcular_hundimiento_rectangular
 from calculos.malla import calcular_geometria, calcular_malla, calcular_corridas, validar_entrada
 from calculos.servicio import convertir_ksbl_a_ksp30
@@ -20,7 +20,7 @@ from visualizacion.graficos_malla import mapa_calor,curvas_seccion,grafico_presi
 class MallaRectangularTest(unittest.TestCase):
     def setUp(self):
         self.h = DatosHundimiento(anchos_m=(1.5,2,2.5,3),longitud_corrida_m=100)
-        self.s = DatosAsientos(metodo_centro="superposicion",capas=(
+        self.s = DatosAsientos(capas=(
             CapaSuelo("A",0,2.5,15,.3),CapaSuelo("B",2.5,10,1200,.2)))
 
     def test_geometrias_solo_b_menor_igual_l(self):
@@ -54,11 +54,11 @@ class MallaRectangularTest(unittest.TestCase):
         self.assertAlmostEqual(r.q_serv_bruta_mpa,r.q_serv_neta_mpa+q0)
         self.assertAlmostEqual(r.q_serv_neta_mpa,min(r.q_hund_neta_mpa,r.q_asiento_neta_mpa))
 
-    def test_asiento_centro_semiespacio_homogeneo(self):
+    def test_asiento_centro_usa_cuatro_cuadrantes(self):
         capas=(CapaSuelo('A',0,5000,50,.3),)
-        aproximado=asiento_centro_cm(1,2,4,capas,'excel')
-        cuadrantes=asiento_centro_cm(1,2,4,capas,'superposicion')
-        self.assertAlmostEqual(aproximado/cuadrantes,1.0,delta=.001)
+        centro=asiento_centro_cm(1,2,4,capas)
+        cuadrante=asiento_esquina_cm(1,1,2,capas)
+        self.assertAlmostEqual(centro,4*cuadrante,places=10)
 
     def test_balasto_rectangular(self):
         r=calcular_geometria(2,3,self.h,self.s)

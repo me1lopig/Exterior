@@ -62,7 +62,7 @@ class AuditoriaCTETest(unittest.TestCase):
 
     def test_mapa_azul_textos_y_celdas_invalidas(self):
         h=DatosHundimiento()
-        s=DatosAsientos(metodo_centro='superposicion',capas=(CapaSuelo('A',0,20,20,.3),))
+        s=DatosAsientos(capas=(CapaSuelo('A',0,20,20,.3),))
         g=generar_geometrias(RangoGeometrico(bmin=1,bmax=2,incr_b=.5,lmin=1,lmax=2,incr_l=.5))
         df=tabla_malla(calcular_malla(g,h,s))
         fig=mapa_calor(df,'Presión admisible de servicio (neta)')

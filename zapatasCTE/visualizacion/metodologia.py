@@ -136,9 +136,8 @@ def mostrar_compendio(
             r"\quad\text{con}\quad b=B/2,\ l=L/2"
         )
         st.caption(
-            "La superposición de cuatro cuadrantes es el modo recomendado en "
-            "ZapatasCTE. El modo histórico alternativo usa "
-            "2 × s_esquina(B,L) y se conserva solo para comparación."
+            "ZapatasCTE calcula el asiento central exclusivamente mediante "
+            "superposición de cuatro cuadrantes (B/2 × L/2)."
         )
         st.markdown("**Presión neta limitada por asiento**")
         st.latex(r"s=q_{\mathrm{neta}}f(B,L,E_i,\nu_i)")

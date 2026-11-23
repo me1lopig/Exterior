@@ -42,28 +42,26 @@ class RegresionExcelTest(unittest.TestCase):
         # Valores externos calculados mediante la ecuacion corregida de
         # Steinbrenner, contrastados con la auditoria independiente.
         valores_corregidos_c = [
-            0.948756309534, 0.900346314231, 0.880634523251,
-            0.855949187925, 0.850029326670,
+            0.674846742797, 0.602286333237, 0.567493868281,
+            0.508897728722, 0.474378154767,
         ]
         valores_corregidos_l = [
-            0.919299616765, 0.897488951781, 0.889728131075,
-            0.883513946911, 0.887026494299,
+            0.559415485727, 0.523135073583, 0.505637542357,
+            0.476310212537, 0.459541957644,
         ]
         np.testing.assert_allclose(cuadrada, valores_corregidos_c, rtol=1e-10)
         np.testing.assert_allclose(corrida, valores_corregidos_l, rtol=1e-10)
         # La v4 no pretende reproducir el error historico de Poisson del VBA.
         self.assertGreater(abs(cuadrada[0]-0.9263561049),0.01)
 
-    def test_superposicion_central_es_mas_conservadora(self) -> None:
-        revisado = DatosAsientos(
-            asiento_admisible_cm=5.0,
-            longitud_corrida_m=100.0,
-            capas=self.asientos.capas,
-            metodo_centro="superposicion",
+    def test_superposicion_central_por_cuadrantes(self) -> None:
+        from calculos.asientos import asiento_centro_cm, asiento_esquina_cm
+        b, l, q = 2.0, 3.0, 0.2
+        centro = asiento_centro_cm(q, b, l, self.asientos.capas)
+        esquina_cuadrante = asiento_esquina_cm(
+            q, b / 2.0, l / 2.0, self.asientos.capas
         )
-        q_excel, _ = calcular_presiones_asiento(self.hundimiento.anchos_m, self.asientos)
-        q_revisado, _ = calcular_presiones_asiento(self.hundimiento.anchos_m, revisado)
-        self.assertTrue(np.all(q_revisado < q_excel))
+        self.assertAlmostEqual(centro, 4.0 * esquina_cuadrante, places=10)
 
     def test_balasto_cte_cohesivo_y_granular(self) -> None:
         ks_bl = 20.0

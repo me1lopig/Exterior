@@ -21,7 +21,7 @@ import pandas as pd
 class AsientosV4Test(unittest.TestCase):
     def setUp(self):
         self.h = DatosHundimiento()
-        self.s = DatosAsientos(metodo_centro="superposicion",capas=(
+        self.s = DatosAsientos(capas=(
             CapaSuelo("A",0,2.5,15,.30),CapaSuelo("B",2.5,10,1200,.20)))
 
     def test_referencia_ministerio_5_casos(self):
@@ -34,17 +34,15 @@ class AsientosV4Test(unittest.TestCase):
         for nombre, q_kpa, e, nu, b, l, h, ref_mm in casos:
             with self.subTest(nombre=nombre):
                 capas=(CapaSuelo('Unica',0,h,e,nu),)
-                obtenido_mm=10*asiento_centro_cm(q_kpa/1000,b,l,capas,'superposicion')
+                obtenido_mm=10*asiento_centro_cm(q_kpa/1000,b,l,capas)
                 self.assertAlmostEqual(obtenido_mm,ref_mm,delta=.10)
 
     def test_sumatoria_por_capas_igual_motor_centro(self):
-        for metodo in ('excel','superposicion'):
-            s=replace(self.s,metodo_centro=metodo)
-            filas=contribuciones_steinbrenner(2,3,s,.2)
-            self.assertAlmostEqual(filas[-1]['Asiento acumulado (mm)'],
-                                   asiento_centro_cm(.2,2,3,s.capas,metodo)*10,places=8)
-            self.assertAlmostEqual(sum(f['Contribucion (%)'] for f in filas),100,places=10)
-            self.assertEqual(profundidad_porcentaje_asiento(filas,90),2.5)
+        filas=contribuciones_steinbrenner(2,3,self.s,.2)
+        self.assertAlmostEqual(filas[-1]['Asiento acumulado (mm)'],
+                               asiento_centro_cm(.2,2,3,self.s.capas)*10,places=8)
+        self.assertAlmostEqual(sum(f['Contribucion (%)'] for f in filas),100,places=10)
+        self.assertEqual(profundidad_porcentaje_asiento(filas,90),2.5)
 
     def test_proporcionalidad_lineal_y_punto_limite_admisible(self):
         r=calcular_geometria(2,3,self.h,self.s)

@@ -89,7 +89,7 @@ def elaborar_memoria(
     qh_carac = tc_kpa + tq_kpa + tgamma_kpa + correccion_kpa
     gamma_r = 2.0 if h.situacion_seguridad == "Situación extraordinaria" else 3.0
     qh_bruta = qh_carac / gamma_r / 1000
-    flex = asiento_centro_cm(1.0, b, l, s.capas, s.metodo_centro)
+    flex = asiento_centro_cm(1.0, b, l, s.capas)
     if flex <= 0:
         raise ValueError("Flexibilidad de asiento no positiva.")
     qa_neta = s.asiento_admisible_cm / flex
@@ -122,6 +122,6 @@ def elaborar_memoria(
         q_servicio_neta_mpa=r.q_serv_neta_mpa,
         q_servicio_bruta_mpa=r.q_serv_bruta_mpa,
         ks_bl_mn_m3=r.ks_bl_mn_m3, ksp30_mn_m3=r.ksp30_mn_m3,
-        limitacion=r.limitacion, metodo_asientos=s.metodo_centro,
+        limitacion=r.limitacion, metodo_asientos="superposicion",
         tipo_balasto=s.tipo_material_balasto,
     )

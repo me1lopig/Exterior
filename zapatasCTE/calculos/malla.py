@@ -51,8 +51,6 @@ def avisos_globales(h: DatosHundimiento, s: DatosAsientos, geometria_incluye_cor
         "Al truncar el perfil el modelo NO incorpora asiento bajo la ultima profundidad; verificar su influencia antes de aceptar la presion admisible.",
         "Las diferencias de solución de Steinbrenner por estrato aproximan un perfil multicapa, pero no resuelven rigurosamente compatibilidad en interfaces; contrastar ante fuerte contraste de rigidez.",
     ]
-    if s.metodo_centro == "excel":
-        avisos.append("Se ha elegido Aproximación 2 × (B × L), mantenida para comparar con el VBA; no es el método recomendado para estratificados.")
     if s.descarga_excavacion_kpa is None:
         avisos.append("La tension preexistente se estima con D y gamma; si existen rellenos, agua o estratos sobre la base, introducirla manualmente cuando proceda.")
     if h.nivel_freatico_m < h.profundidad_base_m and h.gamma_efectivo_kn_m3 >= h.gamma_aparente_kn_m3:
@@ -81,7 +79,7 @@ def calcular_geometria(b: float, l: float, h: DatosHundimiento, s: DatosAsientos
     if not (isfinite(b) and isfinite(l) and 0 < b <= l):
         raise ValueError("Las dimensiones deben cumplir 0 < B <= L.")
     capacidad = calcular_hundimiento_rectangular(h, b, l)
-    flexibilidad_cm_mpa = asiento_centro_cm(1.0, b, l, s.capas, s.metodo_centro)
+    flexibilidad_cm_mpa = asiento_centro_cm(1.0, b, l, s.capas)
     if not isfinite(flexibilidad_cm_mpa) or flexibilidad_cm_mpa <= 0:
         raise ValueError(f"Flexibilidad no positiva para B={b:g}, L={l:g}.")
     qa_neta = s.asiento_admisible_cm / flexibilidad_cm_mpa

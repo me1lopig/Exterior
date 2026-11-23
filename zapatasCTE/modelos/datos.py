@@ -43,7 +43,6 @@ class DatosAsientos:
     asiento_admisible_cm: float = 5.0
     longitud_corrida_m: float = 100.0
     capas: tuple[CapaSuelo, ...] = field(default_factory=tuple)
-    metodo_centro: str = "excel"
     tipo_material_balasto: str = "Cohesivo"
     descarga_excavacion_kpa: float | None = None
 
@@ -62,8 +61,6 @@ class DatosAsientos:
                 errores.append(
                     f"Las capas {anterior.nombre} y {siguiente.nombre} se solapan en profundidad."
                 )
-        if self.metodo_centro not in {"excel", "superposicion"}:
-            errores.append("El método de asiento central no es válido.")
         if self.descarga_excavacion_kpa is not None and (not isfinite(self.descarga_excavacion_kpa) or self.descarga_excavacion_kpa < 0):
             errores.append("La presion preexistente manual debe ser positiva o cero.")
         if self.tipo_material_balasto not in {"Cohesivo", "Granular"}:

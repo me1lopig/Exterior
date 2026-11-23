@@ -29,7 +29,7 @@ class NuevasMejorasTest(unittest.TestCase):
             gamma_aparente_kn_m3=19, nivel_freatico_m=2,
         )
         self.s=DatosAsientos(
-            metodo_centro="superposicion",
+            
             capas=(CapaSuelo("A",0,3,20,.30),
                    CapaSuelo("B",3,20,120,.22)),
         )

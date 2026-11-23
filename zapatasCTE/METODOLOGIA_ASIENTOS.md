@@ -15,7 +15,7 @@ Para una esquina de rectangulo de dimensiones `b x l`, la implementacion calcula
 
 **Correccion v4:** en v3 figuraba `1 - nu - nu^2`, que no se corresponde con esta variante de Steinbrenner. El termino correcto es `1 - nu - 2 nu^2`. Referencia: *Settlements of Footing Groups*, 2023, ecuacion (22), apartado 9.3.1.
 
-Para un estrato de limites `z_sup, z_inf` bajo la base, el aporte del rectangulo-esquina es `u(z_sup)-u(z_inf)`. Se multiplica por 4 para el **centro** con cuatro cuadrantes de `B/2 x L/2` (recomendado); la opcion `2 x (B x L)` es aproximacion historica para contrastar la hoja anterior, y no metodo recomendado de perfil estratificado. La suma por estratos coincide exactamente con el calculo de asiento del motor.
+Para un estrato de limites `z_sup, z_inf` bajo la base, el aporte del rectangulo-esquina es `u(z_sup)-u(z_inf)`. Se multiplica por 4 para el **centro** con cuatro cuadrantes de `B/2 x L/2` (unico metodo operativo). La antigua aproximacion `2 x (B x L)` se ha eliminado del motor por no ser valida en general para perfiles estratificados de espesor finito. La suma por estratos coincide exactamente con el calculo de asiento del motor.
 
 **Limitacion importante:** esta suma estratificada por diferencias de soluciones homogeneas **no** impone una solucion elastica multicapa rigurosa (continuidad y transmision de esfuerzos/desplazamientos en las interfases). No se imponen deformaciones por debajo del ultimo estrato; extender el reconocimiento puede elevar el asiento calculado.
 

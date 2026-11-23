@@ -41,7 +41,7 @@ class MejorasZapatasTest(unittest.TestCase):
             CAMPOS_MAPA["Presión admisible por asientos (bruta)"]]))
         self.assertEqual(AZULES[-1][1],"#78add4")
         h=DatosHundimiento()
-        s=DatosAsientos(metodo_centro="superposicion",
+        s=DatosAsientos(
                         capas=(CapaSuelo("A",0,20,20,.3),))
         df=tabla_malla([calcular_geometria(2,3,h,s)])
         fig=mapa_calor(df,"Presión admisible por asientos (bruta)")

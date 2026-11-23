@@ -54,11 +54,8 @@ def asiento_centro_cm(
     ancho_m: float,
     largo_m: float,
     capas: tuple[CapaSuelo, ...],
-    metodo: str,
 ) -> float:
-    """Calcula el asiento central según la convención seleccionada."""
-    if metodo == "excel":
-        return 2.0 * asiento_esquina_cm(presion_mpa, ancho_m, largo_m, capas)
+    """Asiento bajo el centro por superposición de cuatro cuadrantes."""
     return 4.0 * asiento_esquina_cm(presion_mpa, ancho_m / 2, largo_m / 2, capas)
 
 
@@ -69,7 +66,7 @@ def _presion_para_asiento(
     datos: DatosAsientos,
 ) -> float:
     asiento_unitario = asiento_centro_cm(
-        1.0, ancho_m, largo_m, datos.capas, datos.metodo_centro
+        1.0, ancho_m, largo_m, datos.capas
     )
     if not np.isfinite(asiento_unitario) or asiento_unitario <= 0:
         raise ValueError("La flexibilidad calculada debe ser positiva y finita.")

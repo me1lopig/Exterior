@@ -228,16 +228,8 @@ with tab_as:
         asiento_adm=st.number_input("Asiento admisible (cm)",min_value=0.01,value=5.0,step=0.5)
         tipo_balasto=st.selectbox("Tipo de terreno para Ksp30",["Cohesivo","Granular"],
             help="Relación de escala E.6 (cohesivo), E.7 (granular) y factor rectangular E.8.")
-        metodo=st.radio("Asiento bajo el centro",[
-            "Superposición 4 × (B/2 × L/2) — Recomendado",
-            "Aproximación 2 × (B × L)",
-        ],help="La superposición de cuatro cuadrantes es el modo recomendado; la aproximación permite compararse con el Excel original.")
-        if metodo.startswith("Superposición"):
-            st.success("s_centro = 4 × s_esquina(B/2,L/2)")
-            metodo_id="superposicion"
-        else:
-            st.warning("s_centro = 2 × s_esquina(B,L): aproximación histórica, no recomendada para estratificados.")
-            metodo_id="excel"
+        st.caption("Asiento bajo el centro: superposición de cuatro cuadrantes (B/2 × L/2).")
+        st.success("s_centro = 4 × s_esquina(B/2,L/2)")
         st.caption("El balasto se obtiene de la flexibilidad elástica calculada y se transforma a placa de 30 cm según el material elegido.")
         st.divider()
         st.subheader("Presion inicial en la base")
@@ -278,7 +270,7 @@ entrada_actual = {
         phi if not sin_drenaje else 0.0, cohesion, cu_aumenta, cu_z0, cu_0,
         cu_z1, cu_1, nf, modo_gamma, gamma_sat, gamma_ef, gamma_ap, flujo, gradiente,
         considerar_sobrecarga, gamma_sob, altura_sob, beta],
-    "asientos": [asiento_adm, tipo_balasto, metodo_id, descarga_manual, sigma_descarga, modo_profundidad, z_manual, paso_tensiones],
+    "asientos": [asiento_adm, tipo_balasto, descarga_manual, sigma_descarga, modo_profundidad, z_manual, paso_tensiones],
     "capas": capas_df.to_dict(orient="records"),
 }
 firma_actual = hashlib.sha256(json.dumps(entrada_actual,sort_keys=True,default=str,
@@ -307,7 +299,7 @@ with tab_res:
             )
             s = DatosAsientos(asiento_admisible_cm=asiento_adm,
                 longitud_corrida_m=LONGITUD_CORRIDA_INTERNA_M,
-                capas=capas,metodo_centro=metodo_id,tipo_material_balasto=tipo_balasto,
+                capas=capas,tipo_material_balasto=tipo_balasto,
                 descarga_excavacion_kpa=sigma_descarga)
             resultados = calcular_malla(geometrias,h,s)
             tabla = tabla_malla(resultados)

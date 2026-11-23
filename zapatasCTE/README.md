@@ -12,7 +12,7 @@ Aplicacion de predimensionamiento de zapatas rectangulares B x L, con comparativ
 
 - **Datos iniciales:** datos del proyecto y malla `Bmin, Bmax, incrB, Lmin, Lmax, incrL`, con `0 < B <= L`.
 - **Hundimiento:** parametros resistentes, condiciones de agua, q0 de contorno, talud, profundidad y seguridad.
-- **Asientos:** asiento admisible, estratos E/nu, metodos `Superposicion 4 x (B/2 x L/2)` (defecto) o `Aproximacion 2 x (B x L)`, selector Cohesivo / Granular para Ksp30; tension inicial auto o manual; profundidad y paso del grafico del bulbo.
+- **Asientos:** asiento admisible, estratos E/nu, metodo unico `Superposicion 4 x (B/2 x L/2)`, selector Cohesivo / Granular para Ksp30; tension inicial auto o manual; profundidad y paso del grafico del bulbo.
 - **Resultados:** boton `Calcular`, resultados netos/brutos, mapas azules con anotaciones, tabla CSV, ficha y diagnostico del asiento de la zapata seleccionada. Seleccion de presion de referencia: servicio o limite por asientos.
 
 ## Nuevo en v4

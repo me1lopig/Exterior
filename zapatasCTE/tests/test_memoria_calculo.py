@@ -14,7 +14,7 @@ class MemoriaCalculoTest(unittest.TestCase):
     def setUp(self):
         self.h = DatosHundimiento()
         self.s = DatosAsientos(
-            metodo_centro="superposicion",
+            
             capas=(CapaSuelo("A", 0, 2.5, 15, .3),
                    CapaSuelo("B", 2.5, 10, 1200, .2)),
         )

@@ -54,16 +54,11 @@ def contribuciones_steinbrenner(b: float, l: float, datos: DatosAsientos, q_neta
     """Desglose de asiento por capas y acumulado, sin integrar Delta sigma/E.
 
     Cada tramo es el salto del desplazamiento de esquina entre extremos.
-    Metodo bajo centro: cuatro cuadrantes o aproximacion historica.
+    Metodo bajo centro: superposicion de cuatro cuadrantes.
     """
     if not (0 < b <= l and q_neta_mpa >= 0):
         raise ValueError("Geometria o presion neta invalida.")
-    if datos.metodo_centro == "superposicion":
-        multiplicador, ancho, largo = 4.0, b/2.0, l/2.0
-    elif datos.metodo_centro == "excel":
-        multiplicador, ancho, largo = 2.0, b, l
-    else:
-        raise ValueError("Metodo de asientos desconocido.")
+    multiplicador, ancho, largo = 4.0, b/2.0, l/2.0
     rows = []
     acumulado_mm = 0.0
     for capa in datos.capas:
