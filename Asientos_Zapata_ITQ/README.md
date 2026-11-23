@@ -136,3 +136,14 @@ Proyecto orientado a uso técnico y académico dentro del contexto de análisis 
 ---
 
 Desarrollado para análisis de asientos de zapata flexible en terreno multicapa.
+
+
+## Actualización v1.5 - 23/11/2026
+
+Se han incorporado mejoras de interfaz, esquemas de geometría y estratos, cálculo aproximado de reducción por rigidez, exportación DOCX/XLSX generada únicamente bajo demanda y nuevas pruebas de regresión de Steinbrenner. Se conservan sin cambios los motores de Boussinesq y de integración vertical, que ya coincidían con la versión evaluada.
+
+**Control de entrada:** se admite ahora `0 <= nu < 0.499`; la proximidad a incompresibilidad sigue generando una advertencia para el método de integración vertical.
+
+**Pruebas:** `python -m pytest -q` (41 comprobaciones superadas en el entorno de validación). Los casos, fuentes y límites figuran en [VALIDACION_STEINBRENNER.md](VALIDACION_STEINBRENNER.md) y `tests/casos_referencias_publicadas.json`.
+
+**Limitación de comprobación:** la interfaz Streamlit no ha sido verificada mediante una prueba de navegador en el entorno donde se preparó esta actualización; se verificaron compilación y tests del motor, visualizaciones y servicios.

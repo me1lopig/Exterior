@@ -15,6 +15,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt, RGBColor
 
 from calculos.asientos import ResultadoCalculo
+from calculos.rigidez import AjusteRigidez, tabla_aportes_con_porcentaje
 from calculos.steinbrenner import ResultadoSteinbrenner
 from modelos.datos import Cimentacion
 
@@ -80,7 +81,7 @@ def _configurar_documento(doc: Document) -> None:
 
     pie = seccion.footer.paragraphs[0]
     pie.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = pie.add_run("ASIENTO ELÁSTICO DE ZAPATA RECTANGULAR FLEXIBLE")
+    run = pie.add_run("ASIENTO ELÁSTICO DE ZAPATA RECTANGULAR")
     run.font.name = "Open Sans"
     run.font.size = Pt(8)
     run.font.color.rgb = RGBColor.from_string(AZUL)
@@ -143,6 +144,8 @@ def _figura_tensiones(resultado: ResultadoCalculo) -> BytesIO:
 def _figura_asientos(resultado: ResultadoCalculo) -> BytesIO:
     fig, ax = plt.subplots(figsize=(6.0, 4.0), dpi=180)
     for nombre, grupo in resultado.perfiles.groupby("Punto", sort=False):
+        if nombre not in {"Centro", "Borde B", "Borde L", "Esquina"}:
+            continue
         ax.plot(grupo["desplazamiento_mm"], grupo["z_bajo_base_m"], label=nombre)
     ax.invert_yaxis(); ax.grid(alpha=0.25); ax.legend(frameon=False, fontsize=7, ncol=2)
     ax.set_xlabel("Desplazamiento vertical (mm)"); ax.set_ylabel("Profundidad bajo la base (m)")
@@ -168,9 +171,11 @@ def _figura_bulbo(resultado: ResultadoCalculo, cimentacion: Cimentacion) -> Byte
 def _figura_steinbrenner(resultado: ResultadoSteinbrenner) -> BytesIO:
     fig, ax = plt.subplots(figsize=(6.0, 4.0), dpi=180)
     for nombre, grupo in resultado.perfiles.groupby("Punto", sort=False):
+        if nombre not in {"Centro", "Borde B", "Borde L", "Esquina"}:
+            continue
         ax.plot(
             grupo["desplazamiento_mm"], grupo["z_bajo_base_m"],
-            marker="o", markersize=3.5, label=nombre,
+            label=nombre,
         )
     ax.invert_yaxis(); ax.grid(alpha=0.25); ax.legend(frameon=False, fontsize=7, ncol=2)
     ax.set_xlabel("Desplazamiento Steinbrenner (mm)")
@@ -199,6 +204,7 @@ def crear_informe_docx(
     z_max_m: float,
     resultado: ResultadoCalculo,
     resultado_steinbrenner: ResultadoSteinbrenner,
+    ajuste_rigidez: AjusteRigidez,
 ) -> bytes:
     """Crea una memoria de cálculo DOCX con estilo geotécnico corporativo."""
     doc = Document()
@@ -207,12 +213,13 @@ def crear_informe_docx(
     titulo = doc.add_paragraph(style="Title")
     _quitar_bordes(titulo)
     titulo.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    run = titulo.add_run("Asiento elástico de zapata rectangular flexible")
+    run = titulo.add_run("Asiento elástico de zapata rectangular")
     run.font.name = "Open Sans Condensed"; run.font.size = Pt(24); run.font.bold = True
     run.font.color.rgb = RGBColor.from_string(AZUL_OSCURO)
     doc.add_paragraph(
         "Memoria de cálculo del incremento de tensión vertical y de la compresión elástica "
-        "de un terreno multicapa bajo una presión rectangular neta uniforme."
+        "de un terreno multicapa bajo una presión rectangular neta uniforme, con corrección "
+        "simplificada opcional para una base rígida."
     )
 
     _titulo(doc, "DATOS GENERALES")
@@ -234,6 +241,8 @@ def crear_informe_docx(
             ["Nivel freático", nivel_freatico_m, "m desde superficie"],
             ["Profundidad analizada", z_max_m, "m bajo base"],
             ["Parámetros elásticos", "E y ν; M derivado", "-"],
+            ["Modelo de cimentación", ajuste_rigidez.tipo, "-"],
+            ["Factor de rigidez Cr", ajuste_rigidez.factor if ajuste_rigidez.considerar_rigida else "No aplicado", "-"],
             ["Paso vertical adoptado", resultado.paso_adoptado_m, "m"],
             ["Intervalos adoptados", resultado.intervalos_adoptados, "-"],
             ["Paso vertical de control", resultado.paso_control_m, "m"],
@@ -242,9 +251,10 @@ def crear_informe_docx(
     )
     _tabla(doc, entrada)
     doc.add_paragraph(
-        "La zapata se considera flexible y transmite una presión neta uniforme. El terreno se "
-        "representa mediante capas horizontales elásticas. No se incluyen consolidación, fluencia, "
-        "plasticidad ni redistribución de presiones por rigidez de la cimentación."
+        "Los dos métodos se resuelven inicialmente como una zapata flexible que transmite una "
+        "presión neta uniforme. El terreno se representa mediante capas horizontales elásticas. "
+        "La opción rígida aplica únicamente sr = Cr·sf,c al asiento central y no calcula la "
+        "redistribución de presiones de contacto."
     )
 
     doc.add_page_break()
@@ -253,15 +263,19 @@ def crear_informe_docx(
 
     _titulo(doc, "RESULTADOS POR INTEGRACIÓN VERTICAL")
     asiento_centro = float(resultado.resumen_puntos.loc[resultado.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
+    asiento_adoptado = ajuste_rigidez.asiento_adoptado_mm(asiento_centro)
     doc.add_paragraph(
-        f"El asiento elástico calculado bajo el centro es {asiento_centro:.2f} mm para el límite "
-        f"inferior situado a {z_max_m:.2f} m bajo la base. El error relativo al duplicar la "
+        f"El asiento flexible calculado bajo el centro es {asiento_centro:.2f} mm y el asiento "
+        f"adoptado para el modelo seleccionado ({ajuste_rigidez.tipo.lower()}) es "
+        f"{asiento_adoptado:.2f} mm. "
+        f"El límite inferior del análisis se sitúa a {z_max_m:.2f} m bajo la base. El error "
+        f"relativo al duplicar la "
         f"discretización, reduciendo el paso de {resultado.paso_adoptado_m:.3f} m a "
         f"{resultado.paso_control_m:.3f} m, es {resultado.error_discretizacion_pct:.3f} %."
     )
     _tabla(doc, resultado.resumen_puntos)
     _titulo(doc, "APORTE POR ESTRATO", nivel=2)
-    _tabla(doc, resultado.resumen_estratos)
+    _tabla(doc, tabla_aportes_con_porcentaje(resultado.resumen_estratos))
     _insertar_figura(doc, _figura_tensiones(resultado), "Figura 1 Perfiles de tensión bajo el centro")
     _insertar_figura(doc, _figura_asientos(resultado), "Figura 2 Desplazamiento vertical en puntos de control")
     _insertar_figura(doc, _figura_bulbo(resultado, cimentacion), "Figura 3 Bulbo de incremento de tensión en la dirección B")
@@ -273,14 +287,17 @@ def crear_informe_docx(
             resultado_steinbrenner.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"
         ].iloc[0]
     )
+    asiento_stein_adoptado = ajuste_rigidez.asiento_adoptado_mm(asiento_stein)
     doc.add_paragraph(
-        f"El asiento elástico de Steinbrenner bajo el centro es {asiento_stein:.2f} mm para el "
-        f"límite inferior situado a {z_max_m:.2f} m bajo la base. Este cálculo utiliza directamente "
+        f"El asiento flexible de Steinbrenner bajo el centro es {asiento_stein:.2f} mm y el "
+        f"asiento adoptado para el modelo seleccionado ({ajuste_rigidez.tipo.lower()}) es "
+        f"{asiento_stein_adoptado:.2f} mm. El límite inferior del análisis se sitúa a "
+        f"{z_max_m:.2f} m bajo la base. Este cálculo utiliza directamente "
         "E y ν y no depende del paso vertical adoptado para la integración."
     )
     _tabla(doc, resultado_steinbrenner.resumen_puntos)
     _titulo(doc, "APORTE STEINBRENNER POR ESTRATO", nivel=2)
-    _tabla(doc, resultado_steinbrenner.resumen_estratos)
+    _tabla(doc, tabla_aportes_con_porcentaje(resultado_steinbrenner.resumen_estratos))
     _insertar_figura(
         doc, _figura_steinbrenner(resultado_steinbrenner),
         "Figura 4 Desplazamiento mediante Steinbrenner en puntos de control",
@@ -301,6 +318,11 @@ def crear_informe_docx(
         "sus límites superior e inferior. Se aplica superposición rectangular desde el plano de apoyo "
         "con la presión neta, sin factor adicional de empotramiento. Los dos resultados no se combinan "
         "ni se comparan."
+    )
+    doc.add_paragraph(
+        f"Cuando se activa el modelo rígido simplificado se adopta sr = Cr·sf,c, con "
+        f"Cr = {ajuste_rigidez.factor:.2f}. Este factor corrige exclusivamente el asiento flexible "
+        "central; no representa la distribución no uniforme de presiones de una zapata rígida."
     )
     doc.add_paragraph(
         "La distribución de tensiones corresponde a un semiespacio homogéneo; la estratificación "

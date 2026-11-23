@@ -1,0 +1,201 @@
+{
+  "version": "bateria-v1.0",
+  "application": "asientos_zapata_flexible_streamlit_v1_5.zip",
+  "scope": "settlements via Steinbrenner for flexible rectangular loaded areas; no consolidation",
+  "units": {
+    "q": "kPa",
+    "E": "MPa",
+    "z": "m",
+    "settlement": "mm"
+  },
+  "sources": {
+    "ministerio": {
+      "title": "Guia Eurocodigo 7, Ejemplos de aplicacion de cimentaciones superficiales (2022), tabla 71, p.124",
+      "url": "https://cdn.transportes.gob.es/portal-web-transportes/carreteras/normativa_tecnica/21_eurocodigos/guia_cimentaciones_con_eurocodigo_7._ejemplos_cimentaciones_superficiales.pdf"
+    },
+    "hkie": {
+      "title": "HKIE An Explanatory Handbook to Code of Practice for Foundations 2004 (2015), HB-1, pp. B-4 to B-5",
+      "url": "https://hkie-st.org/wp-content/uploads/2022/06/49_Fdn-Code-2004-Handbook.pdf"
+    },
+    "geo": {
+      "title": "GEO Tools Settlements of Footing Groups (2023), Example 5, pp. 9.116-9.120",
+      "url": "https://geotecsoftware.com/jdownloads/Books/9-Settlements%20of%20footing%20groups-EN.pdf"
+    },
+    "a4": {
+      "title": "A-4 / SE-20, Anejo 12, Apendice 2, hoja asientos bajo rectangulo",
+      "url": "https://cdn.fomento.gob.es/portal-web-drupal/25-SE-5100/anejo_12_cimentacion_estructuras_25-se-5100.pdf"
+    },
+    "jerez": {
+      "title": "Proyecto Hospital de Jerez, anejo geotecnico, hoja Steinbrenner, p.91/341",
+      "url": "https://www.juntadeandalucia.es/haciendayadministracionpublica/apl/pdc_sirec_documentacion/rest/descargar/documento/317922"
+    },
+    "excel": {
+      "title": "asientos_3.xlsx, hoja Steimbrenner, celdas B14 y B16",
+      "url": "user-provided local attachment"
+    }
+  },
+  "ministerio": [
+    {
+      "id": "E-1",
+      "B": 2.3,
+      "L": 12.0,
+      "q": 112.0,
+      "E": 30.0,
+      "nu": 0.3,
+      "H": 17.0,
+      "reference_mm": 13.7,
+      "tol_mm": 0.1
+    },
+    {
+      "id": "P-1",
+      "B": 4.0,
+      "L": 6.0,
+      "q": 269.0,
+      "E": 30.0,
+      "nu": 0.3,
+      "H": 9.95,
+      "reference_mm": 33.9,
+      "tol_mm": 0.1
+    },
+    {
+      "id": "P-2",
+      "B": 3.0,
+      "L": 3.0,
+      "q": 681.0,
+      "E": 900.0,
+      "nu": 0.25,
+      "H": "infinite",
+      "numerical_H_m": 10000.0,
+      "reference_mm": 2.4,
+      "tol_mm": 0.1
+    },
+    {
+      "id": "P-3",
+      "B": 3.0,
+      "L": 3.0,
+      "q": 648.0,
+      "E": 900.0,
+      "nu": 0.25,
+      "H": "infinite",
+      "numerical_H_m": 10000.0,
+      "reference_mm": 2.3,
+      "tol_mm": 0.1
+    },
+    {
+      "id": "E-2",
+      "B": 2.3,
+      "L": 12.0,
+      "q": 112.0,
+      "E": 30.0,
+      "nu": 0.3,
+      "H": 6.0,
+      "reference_mm": 9.8,
+      "tol_mm": 0.1
+    }
+  ],
+  "hkie": {
+    "B": 2.0,
+    "L": 3.0,
+    "q": 200.0,
+    "E": 15.0,
+    "nu": 0.35,
+    "H": 10.0,
+    "points": {
+      "center": 27.85,
+      "corner": 12.08,
+      "average_441": 22.9
+    },
+    "tolerances_mm": {
+      "center": 0.02,
+      "corner": 0.02,
+      "average_441": 0.02
+    },
+    "grid": "21 x 21 equally spaced nodes; trapezoidal area weighting for mean"
+  },
+  "geo": {
+    "B": 8.0,
+    "L": 12.0,
+    "q": 130.0,
+    "nu": 0.0,
+    "x": 2.96,
+    "y": 4.44,
+    "df": 2.0,
+    "layers": [
+      {
+        "name": "Clay",
+        "z_top": 0.0,
+        "z_bottom": 7.0,
+        "E": 8.0,
+        "reference_mm": 64.94
+      },
+      {
+        "name": "Medium sand",
+        "z_top": 7.0,
+        "z_bottom": 12.0,
+        "E": 100.0,
+        "reference_mm": 1.56
+      },
+      {
+        "name": "Silt",
+        "z_top": 12.0,
+        "z_bottom": 18.0,
+        "E": 12.0,
+        "reference_mm": 9.08
+      }
+    ],
+    "reference_total_mm": 75.58,
+    "tol_mm": 0.02,
+    "notes": "Characteristic point, not footing center. nu=0 accepted by engine but rejected by v1.5 UI validation."
+  },
+  "a4": {
+    "B": 8.9,
+    "L": 16.0,
+    "H": 12.0,
+    "nu": 0.35,
+    "q_kg_cm2": 1.0,
+    "E_kg_cm2": 150.0,
+    "kgf_cm2_kPa": 98.0665,
+    "reference_mm": {
+      "center": 43.0,
+      "corner": 12.0
+    },
+    "tol_mm": 0.5
+  },
+  "excel": {
+    "B": 2.0,
+    "L": 2.0,
+    "q": 240.0,
+    "nu": 0.3,
+    "layers": [
+      [
+        0.0,
+        5.0,
+        15.0
+      ],
+      [
+        5.0,
+        15.0,
+        25.0
+      ],
+      [
+        15.0,
+        20.0,
+        30.0
+      ]
+    ],
+    "reference_total_mm": 29.191198183225744,
+    "reference_q_50mm_kPa": 411.0828176589068,
+    "tol_total_mm": 1e-08,
+    "tol_q_kpa": 1e-06
+  },
+  "pending": [
+    {
+      "source": "jerez",
+      "issue": "The source reports a first layer with 0.00 cm settlement and a second layer with 5.00 cm; the input depths and contribution/discard of soil over the 3.60 m excavation are not unambiguous. Not counted as a direct regression."
+    },
+    {
+      "source": "geo",
+      "issue": "Input form enforces 0.10 < nu; published model uses nu=0. Engine works through direct function call, but not through form."
+    }
+  ]
+}

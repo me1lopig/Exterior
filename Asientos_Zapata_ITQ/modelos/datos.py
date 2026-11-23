@@ -103,7 +103,7 @@ def validar_estratos(
 
     if (capas["E_MPa"] <= 0).any():
         errores.append("E debe ser positivo en todos los estratos.")
-    if ((capas["nu"] <= 0.10) | (capas["nu"] >= 0.499)).any():
-        errores.append("Se exige 0.10 < nu < 0.499 en todos los estratos.")
+    if ((capas["nu"] < 0.0) | (capas["nu"] >= 0.499)).any():
+        errores.append("Se exige 0 <= nu < 0.499 en todos los estratos.")
     return capas, errores
 

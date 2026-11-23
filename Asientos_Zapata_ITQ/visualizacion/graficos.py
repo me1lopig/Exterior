@@ -28,7 +28,34 @@ def _estilo_base(fig: go.Figure, titulo_x: str, titulo_y: str) -> go.Figure:
     return fig
 
 
-def figura_tensiones(resultado: ResultadoCalculo) -> go.Figure:
+def _bandas_estratos(
+    fig: go.Figure,
+    estratos: pd.DataFrame,
+    cimentacion: Cimentacion,
+    z_max_m: float,
+) -> None:
+    """Añade bandas discretas sin ocultar las curvas calculadas."""
+    colores = ["rgba(33,100,175,0.035)", "rgba(119,132,151,0.035)"]
+    indice = 0
+    for _, capa in estratos.iterrows():
+        sup = max(float(capa["z_sup_m"]) - cimentacion.df_m, 0.0)
+        inf = min(float(capa["z_inf_m"]) - cimentacion.df_m, z_max_m)
+        if inf <= sup:
+            continue
+        fig.add_hrect(
+            y0=sup, y1=inf, fillcolor=colores[indice % 2], opacity=1.0,
+            line_width=0, layer="below",
+        )
+        if sup > 0.0:
+            fig.add_hline(y=sup, line_width=1, line_dash="dot", line_color="#AAB3BF")
+        indice += 1
+
+
+def figura_tensiones(
+    resultado: ResultadoCalculo,
+    estratos: pd.DataFrame,
+    cimentacion: Cimentacion,
+) -> go.Figure:
     df = resultado.perfiles[resultado.perfiles["Punto"] == "Centro"]
     fig = go.Figure()
     series = [
@@ -41,26 +68,44 @@ def figura_tensiones(resultado: ResultadoCalculo) -> go.Figure:
         fig.add_trace(
             go.Scatter(
                 x=df[columna], y=df["z_bajo_base_m"], mode="lines",
-                name=nombre, line=dict(color=color, width=2.4, dash=dash),
+                name=nombre,
+                line=dict(
+                    color=color, width=2.4, dash=dash,
+                    shape="spline" if columna in {"delta_sigma_z_kPa", "sigma_ef_final_kPa"} else "linear",
+                    smoothing=0.35,
+                ),
             )
         )
+    _bandas_estratos(fig, estratos, cimentacion, float(df["z_bajo_base_m"].max()))
     return _estilo_base(fig, "Tensión vertical (kPa)", "Profundidad bajo la base (m)")
 
 
-def figura_asientos(resultado: ResultadoCalculo) -> go.Figure:
+def figura_asientos(
+    resultado: ResultadoCalculo,
+    puntos: list[str],
+    estratos: pd.DataFrame,
+    cimentacion: Cimentacion,
+) -> go.Figure:
     fig = go.Figure()
     colores = [AZUL_CLARO, ROJO, VERDE, "#8A5CA8", "#D18C1D", GRIS]
-    for color, (nombre, df) in zip(colores, resultado.perfiles.groupby("Punto", sort=False)):
+    perfiles = resultado.perfiles[resultado.perfiles["Punto"].isin(puntos)]
+    for color, (nombre, df) in zip(colores, perfiles.groupby("Punto", sort=False)):
         fig.add_trace(
             go.Scatter(
                 x=df["desplazamiento_mm"], y=df["z_bajo_base_m"], mode="lines",
-                name=nombre, line=dict(color=color, width=2.2),
+                name=nombre,
+                line=dict(color=color, width=2.2, shape="spline", smoothing=0.35),
             )
         )
+    _bandas_estratos(fig, estratos, cimentacion, float(resultado.perfiles["z_bajo_base_m"].max()))
     return _estilo_base(fig, "Desplazamiento vertical w (mm)", "Profundidad bajo la base (m)")
 
 
-def figura_deformacion(resultado: ResultadoCalculo) -> go.Figure:
+def figura_deformacion(
+    resultado: ResultadoCalculo,
+    estratos: pd.DataFrame,
+    cimentacion: Cimentacion,
+) -> go.Figure:
     df = resultado.perfiles[resultado.perfiles["Punto"] == "Centro"]
     fig = go.Figure(
         go.Scatter(
@@ -71,6 +116,7 @@ def figura_deformacion(resultado: ResultadoCalculo) -> go.Figure:
             name="εz",
         )
     )
+    _bandas_estratos(fig, estratos, cimentacion, float(df["z_bajo_base_m"].max()))
     return _estilo_base(fig, "Deformación vertical εz (‰)", "Profundidad bajo la base (m)")
 
 
@@ -105,54 +151,34 @@ def figura_bulbo(
     return fig
 
 
-def figura_aporte_estratos(resultado: ResultadoCalculo) -> go.Figure:
-    df = resultado.resumen_estratos
-    fig = go.Figure(
-        go.Bar(
-            x=df["asiento_mm"], y=df["Estrato"], orientation="h",
-            marker_color=AZUL_CLARO,
-            text=df["asiento_mm"].map(lambda v: f"{v:.2f} mm"), textposition="outside",
-        )
-    )
-    fig.update_layout(
-        template="plotly_white", margin=dict(l=25, r=35, t=25, b=25),
-        font=dict(family="Open Sans, Arial", color=AZUL, size=12), showlegend=False,
-    )
-    fig.update_xaxes(title="Aporte al asiento bajo el centro (mm)", gridcolor="#E8ECF1")
-    fig.update_yaxes(title="", autorange="reversed")
-    return fig
-
-
-def figura_asientos_steinbrenner(resultado: ResultadoSteinbrenner) -> go.Figure:
+def figura_asientos_steinbrenner(
+    resultado: ResultadoSteinbrenner,
+    puntos: list[str],
+    estratos: pd.DataFrame,
+    cimentacion: Cimentacion,
+) -> go.Figure:
     fig = go.Figure()
     colores = [AZUL_CLARO, ROJO, VERDE, "#8A5CA8", "#D18C1D", GRIS]
-    for color, (nombre, df) in zip(colores, resultado.perfiles.groupby("Punto", sort=False)):
+    perfiles = resultado.perfiles[resultado.perfiles["Punto"].isin(puntos)]
+    for color, (nombre, df) in zip(colores, perfiles.groupby("Punto", sort=False)):
         fig.add_trace(
             go.Scatter(
                 x=df["desplazamiento_mm"], y=df["z_bajo_base_m"],
-                mode="lines+markers", name=nombre,
-                line=dict(color=color, width=2.2), marker=dict(size=5),
+                mode="lines", name=nombre,
+                line=dict(color=color, width=2.2),
             )
         )
+        interfaces = df[df["es_interfaz"]]
+        fig.add_trace(
+            go.Scatter(
+                x=interfaces["desplazamiento_mm"], y=interfaces["z_bajo_base_m"],
+                mode="markers", name=f"{nombre} · interfaces", legendgroup=nombre,
+                showlegend=False, marker=dict(size=5, color=color, line=dict(width=1, color="white")),
+                hovertemplate="Interfaz<br>w=%{x:.3f} mm<br>z=%{y:.3f} m<extra></extra>",
+            )
+        )
+    _bandas_estratos(fig, estratos, cimentacion, float(resultado.perfiles["z_bajo_base_m"].max()))
     return _estilo_base(
         fig, "Desplazamiento elástico Steinbrenner (mm)", "Profundidad bajo la base (m)"
     )
-
-
-def figura_aporte_steinbrenner(resultado: ResultadoSteinbrenner) -> go.Figure:
-    df = resultado.resumen_estratos
-    fig = go.Figure(
-        go.Bar(
-            x=df["asiento_mm"], y=df["Estrato"], orientation="h",
-            marker_color=VERDE,
-            text=df["asiento_mm"].map(lambda v: f"{v:.2f} mm"), textposition="outside",
-        )
-    )
-    fig.update_layout(
-        template="plotly_white", margin=dict(l=25, r=35, t=25, b=25),
-        font=dict(family="Open Sans, Arial", color=AZUL, size=12), showlegend=False,
-    )
-    fig.update_xaxes(title="Aporte Steinbrenner bajo el centro (mm)", gridcolor="#E8ECF1")
-    fig.update_yaxes(title="", autorange="reversed")
-    return fig
 

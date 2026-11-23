@@ -7,6 +7,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from calculos.asientos import ResultadoCalculo
+from calculos.rigidez import AjusteRigidez, tabla_aportes_con_porcentaje
 from calculos.steinbrenner import ResultadoSteinbrenner
 from modelos.datos import Cimentacion
 
@@ -45,6 +46,7 @@ def crear_excel(
     z_max_m: float,
     resultado: ResultadoCalculo,
     resultado_steinbrenner: ResultadoSteinbrenner,
+    ajuste_rigidez: AjusteRigidez,
 ) -> bytes:
     """Genera un libro auditable con entradas y resultados numéricos."""
     salida = BytesIO()
@@ -52,12 +54,39 @@ def crear_excel(
         {
             "Parámetro": [
                 "B", "L", "q neta", "Df", "Nivel freático", "Profundidad analizada",
+                "Modelo de cimentación", "Factor de rigidez Cr",
             ],
             "Valor": [
                 cimentacion.b_m, cimentacion.l_m, cimentacion.q_neta_kpa, cimentacion.df_m,
-                nivel_freatico_m, z_max_m,
+                nivel_freatico_m, z_max_m, ajuste_rigidez.tipo,
+                ajuste_rigidez.factor if ajuste_rigidez.considerar_rigida else "No aplicado",
             ],
-            "Unidad": ["m", "m", "kPa", "m", "m", "m"],
+            "Unidad": ["m", "m", "kPa", "m", "m", "m", "-", "-"],
+        }
+    )
+    centro_integracion = float(
+        resultado.resumen_puntos.loc[
+            resultado.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"
+        ].iloc[0]
+    )
+    centro_steinbrenner = float(
+        resultado_steinbrenner.resumen_puntos.loc[
+            resultado_steinbrenner.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"
+        ].iloc[0]
+    )
+    resultados_adoptados = pd.DataFrame(
+        {
+            "Método": ["Integración vertical", "Steinbrenner"],
+            "Asiento flexible central (mm)": [centro_integracion, centro_steinbrenner],
+            "Modelo adoptado": [ajuste_rigidez.tipo, ajuste_rigidez.tipo],
+            "Cr aplicado": [
+                ajuste_rigidez.factor if ajuste_rigidez.considerar_rigida else 1.0,
+                ajuste_rigidez.factor if ajuste_rigidez.considerar_rigida else 1.0,
+            ],
+            "Asiento adoptado (mm)": [
+                ajuste_rigidez.asiento_adoptado_mm(centro_integracion),
+                ajuste_rigidez.asiento_adoptado_mm(centro_steinbrenner),
+            ],
         }
     )
     control_integracion = pd.DataFrame(
@@ -69,13 +98,18 @@ def crear_excel(
     )
     with pd.ExcelWriter(salida, engine="openpyxl") as writer:
         resumen_caso.to_excel(writer, sheet_name="Resumen", index=False)
+        resultados_adoptados.to_excel(writer, sheet_name="Resultados adoptados", index=False)
         estratos.to_excel(writer, sheet_name="Estratos", index=False)
         control_integracion.to_excel(writer, sheet_name="Integración - Control", index=False)
         resultado.resumen_puntos.to_excel(writer, sheet_name="Integración - Puntos", index=False)
-        resultado.resumen_estratos.to_excel(writer, sheet_name="Integración - Estratos", index=False)
+        tabla_aportes_con_porcentaje(resultado.resumen_estratos).to_excel(
+            writer, sheet_name="Integración - Estratos", index=False
+        )
         resultado.perfiles.to_excel(writer, sheet_name="Integración - Perfiles", index=False)
         resultado_steinbrenner.resumen_puntos.to_excel(writer, sheet_name="Steinbrenner - Puntos", index=False)
-        resultado_steinbrenner.resumen_estratos.to_excel(writer, sheet_name="Steinbrenner - Estratos", index=False)
+        tabla_aportes_con_porcentaje(resultado_steinbrenner.resumen_estratos).to_excel(
+            writer, sheet_name="Steinbrenner - Estratos", index=False
+        )
         resultado_steinbrenner.perfiles.to_excel(writer, sheet_name="Steinbrenner - Perfiles", index=False)
 
         for nombre, malla in [("Bulbo eje B", resultado.malla_corta), ("Bulbo eje L", resultado.malla_larga)]:

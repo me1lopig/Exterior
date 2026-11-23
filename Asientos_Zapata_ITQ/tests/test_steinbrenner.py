@@ -52,3 +52,29 @@ def test_resultados_positivos_y_menores_fuera_de_huella():
     puntos = resultado.resumen_puntos.set_index("Punto")
     assert puntos.loc["Centro", "asiento_base_mm"] > 0.0
     assert puntos.loc["Centro", "asiento_base_mm"] > puntos.loc["Exterior B", "asiento_base_mm"] > 0.0
+
+
+def test_perfil_refinado_conserva_asiento_y_nodos_de_interfaz():
+    resultado = calcular_steinbrenner(
+        Cimentacion(2.0, 3.0, 120.0, 1.0), _capas(), 10.0, paso_perfil_m=0.20
+    )
+    centro = resultado.perfiles[resultado.perfiles["Punto"] == "Centro"]
+    asiento = resultado.resumen_puntos.set_index("Punto").loc["Centro", "asiento_base_mm"]
+    assert len(centro) > 20
+    assert np.isclose(centro.iloc[0]["desplazamiento_mm"], asiento, rtol=1e-12)
+    assert abs(float(centro.iloc[-1]["desplazamiento_mm"])) < 1e-10
+    assert centro["es_interfaz"].any()
+
+
+def test_validacion_acepta_poisson_cero_y_rechaza_limites_invalidos():
+    from modelos.datos import validar_estratos
+    capas = _capas()
+    capas.loc[0, "nu"] = 0.0
+    _, errores = validar_estratos(capas, 10.0)
+    assert not errores
+    capas.loc[0, "nu"] = 0.5
+    _, errores = validar_estratos(capas, 10.0)
+    assert any("nu" in error for error in errores)
+    capas.loc[0, "nu"] = -0.1
+    _, errores = validar_estratos(capas, 10.0)
+    assert any("nu" in error for error in errores)

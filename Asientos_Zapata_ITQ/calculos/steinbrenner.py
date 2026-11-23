@@ -136,10 +136,15 @@ def calcular_steinbrenner(
     cimentacion: Cimentacion,
     estratos: pd.DataFrame,
     z_max_m: float,
+    paso_perfil_m: float | None = None,
 ) -> ResultadoSteinbrenner:
-    """Calcula asientos elásticos por Steinbrenner en todos los puntos de control."""
+    """Calcula asientos elásticos y perfiles continuos por tramos de estrato."""
     if z_max_m <= 0.0:
         raise ValueError("La profundidad analizada debe ser positiva.")
+    if paso_perfil_m is None:
+        paso_perfil_m = min(cimentacion.b_m / 40.0, z_max_m / 200.0)
+    if not np.isfinite(paso_perfil_m) or paso_perfil_m <= 0.0:
+        raise ValueError("El paso del perfil de Steinbrenner debe ser positivo.")
     capas = _capas_bajo_base(estratos, cimentacion.df_m, z_max_m)
     if not capas:
         raise ValueError("No existen estratos bajo la base dentro del dominio analizado.")
@@ -179,23 +184,34 @@ def calcular_steinbrenner(
                 "asiento_base_mm": total_mm,
             }
         )
-        desplazamiento = total_mm
-        perfiles.append(
-            {
-                "Punto": nombre,
-                "z_bajo_base_m": 0.0,
-                "desplazamiento_mm": desplazamiento,
-            }
-        )
-        for capa, aporte_mm in zip(capas, contribuciones):
-            desplazamiento -= aporte_mm
-            perfiles.append(
-                {
-                    "Punto": nombre,
-                    "z_bajo_base_m": capa["z_inf_bajo_base_m"],
-                    "desplazamiento_mm": desplazamiento,
-                }
+        aporte_completado_mm = 0.0
+        for indice, (capa, aporte_mm) in enumerate(zip(capas, contribuciones)):
+            sup = float(capa["z_sup_bajo_base_m"])
+            inf = float(capa["z_inf_bajo_base_m"])
+            numero = max(1, int(np.ceil((inf - sup) / paso_perfil_m)))
+            nodos = np.linspace(sup, inf, numero + 1)
+            if indice > 0:
+                nodos = nodos[1:]
+            acumulada_sup = compresion_rectangulo_m(
+                x_m, y_m, sup, cimentacion.b_m, cimentacion.l_m,
+                cimentacion.q_neta_kpa, float(capa["E_MPa"]), float(capa["nu"]),
             )
+            for z_m in nodos:
+                acumulada_z = compresion_rectangulo_m(
+                    x_m, y_m, float(z_m), cimentacion.b_m, cimentacion.l_m,
+                    cimentacion.q_neta_kpa, float(capa["E_MPa"]), float(capa["nu"]),
+                )
+                consumido_capa_mm = (acumulada_z - acumulada_sup) * 1000.0
+                perfiles.append(
+                    {
+                        "Punto": nombre,
+                        "Estrato": capa["Estrato"],
+                        "z_bajo_base_m": float(z_m),
+                        "desplazamiento_mm": total_mm - aporte_completado_mm - consumido_capa_mm,
+                        "es_interfaz": bool(np.isclose(z_m, sup) or np.isclose(z_m, inf)),
+                    }
+                )
+            aporte_completado_mm += aporte_mm
 
     tabla_aportes = pd.DataFrame(aportes)
     resumen_estratos = (

@@ -3,6 +3,7 @@ from openpyxl import load_workbook
 import pandas as pd
 
 from calculos.asientos import calcular_caso
+from calculos.rigidez import AjusteRigidez
 from calculos.steinbrenner import calcular_steinbrenner
 from modelos.datos import Cimentacion
 from servicios.exportacion_docx import crear_informe_docx
@@ -23,12 +24,16 @@ def _caso():
 
 def test_excel_se_abre_y_contiene_hojas(tmp_path):
     cimiento, capas, resultado, resultado_stein = _caso()
-    datos = crear_excel(cimiento, capas, 2.0, 8.0, resultado, resultado_stein)
+    datos = crear_excel(
+        cimiento, capas, 2.0, 8.0, resultado, resultado_stein,
+        AjusteRigidez(considerar_rigida=True, factor=0.80),
+    )
     ruta = tmp_path / "resultado.xlsx"; ruta.write_bytes(datos)
     wb = load_workbook(ruta, read_only=True, data_only=False)
     assert {
         "Resumen", "Estratos", "Integración - Puntos", "Integración - Estratos",
         "Steinbrenner - Puntos", "Steinbrenner - Estratos", "Bulbo eje B", "Bulbo eje L",
+        "Resultados adoptados",
     } <= set(wb.sheetnames)
 
 
@@ -36,7 +41,7 @@ def test_docx_se_abre_y_contiene_resultado(tmp_path):
     cimiento, capas, resultado, resultado_stein = _caso()
     datos = crear_informe_docx(
         {"proyecto": "Prueba"}, cimiento, capas, 2.0, 8.0,
-        resultado, resultado_stein,
+        resultado, resultado_stein, AjusteRigidez(considerar_rigida=True, factor=0.80),
     )
     ruta = tmp_path / "resultado.docx"; ruta.write_bytes(datos)
     doc = Document(ruta)
@@ -44,3 +49,4 @@ def test_docx_se_abre_y_contiene_resultado(tmp_path):
     assert "Asiento elástico" in texto
     assert "RESULTADOS POR INTEGRACIÓN VERTICAL" in texto
     assert "RESULTADOS MEDIANTE STEINBRENNER" in texto
+    assert "rígida simplificada" in texto

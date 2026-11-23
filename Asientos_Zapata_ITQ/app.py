@@ -8,14 +8,14 @@ import pandas as pd
 import streamlit as st
 
 from calculos.asientos import calcular_caso, modulo_confinado_kpa
+from calculos.rigidez import AjusteRigidez, tabla_aportes_con_porcentaje
 from calculos.steinbrenner import calcular_steinbrenner
 from modelos.datos import COLUMNAS_ESTRATOS, Cimentacion, estratos_ejemplo, validar_estratos
 from servicios.exportacion_docx import crear_informe_docx
 from servicios.exportacion_excel import crear_excel
 from utiles.estilos import CSS_APP
+from visualizacion.esquema import figura_esquema_cimentacion
 from visualizacion.graficos import (
-    figura_aporte_estratos,
-    figura_aporte_steinbrenner,
     figura_asientos,
     figura_asientos_steinbrenner,
     figura_bulbo,
@@ -25,7 +25,7 @@ from visualizacion.graficos import (
 
 
 st.set_page_config(
-    page_title="Asientos de zapata flexible",
+    page_title="Asientos de zapata rectangular",
     page_icon="▤",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -42,20 +42,20 @@ if "estratos" not in st.session_state:
     st.session_state.estratos = estratos_ejemplo()
 
 st.markdown('<div class="geo-kicker">Geo Settlement · Elasticidad multicapa</div>', unsafe_allow_html=True)
-st.title("Asientos de zapata rectangular flexible")
+st.title("Asientos de zapata rectangular")
 st.markdown(
-    '<div class="geo-subtitle">Distribución de tensiones de Boussinesq y compresión vertical elástica en terreno estratificado.</div>',
+    '<div class="geo-subtitle">Distribución de tensiones y asiento elástico multicapa con corrección opcional de rigidez.</div>',
     unsafe_allow_html=True,
 )
 
 tabs = st.tabs(
     [
-        "Proyecto y geometría",
-        "Terreno",
-        "Resultados",
-        "Bulbo de influencia",
-        "Informe y datos",
-        "Formulación",
+        "01 · Geometría",
+        "02 · Terreno",
+        "03 · Resultados",
+        "04 · Bulbo",
+        "05 · Informes",
+        "06 · Formulación",
     ]
 )
 
@@ -64,7 +64,7 @@ with tabs[0]:
     st.caption("Defina la referencia del proyecto y la geometría de la cimentación. La carga introducida debe ser neta.")
     c1, c2 = st.columns([1.35, 1.0])
     with c1:
-        proyecto_nombre = st.text_input("Proyecto", "Zapata flexible - Caso 01")
+        proyecto_nombre = st.text_input("Proyecto", "Zapata rectangular - Caso 01")
         localizacion = st.text_input("Localización", "")
         autor = st.text_input("Autor / revisión", "")
         observaciones = st.text_area("Observaciones", "", height=90)
@@ -80,6 +80,29 @@ with tabs[0]:
             st.success(f"Geometría comprobada · L/B = {l_m / b_m:.2f}")
         st.info("q se interpreta como presión neta uniforme en la base; la excavación no se descuenta de nuevo.")
 
+        considerar_rigida = st.checkbox(
+            "Considerar zapata rígida mediante factor simplificado",
+            value=False,
+            help="Corrige el asiento flexible central sin recalcular la distribución de presiones.",
+        )
+        if considerar_rigida:
+            factor_rigidez = st.number_input(
+                "Factor de rigidez Cr",
+                min_value=0.01,
+                max_value=1.00,
+                value=0.80,
+                step=0.01,
+                format="%.2f",
+            )
+            st.caption("Asiento adoptado: sr = Cr · sf,centro. Valor inicial Cr = 0,80.")
+        else:
+            factor_rigidez = 0.80
+            st.caption("Modelo flexible activo. La presión neta se considera uniforme.")
+
+    st.divider()
+    st.subheader("Esquema de la cimentación")
+    st.caption("Vista en planta proporcional a B y L; la sección estratigráfica se muestra en la pestaña Terreno.")
+    st.plotly_chart(figura_esquema_cimentacion(b_m, l_m), use_container_width=True)
     st.divider()
     st.subheader("Dominio y discretización")
     st.caption("El programa propone el paso a partir de B; el calculista puede adoptar un nivel predefinido o introducir un valor propio.")
@@ -137,7 +160,7 @@ with tabs[1]:
         "gamma_ap_kN_m3": st.column_config.NumberColumn("γap (kN/m³)", min_value=0.1, format="%.2f", required=True),
         "gamma_sat_kN_m3": st.column_config.NumberColumn("γsat (kN/m³)", min_value=0.1, format="%.2f", required=True),
         "E_MPa": st.column_config.NumberColumn("E (MPa)", min_value=0.001, format="%.2f", required=True),
-        "nu": st.column_config.NumberColumn("ν (-)", min_value=0.101, max_value=0.498, format="%.3f", required=True),
+        "nu": st.column_config.NumberColumn("ν (-)", min_value=0.0, max_value=0.498, format="%.3f", required=True),
     }
     tabla_entrada = st.session_state.estratos.reindex(columns=COLUMNAS_ESTRATOS)
     estratos_editados = st.data_editor(
@@ -149,6 +172,12 @@ with tabs[1]:
         key="editor_estratos",
     )
     st.session_state.estratos = estratos_editados
+    with st.expander("Vista esquemática del perfil geotécnico", expanded=True):
+        from visualizacion.esquema import figura_perfil_estratos
+        st.plotly_chart(
+            figura_perfil_estratos(estratos_editados, df_m, nivel_freatico_m),
+            use_container_width=True,
+        )
     nu_editado = pd.to_numeric(estratos_editados.get("nu"), errors="coerce")
     e_editado = pd.to_numeric(estratos_editados.get("E_MPa"), errors="coerce")
     if (nu_editado >= 0.45).any():
@@ -187,17 +216,20 @@ with tabs[1]:
         )
 
 cimentacion = Cimentacion(b_m=b_m, l_m=l_m, q_neta_kpa=q_kpa, df_m=df_m)
+ajuste_rigidez = AjusteRigidez(considerar_rigida=considerar_rigida, factor=factor_rigidez)
 proyecto = {"proyecto": proyecto_nombre, "localizacion": localizacion, "autor": autor, "observaciones": observaciones}
 payload = {
     "b": b_m, "l": l_m, "q": q_kpa, "df": df_m, "nf": nivel_freatico_m,
     "zmax": z_max_m, "paso": paso_m, "nivel_paso": nivel_paso,
+    "considerar_rigida": considerar_rigida, "factor_rigidez": factor_rigidez,
     "proyecto": proyecto,
 }
 firma_actual = firma_caso(payload, estratos_editados)
 
 with st.sidebar:
-    st.subheader("Navegación")
-    st.caption("Introduzca los datos en las pestañas superiores, calcule y revise los indicadores de control.")
+    st.subheader("Flujo de trabajo")
+    st.caption("01 Datos → 02 Terreno → 03 Resultados → 04 Bulbo → 05 Informes")
+    st.caption("Los informes se generan únicamente a petición del usuario.")
     st.divider()
     st.subheader("Acciones")
     calcular = st.button("Calcular caso", type="primary", use_container_width=True)
@@ -206,10 +238,13 @@ with st.sidebar:
         st.session_state.estratos = estratos_ejemplo()
         st.session_state.pop("resultado", None)
         st.session_state.pop("resultado_steinbrenner", None)
+        st.session_state.pop("docx_resultado", None)
+        st.session_state.pop("xlsx_resultado", None)
         st.rerun()
 
     if calcular:
         errores = cimentacion.validar()
+        errores.extend(ajuste_rigidez.validar())
         capas, errores_capas = validar_estratos(
             estratos_editados, df_m + z_max_m
         )
@@ -222,6 +257,8 @@ with st.sidebar:
             st.session_state.errores = errores
             st.session_state.pop("resultado", None)
             st.session_state.pop("resultado_steinbrenner", None)
+            st.session_state.pop("docx_resultado", None)
+            st.session_state.pop("xlsx_resultado", None)
         else:
             with st.spinner("Integrando tensiones y deformaciones..."):
                 st.session_state.resultado = calcular_caso(
@@ -233,18 +270,8 @@ with st.sidebar:
                 st.session_state.capas_calculadas = capas
                 st.session_state.firma_resultado = firma_actual
                 st.session_state.errores = []
-                capas_exportacion = capas.copy()
-                capas_exportacion["M_calculo_MPa"] = modulo_confinado_kpa(capas) / 1000.0
-                st.session_state.docx_resultado = crear_informe_docx(
-                    proyecto, cimentacion, capas_exportacion,
-                    nivel_freatico_m, z_max_m, st.session_state.resultado,
-                    st.session_state.resultado_steinbrenner,
-                )
-                st.session_state.xlsx_resultado = crear_excel(
-                    cimentacion, capas_exportacion,
-                    nivel_freatico_m, z_max_m, st.session_state.resultado,
-                    st.session_state.resultado_steinbrenner,
-                )
+                st.session_state.pop("docx_resultado", None)
+                st.session_state.pop("xlsx_resultado", None)
 
     st.divider()
     st.subheader("Estado")
@@ -261,12 +288,18 @@ with st.sidebar:
             s_centro = resultado_sidebar.resumen_puntos.loc[
                 resultado_sidebar.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"
             ].iloc[0]
-            st.metric("Asiento central", f"{s_centro:.2f} mm")
+            st.metric(
+                f"Integración · {ajuste_rigidez.tipo}",
+                f"{ajuste_rigidez.asiento_adoptado_mm(float(s_centro)):.2f} mm",
+            )
             s_stein = st.session_state.resultado_steinbrenner.resumen_puntos.loc[
                 st.session_state.resultado_steinbrenner.resumen_puntos["Punto"] == "Centro",
                 "asiento_base_mm",
             ].iloc[0]
-            st.metric("Steinbrenner central", f"{s_stein:.2f} mm")
+            st.metric(
+                f"Steinbrenner · {ajuste_rigidez.tipo}",
+                f"{ajuste_rigidez.asiento_adoptado_mm(float(s_stein)):.2f} mm",
+            )
     else:
         st.info("Caso pendiente de cálculo")
 
@@ -283,6 +316,24 @@ with tabs[2]:
     if not resultado_vigente:
         st.info("Calcule el caso o actualice los resultados después de modificar las entradas.")
     else:
+        puntos_disponibles = resultado.resumen_puntos["Punto"].tolist()
+        puntos_visibles = st.multiselect(
+            "Puntos visibles en los perfiles",
+            puntos_disponibles,
+            default=["Centro", "Borde B", "Borde L", "Esquina"],
+            help="Los puntos exteriores permanecen disponibles para revisión específica.",
+        )
+        if not puntos_visibles:
+            puntos_visibles = ["Centro"]
+        st.markdown("#### Resumen de asientos bajo el centro")
+        centro_b = float(resultado.resumen_puntos.loc[
+            resultado.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
+        centro_s = float(resultado_steinbrenner.resumen_puntos.loc[
+            resultado_steinbrenner.resumen_puntos["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
+        k1, k2 = st.columns(2)
+        k1.metric("Boussinesq + M · asiento adoptado", f"{ajuste_rigidez.asiento_adoptado_mm(centro_b):.2f} mm")
+        k2.metric("Steinbrenner · asiento adoptado", f"{ajuste_rigidez.asiento_adoptado_mm(centro_s):.2f} mm")
+        st.caption("Cada resultado se obtiene de forma independiente. Los perfiles detallados se presentan por método.")
         tab_integracion, tab_steinbrenner = st.tabs(
             ["Integración vertical Δσz/M", "Steinbrenner E–ν"]
         )
@@ -290,11 +341,22 @@ with tabs[2]:
             resumen = resultado.resumen_puntos
             asiento_centro = float(resumen.loc[resumen["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
             asiento_esquina = float(resumen.loc[resumen["Punto"] == "Esquina", "asiento_base_mm"].iloc[0])
+            asiento_adoptado = ajuste_rigidez.asiento_adoptado_mm(asiento_centro)
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Asiento bajo el centro", f"{asiento_centro:.2f} mm")
-            m2.metric("Asiento bajo la esquina", f"{asiento_esquina:.2f} mm")
+            m1.metric(f"Asiento de zapata {ajuste_rigidez.tipo.lower()}", f"{asiento_adoptado:.2f} mm")
+            m2.metric(
+                "Flexible central de partida" if considerar_rigida else "Asiento bajo la esquina",
+                f"{asiento_centro if considerar_rigida else asiento_esquina:.2f} mm",
+            )
             m3.metric("Error de discretización", f"{resultado.error_discretizacion_pct:.3f} %")
             m4.metric("Aporte del último 10 %", f"{resultado.contribucion_tramo_final_pct:.2f} %")
+            if considerar_rigida:
+                st.caption(
+                    f"Corrección simplificada Cr = {factor_rigidez:.2f}. "
+                    "Los perfiles y tensiones mostrados corresponden al cálculo flexible de presión uniforme."
+                )
+            else:
+                st.caption(f"Asiento flexible bajo la esquina = {asiento_esquina:.2f} mm.")
             st.caption(
                 f"Δz adoptado = {resultado.paso_adoptado_m:.3f} m ({resultado.intervalos_adoptados} intervalos) · "
                 f"control con Δz/2 = {resultado.paso_control_m:.3f} m ({resultado.intervalos_control} intervalos)."
@@ -302,33 +364,64 @@ with tabs[2]:
             if resultado.contribucion_tramo_final_pct > 2.0:
                 st.warning("El tramo final mantiene una contribución apreciable. Amplíe la profundidad y compruebe la estabilización del asiento.")
             c1, c2 = st.columns(2)
-            c1.plotly_chart(figura_tensiones(resultado), use_container_width=True)
-            c2.plotly_chart(figura_asientos(resultado), use_container_width=True)
-            c3, c4 = st.columns(2)
-            c3.plotly_chart(figura_deformacion(resultado), use_container_width=True)
-            c4.plotly_chart(figura_aporte_estratos(resultado), use_container_width=True)
+            c1.plotly_chart(
+                figura_tensiones(resultado, st.session_state.capas_calculadas, cimentacion),
+                use_container_width=True,
+            )
+            c2.plotly_chart(
+                figura_asientos(
+                    resultado, puntos_visibles, st.session_state.capas_calculadas, cimentacion
+                ),
+                use_container_width=True,
+            )
+            with st.expander("Resultados avanzados", expanded=False):
+                st.plotly_chart(
+                    figura_deformacion(resultado, st.session_state.capas_calculadas, cimentacion),
+                    use_container_width=True,
+                )
             st.markdown("**Asientos en puntos de control**")
             st.dataframe(resumen, use_container_width=True, hide_index=True)
             st.markdown("**Contribución por estrato bajo el centro**")
-            st.dataframe(resultado.resumen_estratos, use_container_width=True, hide_index=True)
+            st.dataframe(
+                tabla_aportes_con_porcentaje(resultado.resumen_estratos),
+                use_container_width=True,
+                hide_index=True,
+            )
 
         with tab_steinbrenner:
             stein = st.session_state.resultado_steinbrenner
             resumen_stein = stein.resumen_puntos
             centro_stein = float(resumen_stein.loc[resumen_stein["Punto"] == "Centro", "asiento_base_mm"].iloc[0])
             esquina_stein = float(resumen_stein.loc[resumen_stein["Punto"] == "Esquina", "asiento_base_mm"].iloc[0])
+            adoptado_stein = ajuste_rigidez.asiento_adoptado_mm(centro_stein)
             s1, s2, s3 = st.columns(3)
-            s1.metric("Asiento bajo el centro", f"{centro_stein:.2f} mm")
-            s2.metric("Asiento bajo la esquina", f"{esquina_stein:.2f} mm")
+            s1.metric(f"Asiento de zapata {ajuste_rigidez.tipo.lower()}", f"{adoptado_stein:.2f} mm")
+            s2.metric(
+                "Flexible central de partida" if considerar_rigida else "Asiento bajo la esquina",
+                f"{centro_stein if considerar_rigida else esquina_stein:.2f} mm",
+            )
             s3.metric("Estratos calculados", f"{len(stein.resumen_estratos)}")
-            st.caption("Cálculo independiente mediante E y ν; no utiliza M ni el paso vertical Δz.")
-            sc1, sc2 = st.columns(2)
-            sc1.plotly_chart(figura_asientos_steinbrenner(stein), use_container_width=True)
-            sc2.plotly_chart(figura_aporte_steinbrenner(stein), use_container_width=True)
+            detalle_rigidez = (
+                f" Corrección simplificada Cr = {factor_rigidez:.2f}." if considerar_rigida else ""
+            )
+            st.caption(
+                "Cálculo independiente mediante E y ν; no utiliza M ni el paso vertical Δz."
+                + detalle_rigidez
+            )
+            st.plotly_chart(
+                figura_asientos_steinbrenner(
+                    stein, puntos_visibles, st.session_state.capas_calculadas, cimentacion
+                ),
+                use_container_width=True,
+            )
             st.markdown("**Asientos en puntos de control**")
             st.dataframe(resumen_stein, use_container_width=True, hide_index=True)
             st.markdown("**Contribución por estrato bajo el centro**")
-            st.dataframe(stein.resumen_estratos, use_container_width=True, hide_index=True)
+            st.dataframe(
+                tabla_aportes_con_porcentaje(stein.resumen_estratos),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 with tabs[3]:
     st.subheader("Entorno del bulbo de influencia")
@@ -341,25 +434,50 @@ with tabs[3]:
         st.caption("Las isolíneas representan Δσz/q. Las líneas horizontales discontinuas indican interfaces estratigráficas bajo la base.")
 
 with tabs[4]:
-    st.subheader("Informe y datos")
-    st.caption("Los archivos reproducen exactamente el caso calculado y mantienen unidades explícitas.")
+    st.subheader("Informes y exportaciones")
+    st.caption("Generación manual e independiente. Los documentos se conservan hasta que cambie el caso calculado.")
     if not resultado_vigente:
-        st.info("Calcule el caso para habilitar las exportaciones.")
+        st.info("Calcule el caso o recalcule después de modificar las entradas para habilitar la exportación.")
     else:
-        d1, d2 = st.columns(2)
-        d1.download_button(
-            "Descargar informe DOCX", data=st.session_state.docx_resultado,
-            file_name="informe_asiento_zapata_flexible.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True,
-        )
-        d2.download_button(
-            "Descargar datos XLSX", data=st.session_state.xlsx_resultado,
-            file_name="datos_asiento_zapata_flexible.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-        st.caption("El informe incluye las principales figuras y tablas. El Excel contiene perfiles completos y mallas de tensión en las direcciones B y L.")
+        col_docx, col_excel = st.columns(2)
+        with col_docx:
+            st.markdown("#### Informe técnico · DOCX")
+            st.caption("Memoria de cálculo, resultados, tablas y figuras.")
+            if st.button("Generar informe DOCX", key="generar_docx", use_container_width=True):
+                with st.spinner("Preparando el informe DOCX..."):
+                    capas_exportacion = st.session_state.capas_calculadas.copy()
+                    capas_exportacion["M_calculo_MPa"] = modulo_confinado_kpa(capas_exportacion) / 1000.0
+                    st.session_state.docx_resultado = crear_informe_docx(
+                        proyecto, cimentacion, capas_exportacion, nivel_freatico_m, z_max_m,
+                        resultado, resultado_steinbrenner, ajuste_rigidez,
+                    )
+            if st.session_state.get("docx_resultado") is not None:
+                st.success("Informe preparado")
+                st.download_button(
+                    "Descargar DOCX", data=st.session_state.docx_resultado,
+                    file_name="informe_asiento_zapata_rectangular.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                )
+        with col_excel:
+            st.markdown("#### Datos y resultados · XLSX")
+            st.caption("Perfiles numéricos, tensiones, estratos y resultados.")
+            if st.button("Generar Excel", key="generar_xlsx", use_container_width=True):
+                with st.spinner("Preparando el libro Excel..."):
+                    capas_exportacion = st.session_state.capas_calculadas.copy()
+                    capas_exportacion["M_calculo_MPa"] = modulo_confinado_kpa(capas_exportacion) / 1000.0
+                    st.session_state.xlsx_resultado = crear_excel(
+                        cimentacion, capas_exportacion, nivel_freatico_m, z_max_m,
+                        resultado, resultado_steinbrenner, ajuste_rigidez,
+                    )
+            if st.session_state.get("xlsx_resultado") is not None:
+                st.success("Excel preparado")
+                st.download_button(
+                    "Descargar XLSX", data=st.session_state.xlsx_resultado,
+                    file_name="datos_asiento_zapata_rectangular.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
 
 with tabs[5]:
     st.subheader("Formulación utilizada")
@@ -381,9 +499,15 @@ with tabs[5]:
     st.latex(r"\begin{aligned} I_1=\frac{1}{\pi}\Bigg[&m_r\ln\left(\frac{(1+\sqrt{m_r^2+1})\sqrt{m_r^2+n_r^2}}{m_r(1+\sqrt{m_r^2+n_r^2+1})}\right)\\ &+\ln\left(\frac{(m_r+\sqrt{m_r^2+1})\sqrt{1+n_r^2}}{m_r+\sqrt{m_r^2+n_r^2+1}}\right)\Bigg] \end{aligned}")
     st.latex(r"I_2=\frac{n_r}{2\pi}\tan^{-1}\left(\frac{m_r}{n_r\sqrt{m_r^2+n_r^2+1}}\right)")
     st.write("Cada capa se obtiene por diferencia entre la compresión acumulada en sus límites. Bajo puntos arbitrarios se aplica superposición de rectángulos. El cálculo se ejecuta de forma independiente y no emplea M ni Δz.")
+    st.markdown("**Corrección simplificada de rigidez**")
+    st.latex(r"s_r=C_r\,s_{f,c},\qquad C_r=0{,}80\ \text{por defecto}")
+    st.write(
+        "La corrección se aplica únicamente al asiento flexible central. No modifica las tensiones, "
+        "los perfiles flexibles ni calcula la redistribución de presiones de contacto de una base rígida."
+    )
     st.markdown("**Alcance**")
     st.write(
-        "Cimentación flexible, presión neta uniforme, elasticidad lineal y compresión vertical confinada. "
+        "Cimentación flexible con corrección opcional de rigidez, presión neta uniforme, elasticidad lineal y compresión vertical confinada. "
         "No se consideran consolidación, deformación secundaria, plasticidad, anisotropía ni interacción rígida suelo estructura. "
         "La solución de tensiones no corrige la redistribución causada por contrastes de rigidez entre capas. "
         "Steinbrenner se aplica sobre el plano de apoyo con q neta, sin un factor adicional de empotramiento."

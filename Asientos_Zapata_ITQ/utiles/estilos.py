@@ -3,7 +3,7 @@ CSS_APP = """
     :root {
         --geo-ink: #12304A;
         --geo-muted: #6F7F91;
-        --geo-accent: #E45454;
+        --geo-accent: #2164AF;
         --geo-blue: #2164AF;
         --geo-line: #D9DEE6;
         --geo-input: #F0F3F7;
@@ -23,11 +23,11 @@ CSS_APP = """
     div[data-baseweb="input"] > div, div[data-baseweb="select"] > div,
     .stTextArea textarea, [data-testid="stDataEditor"] { background: var(--geo-input); }
     .stButton > button[kind="primary"] { background: var(--geo-accent); border-color: var(--geo-accent); }
-    .stButton > button, .stDownloadButton > button { border-radius: 4px; min-height: 2.55rem; }
-    [data-testid="stMetric"] { border-left: 3px solid var(--geo-blue); padding-left: .85rem; }
+    .stButton > button, .stDownloadButton > button { border-radius: 9px; min-height: 2.55rem; }
+    [data-testid="stMetric"] { border: 1px solid var(--geo-line); border-left: 4px solid var(--geo-blue); padding: .85rem 1rem; border-radius: 10px; background: #FBFCFE; }
     [data-testid="stSidebar"] { border-right: 1px solid var(--geo-line); background: #FBFCFD; }
     [data-testid="stAlert"] { border-radius: 4px; }
-    .geo-kicker { color: #D7A9A9; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+    .geo-kicker { color: #2164AF; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
     .geo-subtitle { color: var(--geo-muted); font-size: 1rem; margin-bottom: 1rem; }
     .geo-rule { border: none; border-top: 1px solid var(--geo-line); margin: 1.1rem 0; }
 </style>
