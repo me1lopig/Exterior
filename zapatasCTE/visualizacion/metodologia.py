@@ -1,14 +1,13 @@
-"""PROP-13. Compendio de fórmulas y ficha de cálculo vinculada a B x L.
+"""Formulaciones documentales y memoria numérica en vistas separadas.
 
-La interfaz es una guía del motor efectivamente implementado, no una
-certificación normativa. El módulo no modifica ninguna magnitud calculada.
+La metodología no presenta resultados; la memoria se visualiza en la ficha B x L.
+No modifica ninguna magnitud del motor de cálculo.
 """
 from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
 
-from calculos.malla import avisos_globales
 from calculos.memoria_calculo import elaborar_memoria
 from modelos.datos import DatosAsientos, DatosHundimiento
 from modelos.geometrias import ResultadoGeometria
@@ -23,28 +22,14 @@ def _fila(nombre: str, valor: float | None, unidad: str = "", fuente: str = "Cal
     }
 
 
-def mostrar_compendio(
-    h: DatosHundimiento,
-    s: DatosAsientos,
-    seleccion: ResultadoGeometria,
-    resultados: list[ResultadoGeometria],
-    tabla: pd.DataFrame,
-    *,
-    origen_gamma: str | None = None,
-    gamma_sat_kn_m3: float | None = None,
-    desactualizado: bool = False,
-) -> None:
-    """Presenta fórmulas, condiciones de aplicación y números de la selección."""
+def mostrar_compendio() -> None:
+    """Muestra exclusivamente formulaciones, hipótesis y referencias."""
     st.subheader("Metodología y formulaciones de cálculo")
     st.caption(
-        "Compendio de las ecuaciones implementadas en ZapatasCTE. "
-        "Se distinguen expresión normativa, adaptaciones del programa y diagnósticos."
+        "Ecuaciones del motor de ZapatasCTE, condiciones de aplicación "
+        "y limitaciones. Los resultados numéricos se consultan en las "
+        "pestañas «Zapatas B × L» y «Zapatas corridas»."
     )
-    if desactualizado:
-        st.warning(
-            "La memoria numérica corresponde al último cálculo guardado. "
-            "Pulse «Calcular» para actualizarla con las entradas editadas."
-        )
     t_h, t_a, t_s, t_c = st.tabs([
         "Hundimiento", "Asientos (Steinbrenner)",
         "Servicio y balasto", "Controles y advertencias",
@@ -192,28 +177,43 @@ def mostrar_compendio(
             "calcula asientos ni garantiza que los estratos fuera del perfil "
             "sean rígidos. El 2D representa incrementos de tensión total."
         )
-        st.markdown("**Advertencias generales del modelo**")
-        for aviso in avisos_globales(h, s, True):
-            st.warning(aviso)
-        n_alertas = sum(bool(r.avisos) for r in resultados)
-        st.write(f"{n_alertas} geometrías B × L presentan al menos un aviso.")
-        if n_alertas:
-            st.dataframe(
-                tabla.loc[tabla["Avisos"].str.len() > 0, ["B (m)", "L (m)", "Avisos"]],
-                hide_index=True, use_container_width=True,
-            )
-        st.info(
-            "Herramienta de predimensionamiento: no verifica acciones "
-            "excéntricas/inclinadas, consolidación, interacción de zapatas "
-            "ni la seguridad global de un proyecto."
+        st.markdown("**Hipótesis y limitaciones**")
+        st.caption(
+            "Herramienta de predimensionamiento: carga vertical centrada y "
+            "base horizontal. No verifica cargas excéntricas o inclinadas, "
+            "consolidación, interacción entre zapatas ni seguridad global. "
+            "Steinbrenner por estratos y el control de profundidad son "
+            "aproximaciones que requieren comprobación geotécnica."
+        )
+    st.markdown(
+        "**Referencias técnicas:** "
+        "[CTE DB-SE-C, §4.3.2.1 y Anejo F (hundimiento), Anejo E (balasto)]"
+        "(https://www.codigotecnico.org/pdf/Documentos/SE/DBSE-C.pdf); "
+        "método de Steinbrenner descrito en "
+        "METODOLOGIA_ASIENTOS.md del repositorio."
+    )
+
+def mostrar_memoria_numerica(
+    h: DatosHundimiento,
+    s: DatosAsientos,
+    seleccion: ResultadoGeometria,
+    *,
+    origen_gamma: str | None = None,
+    gamma_sat_kn_m3: float | None = None,
+    desactualizado: bool = False,
+) -> None:
+    """Presenta los factores y términos numéricos de la zapata B x L elegida."""
+    if desactualizado:
+        st.warning(
+            "Resultados pendientes de actualizar: pulse «Calcular» "
+            "para incorporar las entradas modificadas."
         )
 
-    st.divider()
     st.subheader("Memoria numérica de la zapata B × L seleccionada")
     st.caption(
         f"Datos del último cálculo: B={seleccion.b_m:.2f} m, "
         f"L={seleccion.l_m:.2f} m. La selección sigue la ficha del mapa B × L; "
-        "la comparativa corrida histórica utiliza otras longitudes y no se mezcla aquí."
+        "esta memoria usa una única geometría B × L en ambos cálculos."
     )
     memo = elaborar_memoria(h, s, seleccion)
     st.markdown("**Parámetros y factores efectivos del cálculo de hundimiento**")
@@ -224,6 +224,16 @@ def mostrar_compendio(
         )
     else:
         st.caption("Origen de γ': valor introducido directamente por el usuario.")
+    if h.flujo_ascendente:
+        caso_gamma = "F.17: flujo ascendente (gradiente medio en 1,5 B)"
+    else:
+        distancia_nf = h.nivel_freatico_m - h.profundidad_base_m
+        caso_gamma = (
+            "NF en o sobre base: γ'" if distancia_nf <= 0 else
+            "NF a ≥B bajo base: γaparente" if distancia_nf >= seleccion.b_m else
+            "F.16: interpolación por profundidad de NF"
+        )
+    st.caption(f"Peso específico γk: {memo.gamma_k_kn_m3:.2f} kN/m³. {caso_gamma}.")
     st.dataframe(pd.DataFrame([
         _fila("Cohesión representativa", memo.cohesion_kpa, "kPa"),
         _fila("γk de hundimiento", memo.gamma_k_kn_m3, "kN/m³"),
@@ -257,17 +267,4 @@ def mostrar_compendio(
         f"**Gobierna:** {memo.limitacion}. "
         f"**Método de asientos:** {memo.metodo_asientos}. "
         f"**Material para balasto:** {memo.tipo_balasto}."
-    )
-    if seleccion.avisos:
-        with st.expander("Advertencias de esta geometría"):
-            for aviso in seleccion.avisos:
-                st.warning(aviso)
-    st.markdown(
-        "**Referencias técnicas:** "
-        "[CTE DB-SE-C, §4.3.2.1 y Anejo F (hundimiento), Anejo E (balasto)]"
-        "(https://www.codigotecnico.org/pdf/Documentos/SE/DBSE-C.pdf); "
-        "método de Steinbrenner implementado en "
-        "METODOLOGIA_ASIENTOS.md del repositorio. "
-        "Las expresiones numéricas de la memoria reproducen el motor "
-        "actual; no constituyen certificación normativa."
     )

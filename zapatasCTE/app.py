@@ -37,7 +37,7 @@ from modelos.geometrias import RangoGeometrico, generar_geometrias, serie_rango
 from utiles.tablas_malla import CAMPOS_MAPA, tabla_malla
 from visualizacion.graficos_malla import curvas_seccion, grafico_geom, mapa_calor, grafico_presiones_corridas
 from visualizacion.graficos_bulbo_2d import figura_seccion_bulbo
-from visualizacion.metodologia import mostrar_compendio
+from visualizacion.metodologia import mostrar_compendio, mostrar_memoria_numerica
 from visualizacion.graficos_corridas import (
     mapa_calor_corridas, grafico_balasto, grafico_convergencia,
     grafico_comparativa, grafico_sensibilidad,
@@ -367,21 +367,13 @@ with tab_res:
             st.plotly_chart(grafico_geom(seleccionado.b_m,seleccionado.l_m),use_container_width=True)
             mostrar_tabla_presiones(seleccionado)
             st.write(f"**Gobierna:** {seleccionado.limitacion}")
-            with st.expander("Detalle de presiones, balasto y factores"):
-                st.write(f"q0 del contorno (hundimiento) = {seleccionado.q0_kpa/1000:.3f} MPa")
-                st.write(f"Tension preexistente en la base = {seleccionado.sigma_pre_base_kpa/1000:.3f} MPa")
-                st.write(f"k_s,BL = {seleccionado.ks_bl_mn_m3:.2f} MN/m³")
-                st.write(f"Ksp30 ({s_cal.tipo_material_balasto.lower()}) = {seleccionado.ksp30_mn_m3:.2f} MN/m³")
-                gamma_k=_peso_especifico_representativo(h_cal,seleccionado.b_m)
-                if h_cal.flujo_ascendente:
-                    caso_gamma="F.17: flujo ascendente (gradiente medio en 1,5 B)"
-                else:
-                    z_nf=h_cal.nivel_freatico_m-h_cal.profundidad_base_m
-                    caso_gamma=("NF en o sobre base: γ'" if z_nf<=0 else
-                                "NF a ≥B bajo base: γaparente" if z_nf>=seleccionado.b_m else
-                                "F.16: interpolación por profundidad de NF")
-                st.write(f"Peso específico de hundimiento γk = {gamma_k:.2f} kN/m³ · {caso_gamma}")
-                st.write(f"Factores de forma: sc={seleccionado.sc:.3f}, sq={seleccionado.sq:.3f}, sγ={seleccionado.sgamma:.3f}")
+            with st.expander("Memoria numérica: parámetros, factores y desglose"):
+                mostrar_memoria_numerica(
+                    h_cal, s_cal, seleccionado,
+                    origen_gamma=guardado.get("origen_gamma"),
+                    gamma_sat_kn_m3=guardado.get("gamma_sat_kn_m3"),
+                    desactualizado=desactualizado,
+                )
             if seleccionado.avisos:
                 for aviso in seleccionado.avisos:
                     st.warning(aviso)
@@ -644,10 +636,5 @@ with tab_res:
         else:
             st.warning("Ningún ancho B es compatible con la aproximación de longitud interna.")
     with met_tab:
-        mostrar_compendio(
-            h_cal, s_cal, seleccionado, resultados, tabla,
-            origen_gamma=guardado.get("origen_gamma"),
-            gamma_sat_kn_m3=guardado.get("gamma_sat_kn_m3"),
-            desactualizado=desactualizado,
-        )
+        mostrar_compendio()
     st.caption(f"Trabajo: {proyecto_cal.trabajo or 'Sin especificar'} · Expediente: {proyecto_cal.expediente or 'Sin especificar'}")
