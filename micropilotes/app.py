@@ -7,6 +7,7 @@ import streamlit as st
 from calculos.axial import Estrato, calcular
 from calculos.avanzado import validar_inyeccion, validar_punta, longitud_necesaria
 from calculos.estructural import PERFILES, UNIONES, EJECUCION, axial_estructural
+from modelos.aceros_catalogo import CALIDADES
 
 VERSION='0.3.0'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
@@ -71,6 +72,11 @@ if estruct:
         de=st.number_input('Diametro exterior (mm)',1.,value=139.7)
         t=st.number_input('Espesor nominal (mm)',.1,value=7.)
     else: de,t=PERFILES[opciones.index(perfil)-1]
+    calidad=st.selectbox('Calidad de acero de referencia', ['Sin seleccionar']+list(CALIDADES))
+    if calidad != 'Sin seleccionar':
+        acero=CALIDADES[calidad]
+        st.caption(f'Catalogo p. 03 | {acero.norma_tabla}: limite elastico {acero.limite_elastico_mpa} MPa; resistencia a traccion {acero.resistencia_traccion_mpa} MPa; alargamiento minimo {acero.alargamiento_min_pct} %.')
+        st.caption('Valores orientativos del catalogo. Confirme disponibilidad por dimension y propiedades en el certificado; no se aplican automaticamente al calculo.')
     re=st.number_input('Perdida radial exterior por corrosion (mm)',0.,value=0.)
     fy=st.number_input('Limite elastico certificado fy (MPa)',1.,value=550.)
     fck=st.number_input('Resistencia caracteristica lechada a 28 dias (MPa)',1.,value=25.)
@@ -145,7 +151,7 @@ if st.button('Calcular',type='primary'):
         st.warning('No es conformidad global. Pendientes: estabilidad global/cono de arranque, asientos, efecto grupo, conexiones, acciones laterales, flexion y cortante, y revision independiente.')
         entrada={'proyecto':proyecto,'D_m':d,'perforacion_m':dp,'longitud_m':l,'angulo_grados':a,'meses':meses,'inyeccion':tipo,'Nc_kN':nc,'Nt_kN':nt,'alternancia':alterna,'peso_axial_kN':peso,'rozamiento_negativo_kN':neg,'referencia_peso':peso_ref,'referencia_rozamiento_negativo':neg_ref,'estratos':json.loads(tabla.to_json(orient='records')),'origen':fuente,'punta_kN':p,'datos_punta':datos_punta}
         if estruct:
-            entrada['seccion']={'de_mm':de,'t_mm':t,'re_mm':re,'fy_MPa':fy,'fck_MPa':fck,'union':union,'ejecucion':ejec,'CR':cr,'relleno':relleno,'limite_union_c_kN':uc,'limite_union_t_kN':ut,'referencia':sr}
+            entrada['seccion']={'de_mm':de,'t_mm':t,'re_mm':re,'calidad_catalogo':None if calidad=='Sin seleccionar' else calidad,'propiedades_catalogo':None if calidad=='Sin seleccionar' else asdict(CALIDADES[calidad]),'fy_MPa':fy,'fck_MPa':fck,'union':union,'ejecucion':ejec,'CR':cr,'relleno':relleno,'limite_union_c_kN':uc,'limite_union_t_kN':ut,'referencia':sr}
         salida={'version':VERSION,'entrada':entrada,'geotecnia':r,'estructura':se,'comprobaciones':resumen,'longitud_minima_fuste_m':minimo,'longitud_maxima_m':max_l if dimensionar else None,'estado':'prototipo; comprobaciones parciales'}
         st.download_button('Exportar datos y resultados JSON',json.dumps(salida,ensure_ascii=False,indent=2,allow_nan=False),'micropilotes_resultado.json','application/json')
         st.download_button('Exportar tramos CSV',tr.to_csv(index=False).encode(),'tramos.csv','text/csv')

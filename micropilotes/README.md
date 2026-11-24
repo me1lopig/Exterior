@@ -16,6 +16,7 @@
 - Predimensionamiento exacto por fuste con acciones constantes, sin punta ni peso favorable.
 - Accion de rozamiento negativo de calculo aportada externamente, sin estimacion propia.
 - Seccion tubular axial opcional sin barras adicionales, con seleccion parcial de dimensiones comerciales y entrada personalizada, reduccion radial por corrosion, factores de union, ejecucion y pandeo, y limites certificados de union opcionales.
+- Calidades S235, S275, S355, S550, J55, K55 y N80 con limite elastico, resistencia a traccion y alargamiento de la tabla del catalogo Comercial de Sondeos (pagina 03). La seleccion es informativa: se debe introducir el limite elastico certificado por separado y confirmar disponibilidad para cada dimension.
 - Tabla de aprovechamientos parciales, resistencia acumulada y contribucion por tramos, exportacion JSON/CSV.
 
 ## Metodologia
@@ -60,6 +61,6 @@ Las pruebas incluidas contrastan expresiones con calculos sinteticos independien
 CSV UTF-8 separado por comas: inicio_m,fin_m,iu_kPa,seleccion_kPa,pi_kPa,plim_kPa,activo,nombre. Profundidad vertical y presiones en kPa. activo true/false. La aplicacion descarga una plantilla sintetica. El JSON de salida conserva entradas y resultados; la recarga de proyectos queda pendiente.
 
 ## Limitaciones
-No se calculan asientos, estabilidad global, arrancamiento de un cono, flexion/cortante, cargas laterales, grupos, empotramiento en roca, conexiones al encepado ni rozamiento negativo de forma automatica. La justificacion de corrosion, pandeo, presiones por fases, ensayos y uniones sigue a cargo del proyectista. El catalogo contiene una seleccion parcial de dimensiones nominales de Comercial de Sondeos; no acredita grados de acero, existencias ni resistencia de uniones. No se reproducen cargas admisibles del catalogo.
+No se calculan asientos, estabilidad global, arrancamiento de un cono, flexion/cortante, cargas laterales, grupos, empotramiento en roca, conexiones al encepado ni rozamiento negativo de forma automatica. La justificacion de corrosion, pandeo, presiones por fases, ensayos y uniones sigue a cargo del proyectista. El catalogo contiene una seleccion parcial de dimensiones nominales y calidades de referencia de Comercial de Sondeos; no acredita combinaciones de dimensiones y calidades, existencias ni resistencia de uniones. No se reproducen cargas admisibles del catalogo.
 
 **Geo_App · Ingenieria geotecnica y herramientas de calculo**
