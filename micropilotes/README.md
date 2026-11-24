@@ -1,6 +1,6 @@
 # Micropilotes | Geo_App
 
-**Comprobacion geotecnica y estructural axial · Prototipo v0.3.1**
+**Comprobacion geotecnica y estructural axial · Prototipo v0.3.2**
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Interfaz-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
@@ -17,7 +17,8 @@
 - Accion de rozamiento negativo de calculo aportada externamente, sin estimacion propia.
 - Seccion tubular axial opcional sin barras adicionales, con seleccion parcial de dimensiones comerciales y entrada personalizada, reduccion radial por corrosion, factores de union, ejecucion y pandeo, y limites certificados de union opcionales.
 - Calidades S235, S275, S355, S550, J55, K55 y N80 con limite elastico, resistencia a traccion y alargamiento de la tabla del catalogo Comercial de Sondeos (pagina 03). La seleccion es informativa: se debe introducir el limite elastico certificado por separado y confirmar disponibilidad para cada dimension.
-- Tabla de aprovechamientos parciales, resistencia acumulada y contribucion por tramos, exportacion JSON/CSV.
+- Tabla de aprovechamientos parciales, exportacion JSON/CSV y cinco pestanas de resultados graficos interactivos: perfil y adherencias efectivas, curvas de fuste por diametro nominal, contribucion por tramo, seccion transversal y comparacion parcial con seccion fija. SVG desde la barra de herramientas de cada figura; CSV de nodos de las curvas. No es aun la interfaz paramétrica completa de ocho pestanas.
+- Consulte el [diseno funcional](docs/DISENO_PARAMETRICO.md) para la estructura prevista de la aplicacion y las exportaciones.
 
 ## Metodologia
 Referencia: [Guia para el proyecto y la ejecucion de micropilotes en obras de carretera, DGC, octubre 2005](https://cdn.transportes.gob.es/portal-web-transportes/carreteras/normativa_tecnica/08.1_guias_tecnicas/0710200.pdf).

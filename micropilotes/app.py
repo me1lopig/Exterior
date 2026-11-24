@@ -1,4 +1,4 @@
-"""Geo_App - Micropilotes. Prototipo de calculo axial v0.3.1."""
+"""Geo_App - Micropilotes. Prototipo de calculo axial v0.3.2."""
 from math import cos, radians, sin
 from dataclasses import asdict
 import json
@@ -9,8 +9,10 @@ from calculos.avanzado import estrato_con_inyeccion, validar_punta, longitud_nec
 from calculos.estructural import PERFILES, UNIONES, EJECUCION, axial_estructural
 from modelos.aceros_catalogo import CALIDADES
 from modelos.espesores import intervalos_desde_espesores, espesores_desde_cotas
+from visualizacion.graficas import (perfil_adherencias, curvas_fuste, contribucion,
+                                    seccion_transversal, comparacion_parcial, puntos_fuste)
 
-VERSION='0.3.1'
+VERSION='0.3.2'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
 st.title('Micropilotes | Geo_App')
 st.caption('v'+VERSION+' · Guia DGC 2005 · kN, m, kPa (seccion: mm y MPa)')
@@ -109,6 +111,10 @@ dimensionar=st.checkbox('Estimar longitud necesaria por fuste')
 if dimensionar:
     max_l=st.number_input('Longitud axial maxima a explorar (m)',.1,1000.,12.,.5)
     st.caption('Sin punta ni peso favorable. Acciones constantes, incluye la accion adicional de rozamiento negativo indicada. No dimensiona por asientos, estructura o estabilidad global.')
+d_actual=round(d*1000,6)
+opciones_graf=sorted(set([d_actual]+[v for v in (100,125,150,180,200,220,250,280) if v<=dp*1000]))
+comparar_d=st.multiselect('Diametros nominales adicionales para comparar fuste (mm)',opciones_graf,
+                          default=[d_actual],help='Misma estratigrafia, inyecciones, inclinacion y perforacion maxima. Comparacion solo geotecnica; no acredita compatibilidad con la armadura.')
 if st.button('Calcular',type='primary'):
     try:
         if not 0<d<=dp<.3: raise ValueError('D nominal <= D perforacion < 300 mm.')
@@ -147,11 +153,42 @@ if st.button('Calcular',type='primary'):
         tr['L_acumulada_m']=tr.longitud_axial.cumsum()
         tr['Rc_fuste_acumulado_kN']=tr.compresion.cumsum()
         tr['Rt_fuste_acumulado_kN']=tr.traccion.cumsum()
-        st.subheader('Resistencias por tramo')
-        st.dataframe(tr,hide_index=True)
-        st.line_chart(pd.concat([pd.DataFrame({'L_acumulada_m':[0.],'Rc_fuste_acumulado_kN':[0.],'Rt_fuste_acumulado_kN':[0.]}),tr],ignore_index=True),x='L_acumulada_m',y=['Rc_fuste_acumulado_kN','Rt_fuste_acumulado_kN'])
-        st.bar_chart(tr,x='z_inicio',y=['compresion','traccion'])
-        st.caption('Graficos: resistencia acumulada por longitud y contribucion por tramo (sin punta ni peso).')
+        st.subheader('Resultados graficos')
+        long_graf=max(l,max_l if dimensionar else l)
+        casos_graf=[]
+        for diam in sorted(set([d_actual]+comparar_d)):
+            if not 0<diam/1000<=dp+1e-10: raise ValueError('Diametro grafico fuera de la perforacion.')
+            casos_graf.append((f'D nominal {diam:g} mm',calcular(diam/1000,long_graf,a,estratos,meses,alterna)))
+        cfg={'displaylogo':False,'toImageButtonOptions':{'format':'svg','filename':'micropilotes'}}
+        tabs=st.tabs(['Perfil y adherencias','Curvas de fuste','Tramos','Seccion transversal','Comparacion parcial'])
+        with tabs[0]:
+            st.plotly_chart(perfil_adherencias(filas_calculo,r,l,a),use_container_width=True,config=cfg,key='perfil_graf')
+            st.caption('Ejes independientes; grosor del micropilote simbolico. Se representan solo las adherencias efectivamente aplicadas hasta la punta.')
+        with tabs[1]:
+            st.plotly_chart(curvas_fuste(casos_graf,a),use_container_width=True,config=cfg,key='fuste_graf')
+            st.caption('Nodos exactos por cambio de tramo, incluido el limite de 5 m verticales. Solo fuste; sin punta ni peso favorable.')
+            nodos=[]
+            for nombre,rr in casos_graf:
+                LL,CC,TT=puntos_fuste(rr)
+                nodos.extend(dict(alternativa=nombre,L_axial_m=x,Rc_fuste_kN=c,Rt_fuste_kN=t0) for x,c,t0 in zip(LL,CC,TT))
+            nodos_df=pd.DataFrame(nodos)
+            st.dataframe(nodos_df,hide_index=True)
+            st.download_button('Descargar nodos de curvas CSV',nodos_df.to_csv(index=False).encode(),'curvas_fuste.csv','text/csv')
+        with tabs[2]:
+            st.plotly_chart(contribucion(r),use_container_width=True,config=cfg,key='tramos_graf')
+            st.dataframe(tr,hide_index=True)
+        with tabs[3]:
+            if se is not None:
+                st.plotly_chart(seccion_transversal(d*1000,dp*1000,de,t,re,relleno),use_container_width=True,config=cfg,key='seccion_graf')
+                st.caption('Seccion centrada nominal, sin manguitos ni tolerancias. No verifica el recubrimiento.')
+            else:
+                st.info('Active el calculo estructural para visualizar la seccion.')
+        with tabs[4]:
+            if se is not None:
+                st.plotly_chart(comparacion_parcial(r,se,acciones),use_container_width=True,config=cfg,key='comparacion_graf')
+                st.warning('Solo fuste frente a capacidad de seccion fija del caso introducido. No se recalcula el pandeo ni las uniones para cada longitud; no es una envolvente global de proyecto.')
+            else:
+                st.info('Active el calculo estructural para comparar capacidades.')
         minimo=None
         if dimensionar:
             minimo=longitud_necesaria(d,max_l,a,estratos,meses,alterna,*acciones)
@@ -164,7 +201,7 @@ if st.button('Calcular',type='primary'):
         entrada={'proyecto':proyecto,'D_m':d,'perforacion_m':dp,'longitud_m':l,'angulo_grados':a,'meses':meses,'inyeccion_inicial_plantilla':tipo,'Nc_kN':nc,'Nt_kN':nt,'alternancia':alterna,'peso_axial_kN':peso,'rozamiento_negativo_kN':neg,'referencia_peso':peso_ref,'referencia_rozamiento_negativo':neg_ref,'estratos':json.loads(pd.DataFrame(filas_calculo).to_json(orient='records')),'punta_kN':p,'datos_punta':datos_punta}
         if estruct:
             entrada['seccion']={'de_mm':de,'t_mm':t,'re_mm':re,'calidad_catalogo':None if calidad=='Sin seleccionar' else calidad,'propiedades_catalogo':None if calidad=='Sin seleccionar' else asdict(CALIDADES[calidad]),'fy_MPa':fy,'fck_MPa':fck,'union':union,'ejecucion':ejec,'CR':cr,'relleno':relleno,'limite_union_c_kN':uc,'limite_union_t_kN':ut,'referencia':sr}
-        salida={'version':VERSION,'entrada':entrada,'geotecnia':r,'estructura':se,'comprobaciones':resumen,'longitud_minima_fuste_m':minimo,'longitud_maxima_m':max_l if dimensionar else None,'estado':'prototipo; comprobaciones parciales'}
+        salida={'version':VERSION,'entrada':entrada,'geotecnia':r,'estructura':se,'comprobaciones':resumen,'curvas_fuste_nodos':nodos,'longitud_minima_fuste_m':minimo,'longitud_maxima_m':max_l if dimensionar else None,'estado':'prototipo; comprobaciones parciales'}
         st.download_button('Exportar datos y resultados JSON',json.dumps(salida,ensure_ascii=False,indent=2,allow_nan=False),'micropilotes_resultado.json','application/json')
         st.download_button('Exportar tramos CSV',tr.to_csv(index=False).encode(),'tramos.csv','text/csv')
     except (ValueError,TypeError,KeyError,IndexError,OverflowError) as e:
