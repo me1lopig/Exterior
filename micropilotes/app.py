@@ -61,7 +61,6 @@ tabla=st.data_editor(df,num_rows='dynamic',hide_index=True,key='estratos',column
     'activo':st.column_config.CheckboxColumn('Fuste activo'),
     'nombre':st.column_config.TextColumn('Tramo / estrato'),
 })
-fuente=st.text_input('Origen y justificacion de adherencias y presiones',placeholder='Informe, ensayo o aplicacion externa y version')
 st.caption('Cada fila puede representar un cambio de estrato o de inyeccion. Fuste inactivo: cavidades/camisa perdida. En z < 5 m se usa la adherencia IU. pi: minimo durante IU, final de ultima fase IR o minimo de reinyeccion IRS. Filtro conservador de 4.4.2; las excepciones requieren otro metodo.')
 confirma=st.checkbox('He comprobado que las correlaciones son aplicables, las presiones y su medicion son representativas y la estratigrafia cubre el intervalo.')
 st.subheader('2 · Resistencia por punta')
@@ -109,7 +108,7 @@ if dimensionar:
 if st.button('Calcular',type='primary'):
     try:
         if not 0<d<=dp<.3: raise ValueError('D nominal <= D perforacion < 300 mm.')
-        if not fuente.strip() or not confirma: raise ValueError('Aporte origen de valores y confirme aplicabilidad.')
+        if not confirma: raise ValueError('Confirme la aplicabilidad de las correlaciones y los datos introducidos.')
         if nc+neg>0 and nt>0 and not alterna: raise ValueError('Si hay compresion y traccion en el mismo caso, active alternancia.')
         if peso>0 and not peso_ref.strip(): raise ValueError('Justifique el peso favorable, incluida la flotabilidad cuando proceda.')
         if neg>0 and not neg_ref.strip(): raise ValueError('Justifique la accion adicional y evite doble contabilizacion de resistencia.')
@@ -157,7 +156,7 @@ if st.button('Calcular',type='primary'):
             st.json(se,expanded=False)
             if not se['uniones_acreditadas']: st.warning('Uniones: faltan limites certificados; comprobacion de seccion provisional.')
         st.warning('No es conformidad global. Pendientes: estabilidad global/cono de arranque, asientos, efecto grupo, conexiones, acciones laterales, flexion y cortante, y revision independiente.')
-        entrada={'proyecto':proyecto,'D_m':d,'perforacion_m':dp,'longitud_m':l,'angulo_grados':a,'meses':meses,'inyeccion_inicial_plantilla':tipo,'Nc_kN':nc,'Nt_kN':nt,'alternancia':alterna,'peso_axial_kN':peso,'rozamiento_negativo_kN':neg,'referencia_peso':peso_ref,'referencia_rozamiento_negativo':neg_ref,'estratos':json.loads(tabla.to_json(orient='records')),'origen':fuente,'punta_kN':p,'datos_punta':datos_punta}
+        entrada={'proyecto':proyecto,'D_m':d,'perforacion_m':dp,'longitud_m':l,'angulo_grados':a,'meses':meses,'inyeccion_inicial_plantilla':tipo,'Nc_kN':nc,'Nt_kN':nt,'alternancia':alterna,'peso_axial_kN':peso,'rozamiento_negativo_kN':neg,'referencia_peso':peso_ref,'referencia_rozamiento_negativo':neg_ref,'estratos':json.loads(tabla.to_json(orient='records')),'punta_kN':p,'datos_punta':datos_punta}
         if estruct:
             entrada['seccion']={'de_mm':de,'t_mm':t,'re_mm':re,'calidad_catalogo':None if calidad=='Sin seleccionar' else calidad,'propiedades_catalogo':None if calidad=='Sin seleccionar' else asdict(CALIDADES[calidad]),'fy_MPa':fy,'fck_MPa':fck,'union':union,'ejecucion':ejec,'CR':cr,'relleno':relleno,'limite_union_c_kN':uc,'limite_union_t_kN':ut,'referencia':sr}
         salida={'version':VERSION,'entrada':entrada,'geotecnia':r,'estructura':se,'comprobaciones':resumen,'longitud_minima_fuste_m':minimo,'longitud_maxima_m':max_l if dimensionar else None,'estado':'prototipo; comprobaciones parciales'}
