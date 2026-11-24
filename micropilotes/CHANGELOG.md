@@ -1,5 +1,12 @@
 # Historial
 
+## 0.5.0 — 2026-11-24
+- Selector de armaduras estable y tabla compacta.
+- Separación de tracción y pandeo; corrección de prueba de catálogo.
+- Proyecto JSON versionado recuperable; recálculo de entradas.
+- Exportaciones XLSX, DOCX, PDF bajo demanda y control de obsolescencia.
+- Auditoría focalizada y pruebas automatizadas, CI y smoke test.
+
 ## 0.4.2 — 2026-11-24
 - 74 perfiles CS550/CSTM80, propiedades y cargas comerciales diferenciadas; sección personalizada.
 - Calidades y fy de referencia, tablas 2.3, 2.4, 3.4–3.7, y compatibilidad nominal.

@@ -26,3 +26,7 @@
 ## v0.4.2
 - [x] Catálogo completo, selección múltiple, propiedades, tablas de guía aplicables a cálculo axial, envolvente parcial de acero y exportación.
 - [ ] Verificación de materiales, manguitos/recubrimiento real, pandeo variable por tramo y longitud, validación independiente, informes Excel/Word/PDF.
+
+## v0.5.0
+- [x] Excel, Word/PDF de resumen, recuperación JSON esquema 1, simplificación de catálogo, revisión focalizada y CI.
+- [ ] Validación visual, casos externos de referencia, pandeo por longitud, recubrimientos/empalmes acreditados, informes ampliados por alternativa y normativa específica de obra.

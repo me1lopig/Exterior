@@ -1,4 +1,4 @@
-"""Geo_App Micropilotes · interfaz parametrica v0.4.2."""
+"""Geo_App Micropilotes · interfaz parametrica v0.5.0."""
 from math import cos, radians
 from dataclasses import asdict
 import json
@@ -18,8 +18,50 @@ from modelos.adherencias import FR_DURACION, necesita_iu, preparar_estratos, res
 from visualizacion.graficas import perfil_adherencias, contribucion, seccion_transversal, comparacion_parcial
 from visualizacion.vista_geotecnica import tabla_calculada
 
-VERSION='0.4.2'
+VERSION='0.5.0'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
+# Proyecto versionado: las entradas cargadas se usan como valores iniciales; no se confía en resultados externos.
+from servicios.proyecto import cargar as cargar_proyecto, serializar as serializar_proyecto
+from servicios.informes import excel, word, pdf
+import hashlib
+if 'mp_generacion' not in st.session_state: st.session_state.mp_generacion=0
+if 'mp_proyecto' not in st.session_state: st.session_state.mp_proyecto={}
+cargado=st.session_state.mp_proyecto
+registrados={}
+def ui(fn,kind,label,*args,**kwargs):
+    logical=kwargs.pop('key',label)
+    k=f"mp_{st.session_state.mp_generacion}_{logical}"
+    args=list(args)
+    if logical in cargado.get('widgets',{}):
+        v=cargado['widgets'][logical]
+        # Inyectar defaults en vez de sobreescribir un widget ya creado.
+        if kind in ('selectbox','multiselect'):
+            options=list(args[0] if args else kwargs['options'])
+            if kind=='selectbox':
+                if v not in options: st.error('Opción de proyecto no válida: '+label);st.stop()
+                idx=options.index(v)
+                if len(args)>1: args[1]=idx
+                else: kwargs['index']=idx
+            else:
+                if not isinstance(v,list) or any(x not in options for x in v):st.error('Selección de proyecto no válida: '+label);st.stop()
+                if len(args)>1:args[1]=v
+                else:kwargs['default']=v
+        else:
+            pos=2 if kind=='number_input' else 0
+            if kind=='number_input':
+                lo=args[0] if len(args)>0 else kwargs.get('min_value')
+                hi=args[1] if len(args)>1 else kwargs.get('max_value')
+                if v is not None and (type(v) not in (float,int) or (lo is not None and v<lo) or (hi is not None and v>hi)):
+                    st.error('Número de proyecto no válido: '+label);st.stop()
+                if v is not None: v=float(v) if isinstance(lo,float) else v
+            elif kind=='checkbox' and type(v) is not bool:st.error('Casilla de proyecto no válida: '+label);st.stop()
+            elif kind=='text_input' and not isinstance(v,str):st.error('Texto de proyecto no válido: '+label);st.stop()
+            if len(args)>pos:args[pos]=v
+            else:kwargs['value']=v
+    v=fn(label,*args,key=k,**kwargs)
+    registrados[logical]=v
+    return v
+
 st.title('Geo_App · Micropilotes')
 st.caption('Diseño paramétrico axial | v'+VERSION+' | Guía DGC 2005')
 st.caption('Prototipo técnico · capacidades parciales de cálculo, no conformidad global. Datos iniciales sintéticos.')
@@ -28,20 +70,36 @@ proy,geot,geom,comp,tract,est,compare,export=st.tabs([
     '05 Tracción','06 Estructural','07 Comparativas','08 Informes'])
 with proy:
     st.subheader('Identificación del proyecto')
-    proyecto=st.text_input('Proyecto / referencia','EJEMPLO-SINTETICO')
-    autor=st.text_input('Autor (opcional)')
-    revision=st.text_input('Revisión (opcional)','00')
+    with st.expander('Abrir o iniciar proyecto'):
+        archivo_proyecto=st.file_uploader('Proyecto JSON (esquema 1)',type=['json'],key='mp_archivo_proyecto')
+        c1,c2=st.columns(2)
+        if c1.button('Abrir proyecto',disabled=archivo_proyecto is None):
+            try:
+                st.session_state.mp_proyecto=cargar_proyecto(archivo_proyecto.getvalue())
+                st.session_state.mp_generacion+=1
+                st.session_state.pop('mp_informes',None)
+                st.rerun()
+            except (ValueError,TypeError,UnicodeError) as exc: st.error(str(exc))
+        if c2.button('Nuevo proyecto'):
+            st.session_state.mp_proyecto={}
+            st.session_state.mp_generacion+=1
+            st.session_state.pop('mp_informes',None)
+            st.rerun()
+        if cargado: st.caption('Proyecto recuperado. Los resultados se recalculan con el motor actual.')
+    proyecto=ui(st.text_input,'text_input','Proyecto / referencia','EJEMPLO-SINTETICO')
+    autor=ui(st.text_input,'text_input','Autor (opcional)')
+    revision=ui(st.text_input,'text_input','Revisión (opcional)','00')
     st.markdown('[Guía DGC 2005 — documento de referencia](https://cdn.transportes.gob.es/portal-web-transportes/carreteras/normativa_tecnica/08.1_guias_tecnicas/0710200.pdf)')
     st.info('Flujo: configurar longitudes y definir el perfil en Geotecnia, seleccionar geometría y consultar resultados en las pestañas 04–08.')
 with geot:
     st.subheader('1 · Configuración del cálculo')
     c1,c2,c3=st.columns(3)
-    lmin=c1.number_input('Longitud mínima (m)',min_value=.1,value=3.,step=.5,format='%.2f')
-    lmax=c2.number_input('Longitud máxima (m)',min_value=.1,value=15.,step=.5,format='%.2f')
-    paso=c3.number_input('Incremento (m)',min_value=.01,value=.5,step=.25,format='%.2f')
+    lmin=ui(c1.number_input,'number_input','Longitud mínima (m)',min_value=.1,value=3.,step=.5,format='%.2f')
+    lmax=ui(c2.number_input,'number_input','Longitud máxima (m)',min_value=.1,value=15.,step=.5,format='%.2f')
+    paso=ui(c3.number_input,'number_input','Incremento (m)',min_value=.01,value=.5,step=.25,format='%.2f')
     c1,c2=st.columns(2)
-    a=c1.number_input('Inclinación desde la vertical (°)',0.,89.,0.,1.)
-    alterna=c2.selectbox('Régimen de tracción',['Tracción exclusiva','Alternancia compresión/tracción'],index=1)=='Alternancia compresión/tracción'
+    a=ui(c1.number_input,'number_input','Inclinación desde la vertical (°)',0.,89.,0.,1.)
+    alterna=ui(c2.selectbox,'selectbox','Régimen de tracción',['Tracción exclusiva','Alternancia compresión/tracción'],index=1)=='Alternancia compresión/tracción'
     if lmin>lmax:
         st.error('La longitud mínima no puede superar la máxima.')
     else:
@@ -49,54 +107,54 @@ with geot:
         c1,c2=st.columns(2)
         c1.metric('Profundidad vertical máxima',f'{lmax*cos(radians(a)):.2f} m')
         c2.metric('Longitudes regulares (extremos incluidos)',ceil((lmax-lmin)/paso-1e-12)+1,help='El motor incorpora además cambios de estrato y la profundidad vertical de 5 m.')
-    punta_teorica=st.checkbox('Mostrar hipótesis máxima de punta: +15 % del fuste (solo compresión)')
+    punta_teorica=ui(st.checkbox,'checkbox','Mostrar hipótesis máxima de punta: +15 % del fuste (solo compresión)')
     if punta_teorica:
         st.warning('Hipótesis máxima no verificada. Guía 3.3.1.1 y 3.3.3.1: requiere N>30 o qu>100 kPa según suelo, empotramiento ≥6D y comprobación de zona 6D/3D. No se utiliza para verificar cargas ni en la envolvente parcial.')
     with st.expander('Acciones de cálculo (opcionales)'):
-        nc=st.number_input('Compresión de cálculo (kN)',min_value=0.,value=None,placeholder='Sin acción introducida')
-        nt=st.number_input('Tracción de cálculo (kN)',min_value=0.,value=None,placeholder='Sin acción introducida')
+        nc=ui(st.number_input,'number_input','Compresión de cálculo (kN)',min_value=0.,value=None,placeholder='Sin acción introducida')
+        nt=ui(st.number_input,'number_input','Tracción de cálculo (kN)',min_value=0.,value=None,placeholder='Sin acción introducida')
         st.caption('Sin acciones se muestran capacidades, no aprovechamientos. El fuste no incluye peso propio ni rozamiento negativo; si procede, téngalos en cuenta externamente.')
     if a>30: st.warning('Revise efectos transversales y ejecución para inclinaciones elevadas.')
 with geom:
     st.subheader('Geometría de cálculo')
-    nom=st.selectbox('Diámetro nominal (mm) · tabla 4.1',['Personalizado']+list(DIAMETROS_GUIA),index=4,
+    nom=ui(st.selectbox,'selectbox','Diámetro nominal (mm) · tabla 4.1',['Personalizado']+list(DIAMETROS_GUIA),index=4,
                      format_func=lambda v: v if isinstance(v,str) else f'{v:.1f} mm')
-    dmm=st.number_input('D nominal personalizado (mm)',min_value=10.,max_value=299.,value=200.) if nom=='Personalizado' else float(nom)
-    dpmm=st.number_input('Diámetro de perforación (mm)',min_value=10.,max_value=350.,
+    dmm=ui(st.number_input,'number_input','D nominal personalizado (mm)',min_value=10.,max_value=299.,value=200.) if nom=='Personalizado' else float(nom)
+    dpmm=ui(st.number_input,'number_input','Diámetro de perforación (mm)',min_value=10.,max_value=350.,
                          value=round(dmm*1.10,2),step=1.,key=f'perforacion_{dmm:g}',format='%.2f')
     st.caption('Valor inicial D +10 % (preferencia editable, no requisito de la guía). D nominal gobierna el cálculo por fuste; tabla 4.1 de revestimiento provisional.')
     if dmm in DIAMETROS_GUIA: st.caption(f'Perforación habitual de referencia según tabla 4.1: {DIAMETROS_GUIA[dmm]:g} mm.')
-    extras=st.multiselect('Otros diámetros nominales para comparar (mm)',[v for v in DIAMETROS_GUIA if v!=dmm])
+    extras=ui(st.multiselect,'multiselect','Otros diámetros nominales para comparar (mm)',[v for v in DIAMETROS_GUIA if v!=dmm])
     geometria={dmm:dpmm}
     for v in extras:
-        geometria[v]=st.number_input(f'Perforación para D={v:g} mm',min_value=10.,max_value=350.,value=round(v*1.10,2),step=1.,key=f'perforacion_extra_{v:g}')
+        geometria[v]=ui(st.number_input,'number_input',f'Perforación para D={v:g} mm',min_value=10.,max_value=350.,value=round(v*1.10,2),step=1.,key=f'perforacion_extra_{v:g}')
     d,dp=dmm/1000,dpmm/1000
 with geom:
     st.divider()
     st.subheader('Armaduras tubulares · catálogo CS550 / CSTM80')
-    estruct=st.checkbox('Considerar el límite resistente de las armaduras',value=True)
+    estruct=ui(st.checkbox,'checkbox','Considerar el límite resistente de las armaduras',value=True)
     tubos=[]; arm_error=None
     if estruct:
-        material=st.selectbox('Material de inyección · tabla 2.3',list(RECUBRIMIENTO))
-        uso=st.selectbox('Recubrimiento para',['Compresión y tracción','Solo compresión','Solo tracción'])
+        material=ui(st.selectbox,'selectbox','Material de inyección · tabla 2.3',list(RECUBRIMIENTO))
+        uso=ui(st.selectbox,'selectbox','Recubrimiento para',['Compresión y tracción','Solo compresión','Solo tracción'])
         modo_rec='Compresion' if uso=='Solo compresión' else 'Traccion'
         minimo_rec=RECUBRIMIENTO[material][modo_rec]
         st.caption(f'Recubrimiento mínimo del cuerpo: {minimo_rec:g} mm. Comprobar también empalmes.')
         compatibles=[t.etiqueta for t in CATALOGO if any(t.de_mm<D and (P-t.de_mm)/2>=minimo_rec for D,P in geometria.items())]
         todas=[t.etiqueta for t in CATALOGO]
-        opciones=compatibles+[x for x in todas if x not in compatibles]
+        opciones=todas  # orden estable al modificar diámetros
         default=[min(compatibles,key=lambda s:abs(POR_ETIQUETA[s].de_mm-114.3)+abs(POR_ETIQUETA[s].t_mm-9))] if compatibles else []
-        seleccion=st.multiselect('Secciones comerciales (74 referencias)',opciones,default=default,
+        seleccion=ui(st.multiselect,'multiselect','Secciones comerciales (74 referencias)',opciones,default=default,
                                  format_func=lambda x:x if x in compatibles else x+' · incompatible con geometrías actuales',
                                  help='Seleccione una o varias. Se conservan las 74 referencias; solo se calculan las combinaciones compatibles.')
         tubos=[POR_ETIQUETA[x] for x in seleccion]
-        if st.checkbox('Añadir sección personalizada'):
+        if ui(st.checkbox,'checkbox','Añadir sección personalizada'):
             c1,c2=st.columns(2)
-            de_p=c1.number_input('Diámetro exterior personalizado (mm)',1.,value=139.7)
-            t_p=c2.number_input('Espesor personalizado (mm)',.1,value=7.)
+            de_p=ui(c1.number_input,'number_input','Diámetro exterior personalizado (mm)',1.,value=139.7)
+            t_p=ui(c2.number_input,'number_input','Espesor personalizado (mm)',.1,value=7.)
             try: tubos.append(personalizada(de_p,t_p))
             except ValueError as exc: arm_error=str(exc); st.error(arm_error)
-        calidad=st.selectbox('Calidad de acero (común a las secciones)',list(CALIDADES),index=list(CALIDADES).index('S550'))
+        calidad=ui(st.selectbox,'selectbox','Calidad de acero (común a las secciones)',list(CALIDADES),index=list(CALIDADES).index('S550'))
         acero=CALIDADES[calidad]
         fy=fy_referencia(calidad)
         c1,c2,c3=st.columns(3)
@@ -105,38 +163,38 @@ with geom:
         c3.metric('Alargamiento mínimo',f'{acero.alargamiento_min_pct} %' if acero.alargamiento_min_pct is not None else 'No tabulado')
         if calidad not in FY_GUIA: st.caption('Calidad no incluida en tabla 2.1; comprobar especificación y certificado aplicables.')
         with st.expander('Material certificado y catálogo completo'):
-            fy_cert=st.number_input('fy certificado para estas secciones (MPa; opcional)',min_value=1.,value=None)
+            fy_cert=ui(st.number_input,'number_input','fy certificado para estas secciones (MPa; opcional)',min_value=1.,value=None)
             if fy_cert is not None: fy=fy_cert
             st.dataframe(pd.DataFrame([propiedades(t) for t in CATALOGO]),hide_index=True,use_container_width=True)
             st.caption('Valores de catálogo sin corregir. Carga comercial conjunta CS550/CSTM80, no Rd ni dependiente del selector de calidad. 273 × 6: carga no publicada.')
-        if tubos: st.dataframe(pd.DataFrame([propiedades(t) for t in tubos]),hide_index=True,use_container_width=True)
+        if tubos: st.dataframe(pd.DataFrame([propiedades(t) for t in tubos])[['referencia','A_cm2','peso_kg_m','carga_catalogo_kN']],hide_index=True,use_container_width=True,column_config={'referencia':'Tubería','A_cm2':'Área (cm²)','peso_kg_m':'Peso (kg/m)','carga_catalogo_kN':'Carga catálogo (kN)'})
         st.markdown('**Durabilidad y ejecución**')
         c1,c2=st.columns(2)
-        terreno=c1.selectbox('Categoría de corrosión más desfavorable · tabla 2.4',list(CORROSION))
-        vida=c2.selectbox('Vida útil de referencia (años)',VIDAS,index=2)
+        terreno=ui(c1.selectbox,'selectbox','Categoría de corrosión más desfavorable · tabla 2.4',list(CORROSION))
+        vida=ui(c2.selectbox,'selectbox','Vida útil de referencia (años)',VIDAS,index=2)
         re=perdida(terreno,vida)
         st.caption(f'Pérdida radial exterior tabulada: {re:.2f} mm. No se aplica reducción por compactación ni extrapolación.')
-        union=st.selectbox('Tipo de unión · tablas 3.4 / 3.7',list(UNIONES),index=4)
-        ejec=st.selectbox('Tipo de ejecución · tabla 3.5',list(EJECUCION))
-        coaccion=st.selectbox('Coacción lateral · tabla 3.6',['No definida']+list(COACCION))
+        union=ui(st.selectbox,'selectbox','Tipo de unión · tablas 3.4 / 3.7',list(UNIONES),index=4)
+        ejec=ui(st.selectbox,'selectbox','Tipo de ejecución · tabla 3.5',list(EJECUCION))
+        coaccion=ui(st.selectbox,'selectbox','Coacción lateral · tabla 3.6',['No definida']+list(COACCION))
         cr=None; H=None; Dr=None
         if coaccion=='Zona libre o terreno inestable':
-            H=st.number_input('Longitud axial libre máxima H (m)',min_value=.001,value=None)
-            Dr=st.number_input('Diámetro de camisa perdida DR (mm; vacío = diámetro de armadura)',min_value=1.,value=None)
+            H=ui(st.number_input,'number_input','Longitud axial libre máxima H (m)',min_value=.001,value=None)
+            Dr=ui(st.number_input,'number_input','Diámetro de camisa perdida DR (mm; vacío = diámetro de armadura)',min_value=1.,value=None)
         elif coaccion!='No definida':
             lo,hi=COACCION[coaccion]
-            cr=hi if lo==hi else st.number_input('CR dentro del intervalo tabulado',min_value=lo,max_value=hi,value=hi)
+            cr=hi if lo==hi else ui(st.number_input,'number_input','CR dentro del intervalo tabulado',min_value=lo,max_value=hi,value=hi)
         st.caption(f'Fu,c={UNIONES[union][0]:g}; Fu,t={UNIONES[union][1]:g}; Fe={EJECUCION[ejec]:g}. CR usa el extremo conservador por defecto.')
         with st.expander('Empalmes y cálculo estructural completo (opcional)'):
             # Un único dato de empalme solo cuando aplica a todas las secciones.
-            emp=st.number_input('Diámetro exterior máximo de empalme común (mm; opcional)',min_value=1.,value=None)
-            uc=st.number_input('Capacidad certificada común de unión a compresión (kN)',min_value=.001,value=None)
-            ut=st.number_input('Capacidad certificada común de unión a tracción (kN)',min_value=.001,value=None)
-            completo=st.checkbox('Calcular también sección compuesta acero + lechada/mortero')
-            fck=st.number_input('fck a 28 días (MPa)',min_value=1.,value=25.) if completo else None
-            relleno=st.checkbox('Relleno interior acreditado') if completo else False
-            sr=st.text_input('Justificación de parámetros estructurales (opcional)')
-        st.caption('Predimensionamiento: acero solo, sin sumar lechada, con corrosión y factores de unión/ejecución/pandeo. Sin coacción definida no se traza límite resistente de cálculo.')
+            emp=ui(st.number_input,'number_input','Diámetro exterior máximo de empalme común (mm; opcional)',min_value=1.,value=None)
+            uc=ui(st.number_input,'number_input','Capacidad certificada común de unión a compresión (kN)',min_value=.001,value=None)
+            ut=ui(st.number_input,'number_input','Capacidad certificada común de unión a tracción (kN)',min_value=.001,value=None)
+            completo=ui(st.checkbox,'checkbox','Calcular también sección compuesta acero + lechada/mortero')
+            fck=ui(st.number_input,'number_input','fck a 28 días (MPa)',min_value=1.,value=25.) if completo else None
+            relleno=ui(st.checkbox,'checkbox','Relleno interior acreditado') if completo else False
+            sr=ui(st.text_input,'text_input','Justificación de parámetros estructurales (opcional)')
+        st.caption('Predimensionamiento: acero solo, sin sumar lechada, con corrosión y factores de unión/ejecución/pandeo. Sin coacción definida no se traza límite de compresión; la tracción se calcula independientemente.')
         if arm_error: st.warning('Revise la sección personalizada. No se publican límites mientras exista un error.')
 with geot:
     st.divider()
@@ -145,20 +203,20 @@ with geot:
     cols=['nombre','espesor_m','inyeccion','adlim_kPa','fr','activo']
     ejemplo=pd.DataFrame([['UG-01',5.,'IU',80.,1.65,True],['UG-02',10.,'IRS',150.,1.65,True]],columns=cols)
     with st.expander('Importación de datos · CSV'):
-        archivo=st.file_uploader('Importar estratos CSV (opcional)',type=['csv'])
+        archivo=st.file_uploader('Importar estratos CSV (opcional)',type=['csv'],key=f'csv_{st.session_state.mp_generacion}')
         legado=[]
         if archivo:
             try:
                 df=pd.read_csv(archivo)
                 if 'inyeccion' not in df.columns:
-                    tipo_ant=st.selectbox('Inyección del CSV antiguo (revise cada fila)',['IU','IR','IRS'])
+                    tipo_ant=ui(st.selectbox,'selectbox','Inyección del CSV antiguo (revise cada fila)',['IU','IR','IRS'])
                     df['inyeccion']=tipo_ant
                 if 'espesor_m' not in df.columns and {'inicio_m','fin_m'}.issubset(df.columns):
                     df=pd.DataFrame(espesores_desde_cotas(df.to_dict('records')))
                 if 'adlim_kPa' not in df.columns and {'iu_kPa','seleccion_kPa'}.issubset(df.columns):
                     df['adlim_kPa']=df['seleccion_kPa'].where(df['inyeccion']!='IU',df['iu_kPa'])
                 if 'fr' not in df.columns:
-                    fr_ant=st.selectbox('Fr para CSV antiguo (tabla 3.2)',[1.65,1.45])
+                    fr_ant=ui(st.selectbox,'selectbox','Fr para CSV antiguo (tabla 3.2)',[1.65,1.45])
                     df['fr']=fr_ant
                 if not set(cols).issubset(df.columns): raise ValueError('Columnas requeridas: '+', '.join(cols))
                 if not df.activo.isin([True,False,0,1]).all(): raise ValueError('activo debe ser true/false.')
@@ -168,9 +226,9 @@ with geot:
             except Exception as e:
                 st.error(str(e)); st.stop()
         else:
-            df=ejemplo
+            df=pd.DataFrame(cargado['estratos'],columns=cols) if cargado else ejemplo
         st.download_button('Descargar plantilla CSV',ejemplo.to_csv(index=False).encode(),'estratos_ejemplo.csv','text/csv')
-    tabla=st.data_editor(df,num_rows='dynamic',hide_index=True,key='estratos_reducidos_v1',column_config={
+    tabla=st.data_editor(df,num_rows='dynamic',hide_index=True,key=f'estratos_reducidos_{st.session_state.mp_generacion}',column_config={
         'nombre':st.column_config.TextColumn('Unidad',required=True),
         'espesor_m':st.column_config.NumberColumn('Espesor (m)',min_value=0.000001,required=True,format='%.2f'),
         'inyeccion':st.column_config.SelectboxColumn('Tipo inyección',options=['IU','IR','IRS'],required=True,default='IU'),
@@ -207,18 +265,18 @@ with geot:
         if especiales:
             st.info('En los primeros 5 m verticales se aplica IU incluso si el tipo ejecutado es IR o IRS. Introduzca solo los valores IU adicionales necesarios.')
             for i,f in especiales:
-                iu_extra[i]=st.number_input(f"Adherencia límite IU (kPa) · fila {i+1}: {f['nombre']}",
+                iu_extra[i]=ui(st.number_input,'number_input',f"Adherencia límite IU (kPa) · fila {i+1}: {f['nombre']}",
                     min_value=0.,value=dato_legado(i,f,'iu_kPa'),key=f'iu_{i}_{f["nombre"]}_{f["inyeccion"]}_{f["inicio_m"]}_{f["fin_m"]}')
         with st.expander('Control avanzado de aplicabilidad: presiones (opcional)'):
             st.caption('No intervienen en la ecuación por fuste. Son condiciones de aplicación de la figura 3.3 (apartado 4.4.2). Sin datos, la verificación numérica queda pendiente ; no se considera verificada.')
-            verificar=st.checkbox('Comprobar presiones numéricamente',value=any('pi_kPa' in x and 'plim_kPa' in x for x in legado))
+            verificar=ui(st.checkbox,'checkbox','Comprobar presiones numéricamente',value=any('pi_kPa' in x and 'plim_kPa' in x for x in legado))
             if verificar:
                 presiones={}
                 for i,f in enumerate(filas_prev):
                     if f['activo'] and f['inicio_m']<prof_activa:
                         c1,c2=st.columns(2)
-                        pi=c1.number_input(f"p_i (kPa) · fila {i+1}",min_value=0.,value=dato_legado(i,f,'pi_kPa'),key=f'pi_{i}_{f["nombre"]}_{f["inyeccion"]}')
-                        pl=c2.number_input(f"P_lím (kPa) · fila {i+1}",min_value=0.,value=dato_legado(i,f,'plim_kPa'),key=f'pl_{i}_{f["nombre"]}_{f["inyeccion"]}')
+                        pi=ui(c1.number_input,'number_input',f"p_i (kPa) · fila {i+1}",min_value=0.,value=dato_legado(i,f,'pi_kPa'),key=f'pi_{i}_{f["nombre"]}_{f["inyeccion"]}')
+                        pl=ui(c2.number_input,'number_input',f"P_lím (kPa) · fila {i+1}",min_value=0.,value=dato_legado(i,f,'plim_kPa'),key=f'pl_{i}_{f["nombre"]}_{f["inyeccion"]}')
                         presiones[i]=(pi,pl)
         estratos,filas_calculo,fr=preparar_estratos(tabla.to_dict('records'),prof_activa,iu_extra,presiones)
         meses=FR_DURACION[fr]
@@ -293,10 +351,9 @@ try:
                     if coaccion=='Zona libre o terreno inestable':
                         if H is None: raise ValueError('Indique longitud libre H.')
                         cr_i=cr_libre(H,Dr if Dr is not None else tubo.de_mm)
-                    if cr_i is None: raise ValueError('Coacción lateral no definida.')
                     s=limite_acero(tubo,fy,re,union,ejec,cr_i,uc,ut)
                     compuesto=None
-                    if completo:
+                    if completo and cr_i is not None and s['nc_kN'] is not None:
                         compuesto=axial_estructural(D,tubo.de_mm,tubo.t_mm,re,fy,fck,union,ejec,cr_i,sr or 'Hipótesis de predimensionamiento',relleno,uc,ut)
                     L=g.L_m.tolist()
                     C=g.Rc_fuste_kN.tolist(); T=g.Rt_fuste_kN.tolist()
@@ -306,7 +363,7 @@ try:
                     if compuesto is not None:
                         if nc_lim is not None: nc_lim=min(nc_lim,compuesto['nc_kN'])
                         if nt_lim is not None: nt_lim=min(nt_lim,compuesto['nt_kN'])
-                    estado='Predimensionamiento parcial; certificado/empalmes/coacción a verificar'
+                    estado='Predimensionamiento parcial; certificado/empalmes/coacción a verificar' if s['nc_kN'] is not None else 'Compresión no evaluada: coacción/pandeo pendiente; tracción parcial'
                     fila={**base,**s,'CR':cr_i,'limite_c_kN':nc_lim,'limite_t_kN':nt_lim,
                           'Rc_compuesto_kN':compuesto['nc_kN'] if compuesto else None,
                           'Rt_compuesto_kN':compuesto['nt_kN'] if compuesto else None,
@@ -419,6 +476,10 @@ with compare:
             st.dataframe(pd.DataFrame(alternativas).reindex(columns=cols).style.format(precision=2,na_rep='—'),hide_index=True)
             mostrar_armadura('c','comparar_c')
             mostrar_armadura('t','comparar_t')
+with proy:
+    try:
+        st.download_button('Guardar proyecto JSON',serializar_proyecto(registrados,json.loads(tabla.to_json(orient='records')),VERSION),'micropilotes_proyecto.json','application/json')
+    except (ValueError,TypeError) as exc: st.warning(str(exc))
 with export:
     st.subheader('Exportaciones de cálculo')
     if error: st.info(error)
@@ -433,4 +494,21 @@ with export:
         st.download_button('Barrido de capacidades CSV',tabla_df.to_csv(index=False).encode('utf-8-sig'),'curvas_fuste.csv','text/csv')
         detalle_csv=pd.DataFrame(casos[dmm]['tramos'])
         st.download_button('Detalle por tramos a L máxima CSV',detalle_csv.to_csv(index=False).encode('utf-8-sig'),'tramos.csv','text/csv')
-        st.caption('SVG: botón de descarga en cada gráfica. Excel, Word, PDF y recarga JSON pendientes.')
+        st.caption('SVG: botón de descarga en cada gráfica.')
+        firma=hashlib.sha256(json.dumps(salida,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        previo=st.session_state.get('mp_informes',{})
+        if previo.get('firma')!=firma:
+            previo={};st.session_state.pop('mp_informes',None)
+        st.markdown('**Documentación técnica**')
+        st.caption('Excel: barrido íntegro, entradas, capacidades y gráficas. Word/PDF: resumen a longitud máxima, perfil, curvas y limitaciones.')
+        formato=st.selectbox('Formato a generar',['Excel (.xlsx)','Word (.docx)','PDF (.pdf)'])
+        if st.button('Preparar documento'):
+            try:
+                fn,nombre,mime={'Excel (.xlsx)':(excel,'Micropilotes_Resultados.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+                               'Word (.docx)':(word,'Micropilotes_Memoria.docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+                               'PDF (.pdf)':(pdf,'Micropilotes_Memoria.pdf','application/pdf')}[formato]
+                previo={'firma':firma,'datos':fn(salida),'nombre':nombre,'mime':mime,'formato':formato}
+                st.session_state.mp_informes=previo
+            except Exception as exc: st.error('No se ha generado el documento: '+str(exc))
+        if previo.get('formato')==formato:
+            st.download_button('Descargar '+previo['nombre'],previo['datos'],previo['nombre'],previo['mime'])
