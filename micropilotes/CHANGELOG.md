@@ -1,5 +1,11 @@
 # Historial
 
+## 0.3.1 — 2026-11-24
+- Entrada de estratos por espesor vertical, sin cotas iniciales/finales editables.
+- Conversion de CSV antiguos contiguos, nueva plantilla y cotas acumuladas en JSON.
+- Se mantienen inyeccion por tramo, regla IU en primeros 5 m verticales y calculo inclinado.
+- Cinco pruebas adicionales de migracion, acumulacion, validacion y calculo.
+
 ## 0.3.0 — 2026-11-24
 - Motor de seccion axial segun 3.6.1 y 3.6.2, sin barras adicionales, con factores de ejecucion y union, reduccion por corrosion y pandeo con CR externo.
 - Seleccion parcial de dimensiones comerciales y seccion personalizada.
