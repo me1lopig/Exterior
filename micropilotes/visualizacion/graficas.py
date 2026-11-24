@@ -49,11 +49,25 @@ def perfil_adherencias(filas, r, longitud, angulo):
             ys.extend([t['z_inicio'],t['z_fin']])
         fig.add_trace(go.Scatter(x=xs,y=ys,mode='lines',line=dict(color=color,width=3),name=nombre,
                       hovertemplate='%{x:.1f} kPa · z=%{y:.2f} m<extra></extra>'),row=1,col=2)
+    zpunta=r['profundidad']
+    if zmax-zpunta>1e-8:
+        for col in (1,2):
+            fig.add_hrect(y0=zpunta,y1=zmax,fillcolor='#94a3b8',opacity=.19,
+                          line_width=0,layer='above',row=1,col=col)
+        fig.add_annotation(x=(xmin+xmax)/2,y=(zpunta+zmax)/2,
+                           text='Terreno reconocido<br>no atravesado',showarrow=False,
+                           font=dict(size=11,color='#334155'),bgcolor='rgba(255,255,255,.85)',row=1,col=1)
+    for col in (1,2):
+        fig.add_hline(y=zpunta,line=dict(color=AZUL,dash='dot',width=1.6),row=1,col=col)
+    fig.add_annotation(x=0.99,xref='x2 domain',y=zpunta,yref='y2',
+                       text=f'L máxima: {longitud:.2f} m · z: {zpunta:.2f} m',
+                       xanchor='right',yanchor='bottom',showarrow=False,
+                       font=dict(size=10,color=AZUL),bgcolor='rgba(255,255,255,.9)')
     if zmax>=5:
         fig.add_hline(y=5,line=dict(color=NARANJA,dash='dash',width=1.5),row=1,col=1)
         fig.add_hline(y=5,line=dict(color=NARANJA,dash='dash',width=1.5),
                       annotation_text='Limite IU: 5 m',annotation_position='top right',row=1,col=2)
-    _estilo(fig,'Perfil geotecnico y adherencias efectivas',540)
+    _estilo(fig,'Perfil geotécnico reconocido y adherencias efectivas',540)
     fig.update_xaxes(title_text='Desplazamiento horizontal (m)',range=[xmin,xmax],row=1,col=1)
     fig.update_xaxes(title_text='Adherencia (kPa)',rangemode='tozero',row=1,col=2)
     fig.update_yaxes(title_text='Profundidad vertical (m)',range=[zmax,0],row=1,col=1)

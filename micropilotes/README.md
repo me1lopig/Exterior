@@ -1,6 +1,6 @@
 # Micropilotes | Geo_App
 
-**Comprobacion geotecnica y estructural axial · Prototipo v0.4.0**
+**Comprobacion geotecnica y estructural axial · Prototipo v0.4.1**
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Interfaz-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
@@ -17,7 +17,7 @@
 - Accion de rozamiento negativo de calculo aportada externamente, sin estimacion propia.
 - Seccion tubular axial opcional sin barras adicionales, con seleccion parcial de dimensiones comerciales y entrada personalizada, reduccion radial por corrosion, factores de union, ejecucion y pandeo, y limites certificados de union opcionales.
 - Calidades S235, S275, S355, S550, J55, K55 y N80 con limite elastico, resistencia a traccion y alargamiento de la tabla del catalogo Comercial de Sondeos (pagina 03). La seleccion es informativa: se debe introducir el limite elastico certificado por separado y confirmar disponibilidad para cada dimension.
-- Tabla de aprovechamientos parciales, exportacion JSON/CSV y cinco pestanas de resultados graficos interactivos: perfil y adherencias efectivas, curvas de fuste por diametro nominal, contribucion por tramo, seccion transversal y comparacion parcial con seccion fija. SVG desde la barra de herramientas de cada figura; CSV de nodos de las curvas. Interfaz general de nueve pestañas y barrido regular por longitudes/diámetros, con acciones opcionales.
+- Tabla de aprovechamientos parciales, exportacion JSON/CSV y cinco pestanas de resultados graficos interactivos: perfil y adherencias efectivas, curvas de fuste por diametro nominal, contribucion por tramo, seccion transversal y comparacion parcial con seccion fija. SVG desde la barra de herramientas de cada figura; CSV de nodos de las curvas. Interfaz general de ocho pestañas y barrido regular por longitudes/diámetros, con acciones opcionales.
 - Consulte el [diseno funcional](docs/DISENO_PARAMETRICO.md) para la estructura prevista de la aplicacion y las exportaciones.
 
 ## Metodologia
@@ -66,5 +66,8 @@ No se calculan asientos, estabilidad global, arrancamiento de un cono, flexion/c
 
 **Geo_App · Ingenieria geotecnica y herramientas de calculo**
 
-## Diseño paramétrico v0.4.0
-Nueve pestañas generales: Proyecto, Geotecnia, Geometría, Configuración, Compresión, Tracción, Estructural, Comparativas e Informes. Tabla 4.1 como selector, Dp inicialmente 1.10D editable. Barrido con extremos, paso y cambios de tramo e IU a 5 m verticales. Capacidad por fuste independiente de acciones; la hipótesis +15% se muestra separada sin uso en comprobaciones. El módulo estructural sigue siendo de una sección y diámetro principal, con parámetros manuales; no recalcula pandeo por longitud. Peso propio y rozamiento negativo no integrados en el barrido; considerar externamente. CSV/JSON/SVG disponibles. Excel/Word/PDF, recarga JSON y selección múltiple estructural pendientes. No se extrapola. Pruebas nuevas en tests/test_barrido.py; pendiente ejecución completa y prueba visual Streamlit.
+## Diseño paramétrico v0.4.1
+Ocho pestañas generales: Proyecto, Geotecnia (incluye Configuración), Geometría, Compresión, Tracción, Estructural, Comparativas e Informes. Tabla 4.1 como selector, Dp inicialmente 1.10D editable. Barrido con extremos, paso y cambios de tramo e IU a 5 m verticales. Capacidad por fuste independiente de acciones; la hipótesis +15% se muestra separada sin uso en comprobaciones. El módulo estructural sigue siendo de una sección y diámetro principal, con parámetros manuales; no recalcula pandeo por longitud. Peso propio y rozamiento negativo no integrados en el barrido; considerar externamente. CSV/JSON/SVG disponibles. Excel/Word/PDF, recarga JSON y selección múltiple estructural pendientes. No se extrapola. Pruebas nuevas en tests/test_barrido.py; pendiente ejecución completa y prueba visual Streamlit.
+
+## Interfaz v0.4.1
+Configuración al comienzo de Geotecnia, importación CSV plegada, datos de entrada separados de resultados derivados (inicio/fin efectivo, longitud axial y adherencia admisible). Profundidad reconocida y máxima de cálculo visibles, sin extrapolación. Perfil completo sombreado bajo la punta y curvas aplicadas solo en tramos atravesados. Presentación numérica a dos decimales, sin redondear el motor ni los archivos de resultados. Ocho pestañas. Se mantienen las limitaciones y cálculos de v0.4.0. Pruebas específicas en tests/test_vista_geotecnica.py.

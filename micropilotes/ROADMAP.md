@@ -18,3 +18,7 @@
 - [x] Nueve pestañas, diámetros de tabla 4.1, Dp editable +10%, longitudes por intervalo, acciones opcionales, sin casilla obligatoria de adherencias.
 - [x] Barrido por fuste, curva máxima hipotética de punta 15%, resultados separados y CSV/JSON.
 - [ ] Ejecución completa de pruebas y validación visual, múltiples armaduras, corrosión/pandeo por longitud, informes Excel/Word/PDF y recarga JSON.
+
+## v0.4.1 — simplificación de interfaz
+- [x] Configuración dentro de Geotecnia, ocho pestañas, importación plegada, tablas de entradas/resultados diferenciadas, cotas efectivas, perfil reconocido y zona no atravesada.
+- [ ] Verificación visual de Streamlit desplegado y validación integral del motor.

@@ -1,5 +1,12 @@
 # Historial
 
+## 0.4.1 — 2026-11-24
+- Configuración integrada al principio de Geotecnia: ocho pestañas generales.
+- Importación CSV plegada; tabla editable y tabla derivada diferenciadas, sin repetir entradas.
+- Profundidad reconocida y efectiva, longitud axial de cada tramo y nota de IU a 5 m.
+- Perfil con zona no atravesada sombreada y línea de punta; formato de resultados a dos decimales sin cambiar el motor.
+- Cuatro pruebas específicas de tabla, inclinación y perfil.
+
 ## 0.4.0 — 2026-11-24
 - Nueve pestañas generales, selector de D nominal según tabla 4.1 y perforación editable +10%.
 - Barrido regular con nodos de cambio y acciones opcionales; resultados separados de compresión y tracción.

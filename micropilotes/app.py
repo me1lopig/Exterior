@@ -1,4 +1,4 @@
-"""Geo_App Micropilotes · interfaz parametrica v0.4.0."""
+"""Geo_App Micropilotes · interfaz parametrica v0.4.1."""
 from math import cos, radians
 from dataclasses import asdict
 import json
@@ -13,30 +13,39 @@ from modelos.aceros_catalogo import CALIDADES
 from modelos.espesores import intervalos_desde_espesores, espesores_desde_cotas
 from modelos.adherencias import FR_DURACION, necesita_iu, preparar_estratos, resumen_aplicado
 from visualizacion.graficas import perfil_adherencias, contribucion, seccion_transversal, comparacion_parcial
+from visualizacion.vista_geotecnica import tabla_calculada
 
-VERSION='0.4.0'
+VERSION='0.4.1'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
 st.title('Geo_App · Micropilotes')
 st.caption('Diseño paramétrico axial | v'+VERSION+' | Guía DGC 2005')
 st.caption('Prototipo técnico · capacidades parciales de cálculo, no conformidad global. Datos iniciales sintéticos.')
-proy,geot,geom,config,comp,tract,est,compare,export=st.tabs([
-    '01 Proyecto','02 Geotecnia','03 Geometría','04 Configuración','05 Compresión',
-    '06 Tracción','07 Estructural','08 Comparativas','09 Informes'])
+proy,geot,geom,comp,tract,est,compare,export=st.tabs([
+    '01 Proyecto','02 Geotecnia','03 Geometría','04 Compresión',
+    '05 Tracción','06 Estructural','07 Comparativas','08 Informes'])
 with proy:
     st.subheader('Identificación del proyecto')
     proyecto=st.text_input('Proyecto / referencia','EJEMPLO-SINTETICO')
     autor=st.text_input('Autor (opcional)')
     revision=st.text_input('Revisión (opcional)','00')
     st.markdown('[Guía DGC 2005 — documento de referencia](https://cdn.transportes.gob.es/portal-web-transportes/carreteras/normativa_tecnica/08.1_guias_tecnicas/0710200.pdf)')
-    st.info('Flujo: definir el perfil, seleccionar geometría, configurar longitudes y consultar resultados en las pestañas 05–09.')
-with config:
-    st.subheader('Barrido de longitudes axiales')
+    st.info('Flujo: configurar longitudes y definir el perfil en Geotecnia, seleccionar geometría y consultar resultados en las pestañas 04–08.')
+with geot:
+    st.subheader('1 · Configuración del cálculo')
     c1,c2,c3=st.columns(3)
-    lmin=c1.number_input('Longitud mínima (m)',min_value=.1,value=3.,step=.5)
-    lmax=c2.number_input('Longitud máxima (m)',min_value=.1,value=15.,step=.5)
-    paso=c3.number_input('Incremento (m)',min_value=.01,value=.5,step=.25)
-    a=st.number_input('Inclinación desde la vertical (°)',0.,89.,0.,1.)
-    alterna=st.radio('Régimen de tracción',['Tracción exclusiva','Alternancia compresión/tracción'],index=1)=='Alternancia compresión/tracción'
+    lmin=c1.number_input('Longitud mínima (m)',min_value=.1,value=3.,step=.5,format='%.2f')
+    lmax=c2.number_input('Longitud máxima (m)',min_value=.1,value=15.,step=.5,format='%.2f')
+    paso=c3.number_input('Incremento (m)',min_value=.01,value=.5,step=.25,format='%.2f')
+    c1,c2=st.columns(2)
+    a=c1.number_input('Inclinación desde la vertical (°)',0.,89.,0.,1.)
+    alterna=c2.selectbox('Régimen de tracción',['Tracción exclusiva','Alternancia compresión/tracción'],index=1)=='Alternancia compresión/tracción'
+    if lmin>lmax:
+        st.error('La longitud mínima no puede superar la máxima.')
+    else:
+        from math import ceil
+        c1,c2=st.columns(2)
+        c1.metric('Profundidad vertical máxima',f'{lmax*cos(radians(a)):.2f} m')
+        c2.metric('Longitudes regulares (extremos incluidos)',ceil((lmax-lmin)/paso-1e-12)+1,help='El motor incorpora además cambios de estrato y la profundidad vertical de 5 m.')
     punta_teorica=st.checkbox('Mostrar hipótesis máxima de punta: +15 % del fuste (solo compresión)')
     if punta_teorica:
         st.warning('Hipótesis máxima no verificada. Guía 3.3.1.1 y 3.3.3.1: requiere N>30 o qu>100 kPa según suelo, empotramiento ≥6D y comprobación de zona 6D/3D. No se utiliza para verificar cargas ni en la envolvente parcial.')
@@ -86,38 +95,40 @@ with geom:
         sr=st.text_input('Justificacion estructural: certificado, vida util, corrosion, union y CR')
         st.caption('Módulo preliminar: verifique corrosión, coacción lateral y uniones. No contempla barras adicionales.')
 with geot:
-    st.subheader('1 · Modelo geotécnico')
+    st.divider()
+    st.subheader('2 · Modelo geotécnico · Datos de entrada')
     st.caption('Espesores verticales, desde la superficie. Introduzca adherencias límite sin minorar. Datos iniciales sintéticos.')
     cols=['nombre','espesor_m','inyeccion','adlim_kPa','fr','activo']
     ejemplo=pd.DataFrame([['UG-01',5.,'IU',80.,1.65,True],['UG-02',10.,'IRS',150.,1.65,True]],columns=cols)
-    archivo=st.file_uploader('Importar estratos CSV (opcional)',type=['csv'])
-    legado=[]
-    if archivo:
-        try:
-            df=pd.read_csv(archivo)
-            if 'inyeccion' not in df.columns:
-                tipo_ant=st.selectbox('Inyección del CSV antiguo (revise cada fila)',['IU','IR','IRS'])
-                df['inyeccion']=tipo_ant
-            if 'espesor_m' not in df.columns and {'inicio_m','fin_m'}.issubset(df.columns):
-                df=pd.DataFrame(espesores_desde_cotas(df.to_dict('records')))
-            if 'adlim_kPa' not in df.columns and {'iu_kPa','seleccion_kPa'}.issubset(df.columns):
-                df['adlim_kPa']=df['seleccion_kPa'].where(df['inyeccion']!='IU',df['iu_kPa'])
-            if 'fr' not in df.columns:
-                fr_ant=st.selectbox('Fr para CSV antiguo (tabla 3.2)',[1.65,1.45])
-                df['fr']=fr_ant
-            if not set(cols).issubset(df.columns): raise ValueError('Columnas requeridas: '+', '.join(cols))
-            if not df.activo.isin([True,False,0,1]).all(): raise ValueError('activo debe ser true/false.')
-            df.activo=df.activo.astype(bool)
-            legado=df.to_dict('records')
-            df=df[cols].copy()
-        except Exception as e:
-            st.error(str(e)); st.stop()
-    else:
-        df=ejemplo
-    st.download_button('Descargar plantilla CSV',ejemplo.to_csv(index=False).encode(),'estratos_ejemplo.csv','text/csv')
+    with st.expander('Importación de datos · CSV'):
+        archivo=st.file_uploader('Importar estratos CSV (opcional)',type=['csv'])
+        legado=[]
+        if archivo:
+            try:
+                df=pd.read_csv(archivo)
+                if 'inyeccion' not in df.columns:
+                    tipo_ant=st.selectbox('Inyección del CSV antiguo (revise cada fila)',['IU','IR','IRS'])
+                    df['inyeccion']=tipo_ant
+                if 'espesor_m' not in df.columns and {'inicio_m','fin_m'}.issubset(df.columns):
+                    df=pd.DataFrame(espesores_desde_cotas(df.to_dict('records')))
+                if 'adlim_kPa' not in df.columns and {'iu_kPa','seleccion_kPa'}.issubset(df.columns):
+                    df['adlim_kPa']=df['seleccion_kPa'].where(df['inyeccion']!='IU',df['iu_kPa'])
+                if 'fr' not in df.columns:
+                    fr_ant=st.selectbox('Fr para CSV antiguo (tabla 3.2)',[1.65,1.45])
+                    df['fr']=fr_ant
+                if not set(cols).issubset(df.columns): raise ValueError('Columnas requeridas: '+', '.join(cols))
+                if not df.activo.isin([True,False,0,1]).all(): raise ValueError('activo debe ser true/false.')
+                df.activo=df.activo.astype(bool)
+                legado=df.to_dict('records')
+                df=df[cols].copy()
+            except Exception as e:
+                st.error(str(e)); st.stop()
+        else:
+            df=ejemplo
+        st.download_button('Descargar plantilla CSV',ejemplo.to_csv(index=False).encode(),'estratos_ejemplo.csv','text/csv')
     tabla=st.data_editor(df,num_rows='dynamic',hide_index=True,key='estratos_reducidos_v1',column_config={
         'nombre':st.column_config.TextColumn('Unidad',required=True),
-        'espesor_m':st.column_config.NumberColumn('Espesor (m)',min_value=0.000001,required=True,format='%.3f'),
+        'espesor_m':st.column_config.NumberColumn('Espesor (m)',min_value=0.000001,required=True,format='%.2f'),
         'inyeccion':st.column_config.SelectboxColumn('Tipo inyección',options=['IU','IR','IRS'],required=True,default='IU'),
         'adlim_kPa':st.column_config.NumberColumn('Adherencia límite (kPa)',min_value=0.,format='%.2f'),
         'fr':st.column_config.SelectboxColumn('Coeficiente Fr',options=[1.45,1.65],required=True,default=1.65,
@@ -135,6 +146,12 @@ with geot:
     fr=None
     try:
         filas_prev=intervalos_desde_espesores(tabla.to_dict('records'))
+        zrecon=filas_prev[-1]['fin_m']
+        c1,c2=st.columns(2)
+        c1.metric('Profundidad total reconocida',f'{zrecon:.2f} m')
+        c2.metric('Profundidad máxima de cálculo',f'{prof_activa:.2f} m')
+        if prof_activa>zrecon+1e-8:
+            raise ValueError(f'La profundidad máxima de cálculo ({prof_activa:.2f} m) supera el perfil reconocido ({zrecon:.2f} m). No se extrapola.')
         def dato_legado(i,f,k):
             if i>=len(legado): return None
             old=legado[i]
@@ -161,14 +178,17 @@ with geot:
                         presiones[i]=(pi,pl)
         estratos,filas_calculo,fr=preparar_estratos(tabla.to_dict('records'),prof_activa,iu_extra,presiones)
         meses=FR_DURACION[fr]
-        st.markdown('**Adherencias admisibles aplicadas · cálculo automático**')
-        vista=pd.DataFrame(resumen_aplicado(filas_calculo,prof_activa))
-        st.dataframe(vista,hide_index=True,column_config={
-            'nombre':'Unidad','espesor_m':st.column_config.NumberColumn('Espesor (m)',format='%.3f'),
-            'inyeccion':'Tipo aplicado','adlim_kPa':st.column_config.NumberColumn('Adherencia límite (kPa)',format='%.2f'),
-            'fr':st.column_config.NumberColumn('Fr',format='%.2f'),
+        st.divider()
+        st.subheader('3 · Modelo geotécnico · Valores calculados')
+        st.caption('Solo tramos atravesados a la longitud axial máxima. Tabla de solo lectura.')
+        vista=pd.DataFrame(tabla_calculada(filas_calculo,resumen_aplicado(filas_calculo,prof_activa),a))
+        st.dataframe(vista,hide_index=True,use_container_width=True,column_config={
+            'nombre':'Unidad','inicio_m':st.column_config.NumberColumn('Inicio vertical (m)',format='%.2f'),
+            'fin_efectivo_m':st.column_config.NumberColumn('Fin vertical efectivo (m)',format='%.2f'),
+            'longitud_axial_m':st.column_config.NumberColumn('Longitud axial (m)',format='%.2f'),
             'admisible_kPa':st.column_config.NumberColumn('Adherencia admisible (kPa)',format='%.2f'),
-            'activo':'Fuste activo'})
+            'criterio':'Observación'})
+        st.caption(f"Longitud axial total atravesada: {vista.longitud_axial_m.sum():.2f} m.")
     except (ValueError,TypeError,KeyError,OverflowError) as exc:
         modelo_error=str(exc)
         st.info('Revise el modelo geotécnico: '+modelo_error)
@@ -218,8 +238,10 @@ except (ValueError,TypeError,KeyError,OverflowError) as exc:
 with geot:
     if error: st.warning(error)
     else:
-        st.plotly_chart(perfil_adherencias(filas_calculo,casos[dmm],lmax,a),use_container_width=True,config=cfg,key='perfil_04')
-        st.caption('Perfil vertical hasta la longitud máxima; grosor simbólico. Adherencias realmente aplicadas.')
+        st.divider()
+        st.subheader('4 · Representación gráfica')
+        st.plotly_chart(perfil_adherencias(filas_calculo,casos[dmm],lmax,a),use_container_width=True,config=cfg,key='perfil_041')
+        st.caption('Perfil completo reconocido; zona gris por debajo de la punta. Grosor del micropilote simbólico; adherencias efectivas solo hasta la longitud máxima.')
         if presiones is None: st.caption('Control numérico de presiones no realizado (condiciones de aplicación: guía 4.4.2).')
 
 for tab,modo,carga in [(comp,'c',nc),(tract,'t',nt)]:
@@ -239,13 +261,14 @@ for tab,modo,carga in [(comp,'c',nc),(tract,'t',nt)]:
         if carga is not None:
             tabla_resultado['Ed_kN']=carga
             tabla_resultado['Ed_menor_igual_R_fuste']=tabla_resultado[campo]>=carga
-        st.dataframe(tabla_resultado,hide_index=True,use_container_width=True)
+        st.dataframe(tabla_resultado,hide_index=True,use_container_width=True,column_config={k:st.column_config.NumberColumn(k,format='%.2f') for k in tabla_resultado.select_dtypes(include='number').columns})
         if carga is not None:
             st.caption('Comparación solo por fuste; no conformidad global ni inclusión de punta hipotética.')
         elegido=st.selectbox('Longitud axial para detalle (m)',sorted(tabla_df.L_m.unique()),index=len(tabla_df.L_m.unique())-1,key='detalle_'+modo)
         detalle=calcular(d,elegido,a,estratos,meses,alterna)
         st.plotly_chart(contribucion(detalle),use_container_width=True,config=cfg,key='tramos_'+modo)
-        st.dataframe(pd.DataFrame(detalle['tramos']),hide_index=True)
+        detalle_df=pd.DataFrame(detalle['tramos'])
+        st.dataframe(detalle_df,hide_index=True,column_config={k:st.column_config.NumberColumn(k,format='%.2f') for k in detalle_df.select_dtypes(include='number').columns})
 with est:
     st.subheader('Resistencia estructural axial · D principal')
     if not estruct: st.info('Seleccione la armadura en Geometría para activar este módulo.')
@@ -256,13 +279,14 @@ with est:
         c2.metric('Tracción de sección (kN)',f"{se['nt_kN']:.2f}")
         st.plotly_chart(seccion_transversal(dmm,dpmm,de,t,re,relleno),use_container_width=True,config=cfg,key='sec_04')
         st.caption('Sección centrada; no acredita recubrimiento, manguitos ni tolerancias.')
-        st.dataframe(pd.DataFrame([se]),hide_index=True)
+        se_df=pd.DataFrame([se])
+        st.dataframe(se_df,hide_index=True,column_config={k:st.column_config.NumberColumn(k,format='%.2f') for k in se_df.select_dtypes(include='number').columns})
         if not se['uniones_acreditadas']: st.warning('Faltan capacidades certificadas de uniones.')
 with compare:
     st.subheader('Comparación de soluciones')
     if error: st.info(error)
     else:
-        st.dataframe(tabla_df.pivot(index='L_m',columns='D_mm',values=['Rc_fuste_kN','Rt_fuste_kN']),use_container_width=True)
+        st.dataframe(tabla_df.pivot(index='L_m',columns='D_mm',values=['Rc_fuste_kN','Rt_fuste_kN']).style.format(precision=2),use_container_width=True)
         if nc is not None or nt is not None:
             soluciones=[]
             for diam in geometria:
@@ -270,7 +294,7 @@ with compare:
                     if carga is None: continue
                     minimo=longitud_necesaria(diam/1000,lmax,a,estratos,meses,alterna,carga if modo=='Compresión' else 0.,carga if modo=='Tracción' else 0.,min_l=lmin)
                     soluciones.append(dict(D_mm=diam,modo=modo,Ed_kN=carga,L_min_fuste_m=minimo,estado='Alcanzada por fuste' if minimo is not None else 'No alcanzada'))
-            st.dataframe(pd.DataFrame(soluciones),hide_index=True)
+            st.dataframe(pd.DataFrame(soluciones).style.format(precision=2,na_rep='—'),hide_index=True)
         if se is not None:
             st.plotly_chart(comparacion_parcial(casos[dmm],se,(nc or 0.,nt or 0.)),use_container_width=True,config=cfg,key='comp_04')
             st.warning('Envolvente parcial del diámetro principal; sección fija supuesta para todas las longitudes, sin recalcular pandeo ni uniones. Excluye punta hipotética.')

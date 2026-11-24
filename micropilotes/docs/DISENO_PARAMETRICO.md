@@ -33,3 +33,6 @@ La interfaz final tendrá ocho pestañas. La versión 0.3.2 conserva las entrada
 
 ## Implementación inicial v0.4.0
 Se separan Compresión y Tracción en pestañas independientes (nueve en total). Las curvas muestran capacidades por fuste y, opcionalmente, la punta máxima hipotética +15% en compresión, sin usarla para comprobar cargas. El diámetro de perforación inicial es 110% del nominal, editable; no es requisito normativo. La aplicación recalcula al cambiar entradas. Selección múltiple de diámetros geotécnicos, una sola sección estructural. No se calcula peso propio favorable ni rozamiento negativo en el barrido. Excel/DOCX/PDF y recuperación JSON pendientes.
+
+## Actualización de interfaz v0.4.1
+Ocho pestañas: Proyecto, Geotecnia, Geometría, Compresión, Tracción, Estructural, Comparativas e Informes. Geotecnia reúne configuración, tabla editable de seis columnas, tabla calculada de cotas y longitud axial/adherencia efectiva, y perfil con profundidad reconocida y máxima estudiada. Importación y opciones avanzadas plegadas. Los campos de resultado no repiten Fr ni adherencia límite. Si se impone IU por encima de 5 m se anota. Sin cambios en las ecuaciones ni en la precisión de cálculo.
