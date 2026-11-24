@@ -18,7 +18,7 @@ def calcular(diametro, longitud, angulo, estratos, duracion_meses, alternancia,
     valores = [diametro, longitud, angulo, duracion_meses, peso_axial, punta]
     if not all(isfinite(x) for x in valores):
         raise ValueError('Todas las entradas deben ser finitas.')
-    if diametro <= 0 or longitud <= 0 or not 0 <= angulo < 90 or duracion_meses <= 0 or peso_axial < 0 or punta < 0:
+    if not 0 < diametro < .300 or longitud <= 0 or not 0 <= angulo < 90 or duracion_meses <= 0 or peso_axial < 0 or punta < 0:
         raise ValueError('Revise diametro, longitud, angulo, duracion y resistencias.')
     c = cos(radians(angulo))
     profundidad = longitud * c
@@ -31,7 +31,7 @@ def calcular(diametro, longitud, angulo, estratos, duracion_meses, alternancia,
     for e in estratos:
         if not all(isfinite(x) for x in (e.inicio, e.fin, e.iu, e.inyeccion)):
             raise ValueError('Los datos de estratos deben ser finitos.')
-        if abs(e.inicio - anterior) > 1e-6 or e.fin <= e.inicio or min(e.iu, e.inyeccion) < 0:
+        if type(e.activo) is not bool or e.inicio < 0 or abs(e.inicio - anterior) > 1e-8 or e.fin <= e.inicio or min(e.iu, e.inyeccion) < 0:
             raise ValueError('Los estratos deben ser contiguos desde la superficie y tener valores no negativos.')
         anterior = e.fin
         a, b = e.inicio, min(e.fin, profundidad)
@@ -45,7 +45,7 @@ def calcular(diametro, longitud, angulo, estratos, duracion_meses, alternancia,
             tramos.append({'z_inicio': z0, 'z_fin': z1, 'longitud_axial': largo,
                            'r_lim': rf, 'r_calculo': rf/fr, 'compresion': comp,
                            'traccion': eta*comp})
-    if anterior + 1e-6 < profundidad:
+    if anterior + 1e-8 < profundidad:
         raise ValueError('La estratigrafia no cubre la punta del micropilote.')
     fuste = sum(t['compresion'] for t in tramos)
     if punta and not punta_justificada:
