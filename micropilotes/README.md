@@ -14,7 +14,7 @@ Aplicación de ingeniería geotécnica para la comprobación y el futuro predime
 El proyecto separa el motor de cálculo de la interfaz gráfica para facilitar su mantenimiento, verificación y ampliación.
 
 > [!IMPORTANT]
-> **Estado de esta carpeta:** inicialización documental. El prototipo de cálculo desarrollado previamente todavía no está incorporado a este repositorio. Los apartados siguientes describen el alcance definido y la arquitectura prevista, no una versión publicada y validada para proyecto.
+> **Estado: prototipo v0.1.0.** Código Python incorporado. Las cuatro pruebas originales del motor pasan localmente (24/11/2026). No se ha completado la auditoría normativa ni la verificación visual de Streamlit. No constituye una herramienta validada para proyecto.
 
 ## 2. Alcance técnico
 
@@ -68,7 +68,7 @@ El 15 % es un límite máximo, no una resistencia automáticamente movilizable.
 
 La tracción se evaluará mediante una comprobación independiente, con los coeficientes específicos aplicables y, cuando proceda, el peso propio favorable debidamente minorado.
 
-## 4. Flujo de trabajo previsto
+## 4. Flujo de trabajo previsto (exportación pendiente)
 
 ```mermaid
 flowchart TD
@@ -86,7 +86,7 @@ flowchart TD
 
 Los valores de adherencia se mantendrán trazables, incluyendo su origen, unidades, tipo de inyección y justificación. La integración automática con la aplicación externa queda pendiente de definir su formato de intercambio.
 
-## 5. Arquitectura prevista
+## 5. Arquitectura prevista (módulos pendientes: datos, servicios y visualización)
 
 ```text
 micropilotes/
@@ -103,7 +103,7 @@ micropilotes/
 
 ## 6. Instalación y ejecución
 
-Una vez incorporados los archivos de la aplicación y sus dependencias, la ejecución local prevista desde la raíz del repositorio será:
+Desde la raíz del repositorio, ejecutar:
 
 ```bash
 cd micropilotes
@@ -111,19 +111,21 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Pruebas previstas:
+Pruebas incluidas (sin dependencia adicional):
 
 ```bash
-python -m pytest -q
+python -m unittest discover -s tests -v
 ```
 
-Para un futuro despliegue en Streamlit Community Cloud, el punto de entrada será `micropilotes/app.py`, previa configuración y verificación de las dependencias. Estos comandos todavía no son ejecutables con la carpeta documental inicial.
+Para un futuro despliegue en Streamlit Community Cloud, el punto de entrada será `micropilotes/app.py`, previa configuración y verificación de las dependencias.
 
 ## 7. Plan de desarrollo y validación
 
 - [x] Definición del alcance inicial y referencia técnica.
 - [x] Inicialización de la documentación en GitHub.
-- [ ] Incorporación y auditoría del prototipo Python.
+- [x] Incorporación del prototipo Python.
+- [x] Ejecución de las cuatro pruebas originales del motor.
+- [ ] Auditoría técnica completa del prototipo.
 - [ ] Verificación independiente de compresión y tracción, coeficientes y unidades.
 - [ ] Casos de ensayo: estrato único, multiestrato, inclinación, cruce de 5 m, cavidades y punta opcional.
 - [ ] Verificación funcional de la interfaz Streamlit.
@@ -133,6 +135,8 @@ Para un futuro despliegue en Streamlit Community Cloud, el punto de entrada ser�
 - [ ] Módulo independiente de comprobación estructural, uniones y durabilidad.
 
 ## 8. Control de calidad y limitaciones
+
+En v0.1.0 la entrada de adherencia límite es manual. Puede proceder de la herramienta externa, indicando la referencia y justificación. La comprobación de las condiciones de punta es manual; el motor controla su justificación declarada y el límite del 15 %. La tabla inicial contiene valores ilustrativos, no datos reales. Los coeficientes implementados y su aplicabilidad requieren revisión independiente contra la guía. No hay todavía exportación, selección de tuberías ni predimensionamiento automático.
 
 El cálculo empírico no sustituye las pruebas de carga representativas, la investigación geotécnica ni el juicio profesional. Los resultados deberán revisarse conforme al marco normativo y los pliegos aplicables a cada obra.
 
