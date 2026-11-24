@@ -1,5 +1,11 @@
 # Historial
 
+## 0.4.2 — 2026-11-24
+- 74 perfiles CS550/CSTM80, propiedades y cargas comerciales diferenciadas; sección personalizada.
+- Calidades y fy de referencia, tablas 2.3, 2.4, 3.4–3.7, y compatibilidad nominal.
+- Selección múltiple de armaduras y combinación con diámetros. Límite parcial de acero, sección compuesta opcional, cruces exactos y exportaciones.
+- Pruebas de catálogo, tablas y cálculo. Pendiente validación independiente y visual.
+
 ## 0.4.1 — 2026-11-24
 - Configuración integrada al principio de Geotecnia: ocho pestañas generales.
 - Importación CSV plegada; tabla editable y tabla derivada diferenciadas, sin repetir entradas.

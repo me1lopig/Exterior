@@ -1,4 +1,4 @@
-"""Geo_App Micropilotes · interfaz parametrica v0.4.1."""
+"""Geo_App Micropilotes · interfaz parametrica v0.4.2."""
 from math import cos, radians
 from dataclasses import asdict
 import json
@@ -9,13 +9,16 @@ from calculos.axial import calcular
 from calculos.barrido import DIAMETROS_GUIA, barrido
 from calculos.avanzado import longitud_necesaria
 from calculos.estructural import PERFILES, UNIONES, EJECUCION, axial_estructural
-from modelos.aceros_catalogo import CALIDADES
+from modelos.aceros_catalogo import CALIDADES, FY_GUIA, fy_referencia
+from modelos.tuberias_catalogo import CATALOGO, POR_ETIQUETA, propiedades, personalizada
+from modelos.tablas_guia import CORROSION, VIDAS, RECUBRIMIENTO, COACCION, perdida, recubrimiento, cr_libre
+from calculos.limites_acero import limite_acero, longitud_cruce, envolvente
 from modelos.espesores import intervalos_desde_espesores, espesores_desde_cotas
 from modelos.adherencias import FR_DURACION, necesita_iu, preparar_estratos, resumen_aplicado
 from visualizacion.graficas import perfil_adherencias, contribucion, seccion_transversal, comparacion_parcial
 from visualizacion.vista_geotecnica import tabla_calculada
 
-VERSION='0.4.1'
+VERSION='0.4.2'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
 st.title('Geo_App · Micropilotes')
 st.caption('Diseño paramétrico axial | v'+VERSION+' | Guía DGC 2005')
@@ -69,31 +72,72 @@ with geom:
         geometria[v]=st.number_input(f'Perforación para D={v:g} mm',min_value=10.,max_value=350.,value=round(v*1.10,2),step=1.,key=f'perforacion_extra_{v:g}')
     d,dp=dmm/1000,dpmm/1000
 with geom:
-    st.subheader('Armadura tubular · comprobación opcional')
-    estruct=st.checkbox('Calcular resistencia de seccion tubular')
+    st.divider()
+    st.subheader('Armaduras tubulares · catálogo CS550 / CSTM80')
+    estruct=st.checkbox('Considerar el límite resistente de las armaduras',value=True)
+    tubos=[]; arm_error=None
     if estruct:
-        opciones=['Personalizada']+[f'{de:g} × {t:g} mm' for de,t in PERFILES]
-        perfil=st.selectbox('Tuberia (seleccion parcial de catalogo)',opciones)
-        if perfil=='Personalizada':
-            de=st.number_input('Diametro exterior (mm)',1.,value=139.7)
-            t=st.number_input('Espesor nominal (mm)',.1,value=7.)
-        else: de,t=PERFILES[opciones.index(perfil)-1]
-        calidad=st.selectbox('Calidad de acero de referencia', ['Sin seleccionar']+list(CALIDADES))
-        if calidad != 'Sin seleccionar':
-            acero=CALIDADES[calidad]
-            st.caption(f'Catalogo p. 03 | {acero.norma_tabla}: limite elastico {acero.limite_elastico_mpa} MPa; resistencia a traccion {acero.resistencia_traccion_mpa} MPa; alargamiento minimo {acero.alargamiento_min_pct} %.')
-            st.caption('Valores orientativos del catalogo. Confirme disponibilidad por dimension y propiedades en el certificado; no se aplican automaticamente al calculo.')
-        re=st.number_input('Perdida radial exterior por corrosion (mm)',0.,value=0.)
-        fy=st.number_input('Limite elastico certificado fy (MPa)',1.,value=550.)
-        fck=st.number_input('Resistencia caracteristica lechada a 28 dias (MPa)',1.,value=25.)
-        union=st.selectbox('Union justificada segun tablas 3.4 y 3.7',list(UNIONES),index=4)
-        ejec=st.selectbox('Tipo de perforacion (tabla 3.5)',list(EJECUCION))
-        cr=st.number_input('Coeficiente CR de pandeo (tabla 3.6; 0 solo si no procede)',0.,value=0.)
-        relleno=st.checkbox('Relleno interior de lechada acreditado')
-        uc=st.number_input('Limite certificado union en compresion (kN; 0=no aportado)',0.,value=0.)
-        ut=st.number_input('Limite certificado union en traccion (kN; 0=no aportado)',0.,value=0.)
-        sr=st.text_input('Justificacion estructural: certificado, vida util, corrosion, union y CR')
-        st.caption('Módulo preliminar: verifique corrosión, coacción lateral y uniones. No contempla barras adicionales.')
+        material=st.selectbox('Material de inyección · tabla 2.3',list(RECUBRIMIENTO))
+        uso=st.selectbox('Recubrimiento para',['Compresión y tracción','Solo compresión','Solo tracción'])
+        modo_rec='Compresion' if uso=='Solo compresión' else 'Traccion'
+        minimo_rec=RECUBRIMIENTO[material][modo_rec]
+        st.caption(f'Recubrimiento mínimo del cuerpo: {minimo_rec:g} mm. Comprobar también empalmes.')
+        compatibles=[t.etiqueta for t in CATALOGO if any(t.de_mm<D and (P-t.de_mm)/2>=minimo_rec for D,P in geometria.items())]
+        todas=[t.etiqueta for t in CATALOGO]
+        opciones=compatibles+[x for x in todas if x not in compatibles]
+        default=[min(compatibles,key=lambda s:abs(POR_ETIQUETA[s].de_mm-114.3)+abs(POR_ETIQUETA[s].t_mm-9))] if compatibles else []
+        seleccion=st.multiselect('Secciones comerciales (74 referencias)',opciones,default=default,
+                                 format_func=lambda x:x if x in compatibles else x+' · incompatible con geometrías actuales',
+                                 help='Seleccione una o varias. Se conservan las 74 referencias; solo se calculan las combinaciones compatibles.')
+        tubos=[POR_ETIQUETA[x] for x in seleccion]
+        if st.checkbox('Añadir sección personalizada'):
+            c1,c2=st.columns(2)
+            de_p=c1.number_input('Diámetro exterior personalizado (mm)',1.,value=139.7)
+            t_p=c2.number_input('Espesor personalizado (mm)',.1,value=7.)
+            try: tubos.append(personalizada(de_p,t_p))
+            except ValueError as exc: arm_error=str(exc); st.error(arm_error)
+        calidad=st.selectbox('Calidad de acero (común a las secciones)',list(CALIDADES),index=list(CALIDADES).index('S550'))
+        acero=CALIDADES[calidad]
+        fy=fy_referencia(calidad)
+        c1,c2,c3=st.columns(3)
+        c1.metric('Límite elástico de referencia',f'{acero.limite_elastico_mpa} MPa')
+        c2.metric('Resistencia a tracción fu',f'{acero.resistencia_traccion_mpa} MPa' if acero.resistencia_traccion_mpa else 'No tabulada')
+        c3.metric('Alargamiento mínimo',f'{acero.alargamiento_min_pct} %' if acero.alargamiento_min_pct is not None else 'No tabulado')
+        if calidad not in FY_GUIA: st.caption('Calidad no incluida en tabla 2.1; comprobar especificación y certificado aplicables.')
+        with st.expander('Material certificado y catálogo completo'):
+            fy_cert=st.number_input('fy certificado para estas secciones (MPa; opcional)',min_value=1.,value=None)
+            if fy_cert is not None: fy=fy_cert
+            st.dataframe(pd.DataFrame([propiedades(t) for t in CATALOGO]),hide_index=True,use_container_width=True)
+            st.caption('Valores de catálogo sin corregir. Carga comercial conjunta CS550/CSTM80, no Rd ni dependiente del selector de calidad. 273 × 6: carga no publicada.')
+        if tubos: st.dataframe(pd.DataFrame([propiedades(t) for t in tubos]),hide_index=True,use_container_width=True)
+        st.markdown('**Durabilidad y ejecución**')
+        c1,c2=st.columns(2)
+        terreno=c1.selectbox('Categoría de corrosión más desfavorable · tabla 2.4',list(CORROSION))
+        vida=c2.selectbox('Vida útil de referencia (años)',VIDAS,index=2)
+        re=perdida(terreno,vida)
+        st.caption(f'Pérdida radial exterior tabulada: {re:.2f} mm. No se aplica reducción por compactación ni extrapolación.')
+        union=st.selectbox('Tipo de unión · tablas 3.4 / 3.7',list(UNIONES),index=4)
+        ejec=st.selectbox('Tipo de ejecución · tabla 3.5',list(EJECUCION))
+        coaccion=st.selectbox('Coacción lateral · tabla 3.6',['No definida']+list(COACCION))
+        cr=None; H=None; Dr=None
+        if coaccion=='Zona libre o terreno inestable':
+            H=st.number_input('Longitud axial libre máxima H (m)',min_value=.001,value=None)
+            Dr=st.number_input('Diámetro de camisa perdida DR (mm; vacío = diámetro de armadura)',min_value=1.,value=None)
+        elif coaccion!='No definida':
+            lo,hi=COACCION[coaccion]
+            cr=hi if lo==hi else st.number_input('CR dentro del intervalo tabulado',min_value=lo,max_value=hi,value=hi)
+        st.caption(f'Fu,c={UNIONES[union][0]:g}; Fu,t={UNIONES[union][1]:g}; Fe={EJECUCION[ejec]:g}. CR usa el extremo conservador por defecto.')
+        with st.expander('Empalmes y cálculo estructural completo (opcional)'):
+            # Un único dato de empalme solo cuando aplica a todas las secciones.
+            emp=st.number_input('Diámetro exterior máximo de empalme común (mm; opcional)',min_value=1.,value=None)
+            uc=st.number_input('Capacidad certificada común de unión a compresión (kN)',min_value=.001,value=None)
+            ut=st.number_input('Capacidad certificada común de unión a tracción (kN)',min_value=.001,value=None)
+            completo=st.checkbox('Calcular también sección compuesta acero + lechada/mortero')
+            fck=st.number_input('fck a 28 días (MPa)',min_value=1.,value=25.) if completo else None
+            relleno=st.checkbox('Relleno interior acreditado') if completo else False
+            sr=st.text_input('Justificación de parámetros estructurales (opcional)')
+        st.caption('Predimensionamiento: acero solo, sin sumar lechada, con corrosión y factores de unión/ejecución/pandeo. Sin coacción definida no se traza límite resistente de cálculo.')
+        if arm_error: st.warning('Revise la sección personalizada. No se publican límites mientras exista un error.')
 with geot:
     st.divider()
     st.subheader('2 · Modelo geotécnico · Datos de entrada')
@@ -216,7 +260,7 @@ def fig_capacidad(df, modo, carga):
                       yaxis_title='Resistencia de cálculo (kN)',legend=dict(orientation='h',y=-.22))
     return fig
 
-error=None; filas=[]; casos={}; se=None; err_s=None; tabla_df=None
+error=None; filas=[]; casos={}; tabla_df=None; alternativas=[]; curvas_arm=[]
 try:
     if modelo_error: raise ValueError(modelo_error)
     if any(not 0<v<=p<300 for v,p in geometria.items()):
@@ -227,13 +271,87 @@ try:
         filas.extend(barrido(diam/1000,lmin,lmax,paso,a,estratos,meses,alterna,punta_teorica))
         casos[diam]=calcular(diam/1000,lmax,a,estratos,meses,alterna)
     tabla_df=pd.DataFrame(filas)
-    if estruct:
-        try:
-            se=axial_estructural(dmm,de,t,re,fy,fck,union,ejec,cr,sr,relleno,uc or None,ut or None)
-        except (ValueError,TypeError,KeyError,OverflowError) as exc:
-            err_s=str(exc)
+    if estruct and not arm_error:
+        for D,P in geometria.items():
+            # Avoid binary representation mismatch on mm-m round trip.
+            g=tabla_df[(tabla_df.D_mm-D).abs()<1e-7]
+            for i,tubo in enumerate(tubos):
+                etiqueta=f'{D:g} mm | {tubo.etiqueta} | {i+1}'
+                r_c=recubrimiento(P,tubo.de_mm,material,'Compresion',emp)
+                r_t=recubrimiento(P,tubo.de_mm,material,'Traccion',emp)
+                base=dict(alternativa=etiqueta,D_mm=D,Dp_mm=P,**propiedades(tubo),
+                          calidad=calidad,fy_MPa=fy,corrosion_mm=re,
+                          holgura_mm=r_c['holgura_mm'],r_min_c_mm=r_c['r_min_mm'],r_min_t_mm=r_t['r_min_mm'],
+                          empalme_mm=emp,holgura_empalme_mm=r_c['holgura_union_mm'])
+                c_ok=uso!='Solo tracción' and tubo.de_mm<D and r_c['cuerpo_compatible'] and r_c['union_compatible'] is not False
+                t_ok=uso!='Solo compresión' and tubo.de_mm<D and r_t['cuerpo_compatible'] and r_t['union_compatible'] is not False
+                if not(c_ok or t_ok):
+                    alternativas.append({**base,'estado':'Geometría incompatible para los modos seleccionados'})
+                    continue
+                try:
+                    cr_i=cr
+                    if coaccion=='Zona libre o terreno inestable':
+                        if H is None: raise ValueError('Indique longitud libre H.')
+                        cr_i=cr_libre(H,Dr if Dr is not None else tubo.de_mm)
+                    if cr_i is None: raise ValueError('Coacción lateral no definida.')
+                    s=limite_acero(tubo,fy,re,union,ejec,cr_i,uc,ut)
+                    compuesto=None
+                    if completo:
+                        compuesto=axial_estructural(D,tubo.de_mm,tubo.t_mm,re,fy,fck,union,ejec,cr_i,sr or 'Hipótesis de predimensionamiento',relleno,uc,ut)
+                    L=g.L_m.tolist()
+                    C=g.Rc_fuste_kN.tolist(); T=g.Rt_fuste_kN.tolist()
+                    nc_lim=s['nc_kN'] if c_ok else None
+                    nt_lim=s['nt_kN'] if t_ok else None
+                    # If full-section capacity is lower, do not overstate the displayed partial envelope.
+                    if compuesto is not None:
+                        if nc_lim is not None: nc_lim=min(nc_lim,compuesto['nc_kN'])
+                        if nt_lim is not None: nt_lim=min(nt_lim,compuesto['nt_kN'])
+                    estado='Predimensionamiento parcial; certificado/empalmes/coacción a verificar'
+                    fila={**base,**s,'CR':cr_i,'limite_c_kN':nc_lim,'limite_t_kN':nt_lim,
+                          'Rc_compuesto_kN':compuesto['nc_kN'] if compuesto else None,
+                          'Rt_compuesto_kN':compuesto['nt_kN'] if compuesto else None,
+                          'L_cruce_c_m':longitud_cruce(L,C,nc_lim) if nc_lim is not None else None,
+                          'L_cruce_t_m':longitud_cruce(L,T,nt_lim) if nt_lim is not None else None,
+                          'Rc_parcial_Lmax_kN':min(C[-1],nc_lim) if nc_lim is not None else None,
+                          'Rt_parcial_Lmax_kN':min(T[-1],nt_lim) if nt_lim is not None else None,
+                          'estado':estado}
+                    alternativas.append(fila)
+                    curvas_arm.append((fila,tubo,L,C,T))
+                except (ValueError,TypeError,KeyError,OverflowError) as exc:
+                    alternativas.append({**base,'estado':str(exc)})
 except (ValueError,TypeError,KeyError,OverflowError) as exc:
     error=str(exc)
+
+def fig_armadura(fila,L,capacidades,modo):
+    campo='limite_c_kN' if modo=='c' else 'limite_t_kN'
+    limite=fila[campo]
+    x,y=envolvente(L,capacidades,limite)
+    fig=go.Figure()
+    fig.add_scatter(x=L,y=capacidades,name='Fuste',line=dict(color='#2563eb',width=2.5))
+    fig.add_scatter(x=x,y=y,name='Envolvente parcial',line=dict(color='#0d9488',width=3.5))
+    fig.add_hline(y=limite,line_color='#b45309',line_dash='dash',annotation_text='Límite de cálculo adoptado')
+    if modo=='c' and fila.get('carga_catalogo_kN') is not None:
+        fig.add_hline(y=fila['carga_catalogo_kN'],line_color='#64748b',line_dash='dot',annotation_text='Carga comercial (referencia)')
+    cr=longitud_cruce(L,capacidades,limite)
+    if cr is not None: fig.add_vline(x=cr,line_dash='dot',annotation_text=f'Cruce: {cr:.2f} m')
+    fig.update_layout(template='plotly_white',height=440,title=fila['alternativa'],
+                      xaxis_title='Longitud axial (m)',yaxis_title='Capacidad (kN)',
+                      legend=dict(orientation='h',y=-.2))
+    return fig
+
+def mostrar_armadura(modo,clave):
+    campo='limite_c_kN' if modo=='c' else 'limite_t_kN'
+    candidatas=[v for v in curvas_arm if v[0][campo] is not None]
+    if not candidatas: return
+    st.markdown('**Límite resistente de armadura y fuste**')
+    i=st.selectbox('Alternativa para visualizar',range(len(candidatas)),format_func=lambda j:candidatas[j][0]['alternativa'],key=clave)
+    fila,tubo,L,C,T=candidatas[i]
+    valores=C if modo=='c' else T
+    st.plotly_chart(fig_armadura(fila,L,valores,modo),use_container_width=True,config=cfg,key=clave+'_graf')
+    st.caption('Envolvente parcial de fuste y acero; hipótesis de sección y pandeo constantes. Sin punta hipotética ni conformidad global.')
+    df_arm=pd.DataFrame({'L_m':L,'R_fuste_kN':valores,'limite_kN':fila[campo],
+                        'R_parcial_kN':[min(v,fila[campo]) for v in valores]})
+    st.dataframe(df_arm.style.format(precision=2),hide_index=True,use_container_width=True)
 
 with geot:
     if error: st.warning(error)
@@ -264,24 +382,24 @@ for tab,modo,carga in [(comp,'c',nc),(tract,'t',nt)]:
         st.dataframe(tabla_resultado,hide_index=True,use_container_width=True,column_config={k:st.column_config.NumberColumn(k,format='%.2f') for k in tabla_resultado.select_dtypes(include='number').columns})
         if carga is not None:
             st.caption('Comparación solo por fuste; no conformidad global ni inclusión de punta hipotética.')
+        mostrar_armadura(modo,'arm_'+modo)
         elegido=st.selectbox('Longitud axial para detalle (m)',sorted(tabla_df.L_m.unique()),index=len(tabla_df.L_m.unique())-1,key='detalle_'+modo)
         detalle=calcular(d,elegido,a,estratos,meses,alterna)
         st.plotly_chart(contribucion(detalle),use_container_width=True,config=cfg,key='tramos_'+modo)
         detalle_df=pd.DataFrame(detalle['tramos'])
         st.dataframe(detalle_df,hide_index=True,column_config={k:st.column_config.NumberColumn(k,format='%.2f') for k in detalle_df.select_dtypes(include='number').columns})
 with est:
-    st.subheader('Resistencia estructural axial · D principal')
-    if not estruct: st.info('Seleccione la armadura en Geometría para activar este módulo.')
-    elif error or err_s: st.warning(error or err_s)
-    elif se is not None:
-        c1,c2=st.columns(2)
-        c1.metric('Compresión de sección (kN)',f"{se['nc_kN']:.2f}")
-        c2.metric('Tracción de sección (kN)',f"{se['nt_kN']:.2f}")
-        st.plotly_chart(seccion_transversal(dmm,dpmm,de,t,re,relleno),use_container_width=True,config=cfg,key='sec_04')
-        st.caption('Sección centrada; no acredita recubrimiento, manguitos ni tolerancias.')
-        se_df=pd.DataFrame([se])
-        st.dataframe(se_df,hide_index=True,column_config={k:st.column_config.NumberColumn(k,format='%.2f') for k in se_df.select_dtypes(include='number').columns})
-        if not se['uniones_acreditadas']: st.warning('Faltan capacidades certificadas de uniones.')
+    st.subheader('Armaduras · capacidades de sección')
+    if error: st.info(error)
+    elif not estruct: st.info('Active armaduras en Geometría.')
+    elif not alternativas: st.info('Seleccione secciones y revise los datos.')
+    else:
+        st.dataframe(pd.DataFrame(alternativas).style.format(precision=2,na_rep='—'),hide_index=True,use_container_width=True)
+        if curvas_arm:
+            j=st.selectbox('Sección transversal',range(len(curvas_arm)),format_func=lambda i:curvas_arm[i][0]['alternativa'])
+            fila,tubo,_,_,_=curvas_arm[j]
+            st.plotly_chart(seccion_transversal(fila['D_mm'],fila['Dp_mm'],tubo.de_mm,tubo.t_mm,re,relleno),use_container_width=True,config=cfg,key='sec_042')
+        st.warning('Capacidades parciales. La carga comercial no se utiliza como Rd. Geometría nominal; verificar uniones, tolerancias, corrosión y coacción real por longitud.')
 with compare:
     st.subheader('Comparación de soluciones')
     if error: st.info(error)
@@ -295,17 +413,22 @@ with compare:
                     minimo=longitud_necesaria(diam/1000,lmax,a,estratos,meses,alterna,carga if modo=='Compresión' else 0.,carga if modo=='Tracción' else 0.,min_l=lmin)
                     soluciones.append(dict(D_mm=diam,modo=modo,Ed_kN=carga,L_min_fuste_m=minimo,estado='Alcanzada por fuste' if minimo is not None else 'No alcanzada'))
             st.dataframe(pd.DataFrame(soluciones).style.format(precision=2,na_rep='—'),hide_index=True)
-        if se is not None:
-            st.plotly_chart(comparacion_parcial(casos[dmm],se,(nc or 0.,nt or 0.)),use_container_width=True,config=cfg,key='comp_04')
-            st.warning('Envolvente parcial del diámetro principal; sección fija supuesta para todas las longitudes, sin recalcular pandeo ni uniones. Excluye punta hipotética.')
+        if alternativas:
+            st.markdown('**Alternativas terreno–armadura · resultados a L máxima**')
+            cols=['alternativa','calidad','carga_catalogo_kN','limite_c_kN','limite_t_kN','L_cruce_c_m','L_cruce_t_m','Rc_parcial_Lmax_kN','Rt_parcial_Lmax_kN','estado']
+            st.dataframe(pd.DataFrame(alternativas).reindex(columns=cols).style.format(precision=2,na_rep='—'),hide_index=True)
+            mostrar_armadura('c','comparar_c')
+            mostrar_armadura('t','comparar_t')
 with export:
     st.subheader('Exportaciones de cálculo')
     if error: st.info(error)
     else:
         entrada=dict(proyecto=proyecto,autor=autor,revision=revision,geometria_mm=geometria,L_min_m=lmin,L_max_m=lmax,paso_m=paso,angulo_grados=a,alternancia=alterna,Fr=fr,Nc_Ed_kN=nc,Nt_Ed_kN=nt,punta_hipotetica=punta_teorica,control_presiones=presiones is not None,estratos=json.loads(pd.DataFrame(filas_calculo).to_json(orient='records')))
         if estruct:
-            entrada['seccion']=dict(de_mm=de,t_mm=t,corrosion_mm=re,fy_MPa=fy,fck_MPa=fck,calidad=calidad,propiedades_catalogo=None if calidad=='Sin seleccionar' else asdict(CALIDADES[calidad]),union=union,ejecucion=ejec,CR=cr,relleno=relleno,limite_union_c_kN=uc,limite_union_t_kN=ut,referencia=sr)
-        salida=dict(version=VERSION,entrada=entrada,barrido=json.loads(tabla_df.to_json(orient='records')),detalle_Lmax={str(k):v for k,v in casos.items()},estructura=se,error_estructural=err_s,estado='prototipo; punta máxima hipotética no verificada; capacidades parciales')
+            entrada['armaduras']=dict(tubos=[propiedades(t) for t in tubos],calidad=calidad,fy_MPa=fy,material=material,uso=uso,terreno=terreno,vida=vida,corrosion_mm=re,union=union,ejecucion=ejec,coaccion=coaccion,CR=cr,H_m=H,Dr_mm=Dr,empalme_mm=emp,uc_kN=uc,ut_kN=ut,compuesto=completo,fck_MPa=fck,relleno=relleno,referencia=sr,error_entrada=arm_error)
+        salida=dict(version=VERSION,entrada=entrada,barrido=json.loads(tabla_df.to_json(orient='records')),detalle_Lmax={str(k):v for k,v in casos.items()},armaduras=json.loads(pd.DataFrame(alternativas).to_json(orient='records')),estado='prototipo; punta máxima hipotética no verificada; capacidades parciales')
+        if alternativas:
+            st.download_button('Comparación de armaduras CSV',pd.DataFrame(alternativas).to_csv(index=False).encode('utf-8-sig'),'armaduras.csv','text/csv')
         st.download_button('Proyecto y resultados JSON',json.dumps(salida,ensure_ascii=False,indent=2,allow_nan=False),'micropilotes_resultado.json','application/json')
         st.download_button('Barrido de capacidades CSV',tabla_df.to_csv(index=False).encode('utf-8-sig'),'curvas_fuste.csv','text/csv')
         detalle_csv=pd.DataFrame(casos[dmm]['tramos'])

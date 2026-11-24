@@ -17,9 +17,8 @@ EJECUCION={'Sin revestir, sin lodos, agua sobre punta':1.50,
 
 # Seleccion inicial de dimensiones nominales, catalogo Comercial de Sondeos, p. 6 impresa.
 # El grado de acero y capacidad de union se introducen con certificado, no se deducen.
-PERFILES=[(88.9,6.),(88.9,8.),(101.6,6.),(101.6,9.),(114.3,7.),
-          (114.3,9.),(127.,8.),(127.,10.),(139.7,7.),(139.7,9.),
-          (152.4,9.),(168.3,10.),(177.8,10.),(219.,10.)]
+from modelos.tuberias_catalogo import CATALOGO
+PERFILES=[(t.de_mm,t.t_mm) for t in CATALOGO]
 
 def seccion(d,t,re):
     if not all(isfinite(v) for v in (d,t,re)) or not (0<t<d/2 and 0<=re<t):

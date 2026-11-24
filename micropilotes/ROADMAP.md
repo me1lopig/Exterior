@@ -22,3 +22,7 @@
 ## v0.4.1 — simplificación de interfaz
 - [x] Configuración dentro de Geotecnia, ocho pestañas, importación plegada, tablas de entradas/resultados diferenciadas, cotas efectivas, perfil reconocido y zona no atravesada.
 - [ ] Verificación visual de Streamlit desplegado y validación integral del motor.
+
+## v0.4.2
+- [x] Catálogo completo, selección múltiple, propiedades, tablas de guía aplicables a cálculo axial, envolvente parcial de acero y exportación.
+- [ ] Verificación de materiales, manguitos/recubrimiento real, pandeo variable por tramo y longitud, validación independiente, informes Excel/Word/PDF.

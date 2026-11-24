@@ -36,3 +36,6 @@ Se separan Compresión y Tracción en pestañas independientes (nueve en total).
 
 ## Actualización de interfaz v0.4.1
 Ocho pestañas: Proyecto, Geotecnia, Geometría, Compresión, Tracción, Estructural, Comparativas e Informes. Geotecnia reúne configuración, tabla editable de seis columnas, tabla calculada de cotas y longitud axial/adherencia efectiva, y perfil con profundidad reconocida y máxima estudiada. Importación y opciones avanzadas plegadas. Los campos de resultado no repiten Fr ni adherencia límite. Si se impone IU por encima de 5 m se anota. Sin cambios en las ecuaciones ni en la precisión de cálculo.
+
+## v0.4.2 — catálogo y límite de acero
+Catálogo completo de 74 referencias, propiedades y carga comercial independiente de la resistencia de cálculo. Selección múltiple, sección personalizada, calidad común con fy certificado opcional, recubrimiento, corrosión, ejecución, unión y coacción lateral mediante tablas. La envolvente limita el fuste por contribución del acero con factores de la guía y, si se selecciona, por capacidad compuesta inferior. No usa punta hipotética ni carga comercial. Se asumen condiciones constantes para todas las longitudes; no verifica globalmente el micropilote. Se muestra cada alternativa y su cruce; CSV/JSON de armaduras.
