@@ -13,3 +13,8 @@
 - [ ] v0.8: asientos, acciones laterales y grupo.
 - [ ] v0.9: calculo por lotes, mediciones, CAD.
 - [ ] v1.0: validacion integral, documentacion, revision y publicacion estable.
+
+## v0.4.0 — diseño paramétrico
+- [x] Nueve pestañas, diámetros de tabla 4.1, Dp editable +10%, longitudes por intervalo, acciones opcionales, sin casilla obligatoria de adherencias.
+- [x] Barrido por fuste, curva máxima hipotética de punta 15%, resultados separados y CSV/JSON.
+- [ ] Ejecución completa de pruebas y validación visual, múltiples armaduras, corrosión/pandeo por longitud, informes Excel/Word/PDF y recarga JSON.

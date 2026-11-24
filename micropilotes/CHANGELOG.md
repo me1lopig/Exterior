@@ -1,5 +1,12 @@
 # Historial
 
+## 0.4.0 — 2026-11-24
+- Nueve pestañas generales, selector de D nominal según tabla 4.1 y perforación editable +10%.
+- Barrido regular con nodos de cambio y acciones opcionales; resultados separados de compresión y tracción.
+- Punta +15% solo hipótesis máxima no verificada, fuera de verificaciones y envolvente parcial.
+- Eliminación de casilla obligatoria de adherencias; se conserva control avanzado opcional y aviso.
+- Exportación CSV/JSON del barrido, gráficos interactivos SVG. Peso propio y rozamiento negativo externos al barrido. Sección estructural única y provisional.
+
 ## 0.3.3 — 2026-11-24
 - Tabla simplificada: unidad, espesor, tipo de inyeccion, adherencia limite, Fr y fuste activo. Vista de solo lectura de adherencias admisibles efectivas.
 - Fr comun segun tabla 3.2; minoracion una sola vez en el motor. IU adicional solo donde es necesaria por la regla de los primeros 5 m.
