@@ -5,7 +5,7 @@ La interfaz final tendrá ocho pestañas. La versión 0.3.2 conserva las entrada
 | Pestaña | Contenido | Gráficos |
 |---|---|---|
 | 01 Proyecto | Identificación, autor, revisor, fecha, revisión, logotipo, nuevo/guardar/abrir | Resumen del proyecto |
-| 02 Modelo geotécnico | UG, litología, espesor vertical, adherencias límite IU/IR/IRS, tipo por tramo, fuste activo, controles avanzados de aplicabilidad | Perfil estratigráfico e inyección, curvas de adherencia disponible y aplicada; línea 5 m |
+| 02 Modelo geotécnico | Unidad, espesor vertical, adherencia límite del tipo elegido, Fr común, fuste activo; adherencia IU adicional solo si se necesita en z < 5 m; tabla automática de adherencia admisible y controles avanzados de aplicabilidad | Perfil estratigráfico e inyección, curvas de adherencia disponible y aplicada; línea 5 m |
 | 03 Catálogo y geometría | Selección múltiple de tuberías, calidad, propiedades nominales y certificadas, D nominal y de perforación diferenciados, manguitos y recubrimientos | Secciones transversales a escala |
 | 04 Configuración | Longitud mínima/máxima/paso, inclinación, duración, Fr, régimen de tracción, punta opcional, peso, corrosión, ejecución, pandeo, cargas opcionales | Tabla de coeficientes con referencia |
 | 05 Resistencia geotécnica | Barrido de longitudes; compresión y tracción por fuste, detalle por tramo; punta y peso por separado | Curvas por diámetro, adherencias efectivas, contribución por tramo y resistencia acumulada |

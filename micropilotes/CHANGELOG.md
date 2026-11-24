@@ -1,5 +1,11 @@
 # Historial
 
+## 0.3.3 — 2026-11-24
+- Tabla simplificada: unidad, espesor, tipo de inyeccion, adherencia limite, Fr y fuste activo. Vista de solo lectura de adherencias admisibles efectivas.
+- Fr comun segun tabla 3.2; minoracion una sola vez en el motor. IU adicional solo donde es necesaria por la regla de los primeros 5 m.
+- Presiones fuera de la tabla principal, control numerico opcional con declaracion de aplicabilidad obligatoria y aviso si no se ejecuta.
+- Compatibilidad con CSV anteriores y seis pruebas de regresion adicionales.
+
 ## 0.3.2 — 2026-11-24
 - Cinco pestanas de resultados graficos Plotly: perfil y adherencias, curvas por diametro nominal, contribuciones, seccion y comparacion parcial.
 - Exportacion SVG desde las figuras y CSV/JSON de los nodos exactos de fuste.

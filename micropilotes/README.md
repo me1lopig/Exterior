@@ -1,6 +1,6 @@
 # Micropilotes | Geo_App
 
-**Comprobacion geotecnica y estructural axial · Prototipo v0.3.2**
+**Comprobacion geotecnica y estructural axial · Prototipo v0.3.3**
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Interfaz-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
@@ -59,7 +59,7 @@ python -m compileall -q .
 Las pruebas incluidas contrastan expresiones con calculos sinteticos independientes y limites; no equivalen a validacion fisica o normativa integral. Consultar el estado real de ejecucion en GitHub Actions si esta disponible.
 
 ## Intercambio
-CSV UTF-8 separado por comas: nombre,espesor_m,inyeccion,iu_kPa,seleccion_kPa,pi_kPa,plim_kPa,activo. Cada espesor es vertical, positivo y se acumula desde la superficie (z=0). Los CSV anteriores con inicio_m y fin_m se convierten a espesores si sus intervalos son contiguos. El JSON conserva tambien las profundidades calculadas. Inyeccion IU, IR o IRS por tramo; para IU se usa iu_kPa. Profundidad vertical y presiones en kPa. activo true/false. Un CSV anterior sin columna inyeccion usa la inyeccion inicial seleccionada en la barra lateral para todas las filas y muestra un aviso para su revision. La aplicacion descarga una plantilla sintetica. El JSON de salida conserva entradas y resultados; la recarga de proyectos queda pendiente.
+CSV UTF-8 separado por comas: nombre,espesor_m,inyeccion,adlim_kPa,fr,activo. Fr de tabla 3.2 (1.45 o 1.65) comun al micropilote. Adherencia de calculo automatica, sin doble minoracion. Si un tramo IR/IRS alcanza z < 5 m, se solicita su adherencia IU adicional; se muestra la tabla efectiva dividida. Las presiones se trasladan a un control avanzado opcional, y sin comprobacion numerica se exige confirmacion de aplicabilidad por el tecnico y se registra la limitacion. CSV antiguos con cotas, iu_kPa, seleccion_kPa y presiones siguen admitidos; se solicita Fr si falta. El JSON incluye profundidades, adherencias aplicadas y estado del control. Recarga JSON pendiente.
 
 ## Limitaciones
 No se calculan asientos, estabilidad global, arrancamiento de un cono, flexion/cortante, cargas laterales, grupos, empotramiento en roca, conexiones al encepado ni rozamiento negativo de forma automatica. La justificacion de corrosion, pandeo, presiones por fases, ensayos y uniones sigue a cargo del proyectista. El catalogo contiene una seleccion parcial de dimensiones nominales y calidades de referencia de Comercial de Sondeos; no acredita combinaciones de dimensiones y calidades, existencias ni resistencia de uniones. No se reproducen cargas admisibles del catalogo.
