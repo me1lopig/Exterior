@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import streamlit as st
 from calculos.axial import Estrato, calcular
-from calculos.avanzado import validar_inyeccion, validar_punta, longitud_necesaria
+from calculos.avanzado import estrato_con_inyeccion, validar_punta, longitud_necesaria
 from calculos.estructural import PERFILES, UNIONES, EJECUCION, axial_estructural
 from modelos.aceros_catalogo import CALIDADES
 
@@ -21,7 +21,7 @@ with st.sidebar:
     l=st.number_input('Longitud axial (m)',.1,1000.,10.,.5)
     a=st.number_input('Inclinacion desde vertical (°)',0.,89.,0.,1.)
     meses=st.number_input('Duracion funcion estructural (meses)',.1,value=12.)
-    tipo=st.selectbox('Inyeccion',['IU','IR','IRS'])
+    tipo=st.selectbox('Inyeccion inicial para plantilla o CSV anterior',['IU','IR','IRS'])
     nc=st.number_input('Compresion de calculo (kN)',0.,value=100.)
     nt=st.number_input('Traccion de calculo (kN)',0.,value=50.)
     alterna=st.checkbox('Alternancia de compresion y traccion',value=True)
@@ -32,12 +32,15 @@ with st.sidebar:
     if a>30: st.warning('Inclinacion superior a 30°: revise efectos transversales y ejecucion.')
 st.subheader('1 · Modelo geotecnico')
 st.caption('Profundidades verticales. Valores de ejemplo sinteticos, no datos de obra. Puede importar CSV de adherencias externas adaptado a las columnas indicadas.')
-cols=['inicio_m','fin_m','iu_kPa','seleccion_kPa','pi_kPa','plim_kPa','activo','nombre']
-ejemplo=pd.DataFrame([[0.,5.,80.,80.,600.,800.,True,'Estrato A'],[5.,15.,150.,150.,600.,800.,True,'Estrato B']],columns=cols)
+cols=['inicio_m','fin_m','inyeccion','iu_kPa','seleccion_kPa','pi_kPa','plim_kPa','activo','nombre']
+ejemplo=pd.DataFrame([[0.,5.,tipo,80.,80.,600.,800.,True,'Estrato A'],[5.,15.,tipo,150.,150.,600.,800.,True,'Estrato B']],columns=cols)
 archivo=st.file_uploader('Importar estratos CSV (opcional)',type=['csv'])
 if archivo:
     try:
         df=pd.read_csv(archivo)
+        if 'inyeccion' not in df.columns:
+            df['inyeccion']=tipo
+            st.warning('CSV anterior sin columna inyeccion: se asigno la inyeccion inicial a todos los tramos. Revise cada fila.')
         if not set(cols).issubset(df.columns): raise ValueError('Columnas requeridas: '+', '.join(cols))
         if not df.activo.isin([True,False,0,1]).all(): raise ValueError('activo debe ser true/false.')
         df=df[cols].copy()
@@ -47,9 +50,19 @@ if archivo:
 else:
     df=ejemplo
 st.download_button('Descargar plantilla CSV',ejemplo.to_csv(index=False).encode(), 'estratos_ejemplo.csv','text/csv')
-tabla=st.data_editor(df,num_rows='dynamic',hide_index=True,key='estratos')
+tabla=st.data_editor(df,num_rows='dynamic',hide_index=True,key='estratos',column_config={
+    'inicio_m':st.column_config.NumberColumn('Inicio vertical (m)',min_value=0.),
+    'fin_m':st.column_config.NumberColumn('Fin vertical (m)',min_value=0.),
+    'inyeccion':st.column_config.SelectboxColumn('Inyeccion',options=['IU','IR','IRS'],required=True),
+    'iu_kPa':st.column_config.NumberColumn('Adherencia IU (kPa)',min_value=0.),
+    'seleccion_kPa':st.column_config.NumberColumn('Adherencia tipo elegido (kPa)',min_value=0.),
+    'pi_kPa':st.column_config.NumberColumn('Presion inyeccion (kPa)',min_value=0.),
+    'plim_kPa':st.column_config.NumberColumn('Presion limite (kPa)',min_value=0.),
+    'activo':st.column_config.CheckboxColumn('Fuste activo'),
+    'nombre':st.column_config.TextColumn('Tramo / estrato'),
+})
 fuente=st.text_input('Origen y justificacion de adherencias y presiones',placeholder='Informe, ensayo o aplicacion externa y version')
-st.caption('activo=false: fuste nulo (cavidades/camisa perdida). IU en z < 5 m. pi: minimo durante IU, final de ultima fase IR o minimo de reinyeccion IRS. Filtro conservador de 4.4.2; las excepciones requieren otro metodo.')
+st.caption('Cada fila puede representar un cambio de estrato o de inyeccion. Fuste inactivo: cavidades/camisa perdida. En z < 5 m se usa la adherencia IU. pi: minimo durante IU, final de ultima fase IR o minimo de reinyeccion IRS. Filtro conservador de 4.4.2; las excepciones requieren otro metodo.')
 confirma=st.checkbox('He comprobado que las correlaciones son aplicables, las presiones y su medicion son representativas y la estratigrafia cubre el intervalo.')
 st.subheader('2 · Resistencia por punta')
 usar=st.checkbox('Incluir punta en suelo (solo compresion)')
@@ -102,12 +115,7 @@ if st.button('Calcular',type='primary'):
         if neg>0 and not neg_ref.strip(): raise ValueError('Justifique la accion adicional y evite doble contabilizacion de resistencia.')
         estratos=[]
         for row in tabla.to_dict('records'):
-            if pd.isna(row['activo']) or row['activo'] not in (True,False): raise ValueError('Fuste activo debe ser booleano.')
-            e=Estrato(float(row['inicio_m']),float(row['fin_m']),float(row['iu_kPa']),
-                      float(row['iu_kPa'] if tipo=='IU' else row['seleccion_kPa']),bool(row['activo']))
-            if e.activo and e.inicio < max(l,max_l if dimensionar else l)*cos(radians(a)):
-                validar_inyeccion(tipo,float(row['pi_kPa']),float(row['plim_kPa']))
-            estratos.append(e)
+            estratos.append(estrato_con_inyeccion(row, max(l,max_l if dimensionar else l)*cos(radians(a))))
         r=calcular(d,l,a,estratos,meses,alterna,peso)
         if usar:
             rep=validar_punta(d,l,a,estratos[-1].fin,tip,sup,inf,emp,punta_ref)
@@ -149,7 +157,7 @@ if st.button('Calcular',type='primary'):
             st.json(se,expanded=False)
             if not se['uniones_acreditadas']: st.warning('Uniones: faltan limites certificados; comprobacion de seccion provisional.')
         st.warning('No es conformidad global. Pendientes: estabilidad global/cono de arranque, asientos, efecto grupo, conexiones, acciones laterales, flexion y cortante, y revision independiente.')
-        entrada={'proyecto':proyecto,'D_m':d,'perforacion_m':dp,'longitud_m':l,'angulo_grados':a,'meses':meses,'inyeccion':tipo,'Nc_kN':nc,'Nt_kN':nt,'alternancia':alterna,'peso_axial_kN':peso,'rozamiento_negativo_kN':neg,'referencia_peso':peso_ref,'referencia_rozamiento_negativo':neg_ref,'estratos':json.loads(tabla.to_json(orient='records')),'origen':fuente,'punta_kN':p,'datos_punta':datos_punta}
+        entrada={'proyecto':proyecto,'D_m':d,'perforacion_m':dp,'longitud_m':l,'angulo_grados':a,'meses':meses,'inyeccion_inicial_plantilla':tipo,'Nc_kN':nc,'Nt_kN':nt,'alternancia':alterna,'peso_axial_kN':peso,'rozamiento_negativo_kN':neg,'referencia_peso':peso_ref,'referencia_rozamiento_negativo':neg_ref,'estratos':json.loads(tabla.to_json(orient='records')),'origen':fuente,'punta_kN':p,'datos_punta':datos_punta}
         if estruct:
             entrada['seccion']={'de_mm':de,'t_mm':t,'re_mm':re,'calidad_catalogo':None if calidad=='Sin seleccionar' else calidad,'propiedades_catalogo':None if calidad=='Sin seleccionar' else asdict(CALIDADES[calidad]),'fy_MPa':fy,'fck_MPa':fck,'union':union,'ejecucion':ejec,'CR':cr,'relleno':relleno,'limite_union_c_kN':uc,'limite_union_t_kN':ut,'referencia':sr}
         salida={'version':VERSION,'entrada':entrada,'geotecnia':r,'estructura':se,'comprobaciones':resumen,'longitud_minima_fuste_m':minimo,'longitud_maxima_m':max_l if dimensionar else None,'estado':'prototipo; comprobaciones parciales'}

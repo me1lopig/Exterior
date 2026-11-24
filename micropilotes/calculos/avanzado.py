@@ -5,6 +5,21 @@ Las comprobaciones de datos no sustituyen la justificacion geotecnica.
 from math import cos, isfinite, radians
 from .axial import Estrato, calcular
 
+def estrato_con_inyeccion(row, profundidad_activa):
+    """Construye un tramo y verifica sus presiones cuando entra en el calculo."""
+    tipo = row.get('inyeccion')
+    if tipo not in ('IU', 'IR', 'IRS'):
+        raise ValueError('Seleccione IU, IR o IRS para cada tramo.')
+    activo = row.get('activo')
+    if type(activo) is not bool:
+        raise ValueError('Fuste activo debe ser booleano.')
+    iu = float(row['iu_kPa'])
+    e = Estrato(float(row['inicio_m']), float(row['fin_m']), iu,
+                iu if tipo == 'IU' else float(row['seleccion_kPa']), activo)
+    if e.activo and e.inicio < profundidad_activa:
+        validar_inyeccion(tipo, float(row['pi_kPa']), float(row['plim_kPa']))
+    return e
+
 def validar_inyeccion(tipo, pi, plim):
     """Filtro conservador de las condiciones habituales de 4.4.2.
     pi: minima durante IU, final de ultima fase IR, minima de reinyeccion IRS.
