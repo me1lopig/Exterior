@@ -3,6 +3,7 @@ from html import escape
 from math import cos, radians, sin
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from calculos.estructural import seccion
 
 AZUL='#2563eb'
 VERDE='#0d9488'
@@ -116,22 +117,32 @@ def contribucion(r):
     return fig
 
 def seccion_transversal(D, dp, de, t, re, relleno):
-    """Dimensiones en mm; seccion centrada, sin representar manguitos."""
+    """Seccion unica a escala: acero original, merma radial exterior y acero residual."""
+    s=seccion(de,t,re)
+    original=s['a_nominal_mm2']/100
+    residual=s['a_residual_mm2']/100
+    perdida=original-residual
+    pct=100*perdida/original
     fig=go.Figure()
-    def circulo(diam,fill,line,dash='solid'):
+    def circulo(diam,fill,line,dash='solid',width=1.2):
         rad=diam/2
         fig.add_shape(type='circle',x0=-rad,x1=rad,y0=-rad,y1=rad,
-                      fillcolor=fill,line=dict(color=line,width=1.5,dash=dash))
+                      fillcolor=fill,line=dict(color=line,width=width,dash=dash))
     circulo(dp,'rgba(0,0,0,0)',NARANJA,'dash')
     circulo(D,'#dcd9d1','#948a7b')
-    circulo(de,'#94a3b8','#475569')
-    circulo(de-2*re,'#475569','#334155')
-    circulo(de-2*t,'#dcd9d1' if relleno else '#ffffff','#334155')
-    for n,c in [('Perforacion','#b45309'),('Nominal / lechada','#b8b1a5'),('Acero residual','#475569'),
-                ('Perdida radial','#94a3b8')]:
-        fig.add_trace(go.Scatter(x=[None],y=[None],mode='markers',marker=dict(color=c,size=9),name=n))
-    _estilo(fig,f'Seccion nominal: {de:g} × {t:g} mm · D={D:g} mm · perforacion={dp:g} mm',520)
-    lim=dp*.6
+    if re>0:
+        circulo(de,'#e58c47','#b45309',width=.8)
+    circulo(s['de_residual_mm'],'#475569','#334155',width=.8)
+    circulo(s['di_mm'],'#dcd9d1' if relleno else '#ffffff','#334155')
+    leyenda=[('Perforación',NARANJA),('Nominal / lechada','#b8b1a5'),('Acero residual','#475569')]
+    if re>0: leyenda.append(('Acero perdido por corrosión','#e58c47'))
+    for n,c in leyenda:
+        fig.add_trace(go.Scatter(x=[None],y=[None],mode='markers',marker=dict(color=c,size=10),name=n))
+    titulo=(f'Sección tubular Ø {de:g} × {t:g} mm · D={D:g} mm · perforación={dp:g} mm'
+            f'<br><sup>Merma de área: {perdida:.2f} cm² ({pct:.2f} %) · pérdida radial: {re:.2f} mm · espesor residual: {t-re:.2f} mm</sup>')
+    _estilo(fig,titulo,520)
+    fig.update_layout(margin=dict(l=58,r=28,t=92,b=85),legend=dict(orientation='h',y=-.20,x=.5,xanchor='center'))
+    lim=max(dp,D,de)*.6
     fig.update_xaxes(range=[-lim,lim],title_text='mm',constrain='domain')
     fig.update_yaxes(range=[-lim,lim],title_text='mm',scaleanchor='x',scaleratio=1)
     return fig

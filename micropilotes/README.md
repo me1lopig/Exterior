@@ -2,7 +2,7 @@
 
 **Diseño paramétrico axial de micropilotes mediante correlaciones empíricas**
 
-![Versión](https://img.shields.io/badge/versión-0.7.0-183B56)
+![Versión](https://img.shields.io/badge/versión-0.7.1-183B56)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Interfaz-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![Estado](https://img.shields.io/badge/Estado-Prototipo-orange)
@@ -29,7 +29,7 @@ Herramienta de predimensionamiento geotécnico para estudiar micropilotes aislad
 
 ## Funcionalidades
 
-| Área | Prestaciones de la v0.7.0 |
+| Área | Prestaciones de la v0.7.1 |
 |---|---|
 | Geotecnia | Espesores verticales, adherencias límite directas, inyección IU/IR/IRS por tramo, Fr y fuste activo |
 | Barrido paramétrico | Longitud axial mínima, máxima e incremento; inclinación y múltiples diámetros |
@@ -67,7 +67,7 @@ flowchart TD
 | 03 · Geotecnia | Configuración de longitudes, estratos, valores calculados, perfil y adherencias |
 | 04 · Compresión | Tablas, curvas de fuste, punta máxima hipotética opcional y límites de armadura disponibles |
 | 05 · Tracción | Tablas, curvas de arranque y límites de armadura disponibles |
-| 06 · Estructural | Capacidades parciales, geometría residual y sección transversal |
+| 06 · Estructural | Capacidades parciales y sección única a escala con merma por corrosión (cm² y %) |
 | 07 · Comparativas | Alternativas, cruces, envolventes y longitudes por fuste cuando hay acciones |
 | 08 · Informes | Exportación de resultados y generación de documentos bajo demanda |
 
@@ -292,7 +292,7 @@ No se incorporan al barrido peso propio favorable ni rozamiento negativo. Tampoc
 ---
 
 **Geo_App · Ingeniería geotécnica y herramientas de cálculo**  
-Versión documentada: **v0.7.0** · Noviembre de 2026.
+Versión documentada: **v0.7.1** · Noviembre de 2026.
 
 ## Resultados profesionales v0.6.0
 

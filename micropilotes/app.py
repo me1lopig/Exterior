@@ -1,4 +1,4 @@
-"""Geo_App Micropilotes · interfaz parametrica v0.7.0."""
+"""Geo_App Micropilotes · interfaz parametrica v0.7.1."""
 from math import cos, radians
 from dataclasses import asdict
 import json
@@ -16,6 +16,7 @@ from calculos.limites_acero import limite_acero, longitud_cruce, envolvente
 from modelos.espesores import intervalos_desde_espesores, espesores_desde_cotas
 from modelos.adherencias import FR_DURACION, necesita_iu, preparar_estratos, resumen_aplicado
 from visualizacion.graficas import perfil_adherencias, contribucion, seccion_transversal, comparacion_parcial
+from calculos.estructural import seccion as geometria_seccion
 from visualizacion.vista_geotecnica import tabla_calculada
 
 from resultados.parametricos import (unitarios, matriz_unitaria, matriz_fuste, matriz_parcial, longitudes, aprovechamiento, sensibilidad)
@@ -26,7 +27,7 @@ from modelos.adherencias import coeficiente_comun
 from resultados.inyecciones import calcular_escenario, filas_comparativas, combinar
 from visualizacion.inyecciones import curvas_inyeccion, barras_inyeccion
 
-VERSION='0.7.0'
+VERSION='0.7.1'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
 # Proyecto versionado: las entradas cargadas se usan como valores iniciales; no se confía en resultados externos.
 from servicios.proyecto import cargar as cargar_proyecto, serializar as serializar_proyecto
@@ -550,11 +551,16 @@ with est:
         if curvas_arm:
             j=st.selectbox('Sección transversal',range(len(curvas_arm)),format_func=lambda i:curvas_arm[i][0]['alternativa'])
             fila,tubo,_,_,_=curvas_arm[j]
-            iz,de=st.columns(2)
-            iz.caption('Sección original')
-            iz.plotly_chart(seccion_transversal(fila['D_mm'],fila['Dp_mm'],tubo.de_mm,tubo.t_mm,0,relleno),use_container_width=True,config=cfg,key='sec_original')
-            de.caption('Sección residual')
-            de.plotly_chart(seccion_transversal(fila['D_mm'],fila['Dp_mm'],tubo.de_mm,tubo.t_mm,re,relleno),use_container_width=True,config=cfg,key='sec_042')
+            st.plotly_chart(seccion_transversal(fila['D_mm'],fila['Dp_mm'],tubo.de_mm,tubo.t_mm,re,relleno),use_container_width=True,config=cfg,key='sec_042')
+            s_geo=geometria_seccion(tubo.de_mm,tubo.t_mm,re)
+            area_original=s_geo['a_nominal_mm2']/100
+            area_residual=s_geo['a_residual_mm2']/100
+            merma=area_original-area_residual
+            c1,c2,c3=st.columns(3)
+            c1.metric('Área original',f'{area_original:.2f} cm²')
+            c2.metric('Área residual',f'{area_residual:.2f} cm²')
+            c3.metric('Merma de área',f'{merma:.2f} cm²',help=f'Pérdida relativa: {100*merma/area_original:.2f} %')
+            st.caption(f'Pérdida de área: {100*merma/area_original:.2f} % · corrosión radial exterior: {re:.2f} mm · espesor residual: {tubo.t_mm-re:.2f} mm. Geometría a escala, sin exagerar la corrosión.')
         st.warning('Capacidades parciales. La carga comercial no se utiliza como Rd. Geometría nominal; verificar uniones, tolerancias, corrosión y coacción real por longitud.')
 with compare:
     st.subheader('Comparación de soluciones')

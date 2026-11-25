@@ -1,5 +1,9 @@
 # Historial
 
+## 0.7.1 — 2026-11-25
+- Una única sección transversal a escala en Estructural, con corona de acero perdida en naranja, área nominal, residual y merma absoluta y porcentual. Sin cambios resistentes.
+- Pruebas de figura con pérdida positiva, nula e incompatible; comprobación aislada con Plotly, pendiente ejecución integral en Streamlit.
+
 ## 0.7.0 — 2026-11-25
 - Adherencias límite IU/IR/IRS en MPa y Fr común, escenario principal y comparación multiprocedimiento.
 - Migración de JSON antiguo y esquema 2; datos faltantes no se estiman.
