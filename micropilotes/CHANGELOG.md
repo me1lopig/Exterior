@@ -1,5 +1,11 @@
 # Historial
 
+## 0.7.0 — 2026-11-25
+- Adherencias límite IU/IR/IRS en MPa y Fr común, escenario principal y comparación multiprocedimiento.
+- Migración de JSON antiguo y esquema 2; datos faltantes no se estiman.
+- Tablas, curvas, barras, envolventes y exportaciones diferenciadas por procedimiento; motor axial sin cambios.
+- Presiones por procedimiento, pruebas específicas y validación integral pendiente.
+
 ## 0.6.1 — 2026-11-25
 - Geometría pasa a la pestaña 02 y Geotecnia a la 03 para ordenar secuencialmente la entrada. Actualización de navegación y documentación, sin cambios en cálculos ni claves de proyecto.
 

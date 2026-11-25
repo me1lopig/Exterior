@@ -2,7 +2,7 @@
 
 **Diseño paramétrico axial de micropilotes mediante correlaciones empíricas**
 
-![Versión](https://img.shields.io/badge/versión-0.6.1-183B56)
+![Versión](https://img.shields.io/badge/versión-0.7.0-183B56)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Interfaz-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![Estado](https://img.shields.io/badge/Estado-Prototipo-orange)
@@ -29,7 +29,7 @@ Herramienta de predimensionamiento geotécnico para estudiar micropilotes aislad
 
 ## Funcionalidades
 
-| Área | Prestaciones de la v0.6.1 |
+| Área | Prestaciones de la v0.7.0 |
 |---|---|
 | Geotecnia | Espesores verticales, adherencias límite directas, inyección IU/IR/IRS por tramo, Fr y fuste activo |
 | Barrido paramétrico | Longitud axial mínima, máxima e incremento; inclinación y múltiples diámetros |
@@ -39,7 +39,7 @@ Herramienta de predimensionamiento geotécnico para estudiar micropilotes aislad
 | Comparación | Envolventes parciales terreno–armadura y longitud de cruce |
 | Gráficas | Perfil geotécnico, adherencias, contribuciones por tramo, sección transversal y curvas resistentes |
 | Documentación | Excel, Word, PDF, CSV, JSON y SVG |
-| Proyectos | Guardado y recuperación de entradas mediante JSON de esquema 1 |
+| Proyectos | Guardado y recuperación de entradas mediante JSON de esquemas 1 y 2 |
 
 ## Flujo de trabajo
 
@@ -168,7 +168,7 @@ La envolvente parcial es el mínimo entre la capacidad por fuste y el límite de
 | Micropilotes_Resultados.xlsx | Libro con entradas, coeficientes, tablas completas de barrido, armaduras, comparativas, detalle a L máxima, avisos y gráficos nativos |
 | Micropilotes_Memoria.docx | Memoria editable: metodología, resumen a L máxima, perfil, curvas y limitaciones |
 | Micropilotes_Memoria.pdf | Memoria de resumen en formato horizontal |
-| micropilotes_proyecto.json | Entradas recuperables, esquema 1 |
+| micropilotes_proyecto.json | Entradas recuperables, esquemas 1 y 2 |
 | micropilotes_resultado.json | Entradas y resultados para consulta e intercambio; no es el archivo de recuperación |
 | curvas_fuste.csv | Capacidades por longitud y diámetro |
 | armaduras.csv | Comparación de armaduras, cuando existan alternativas |
@@ -292,8 +292,12 @@ No se incorporan al barrido peso propio favorable ni rozamiento negativo. Tampoc
 ---
 
 **Geo_App · Ingeniería geotécnica y herramientas de cálculo**  
-Versión documentada: **v0.6.1** · Noviembre de 2026.
+Versión documentada: **v0.7.0** · Noviembre de 2026.
 
 ## Resultados profesionales v0.6.0
 
 Resistencia unitaria local por tramo efectivo (kN/ml), q = π D × adherencia admisible, sin medias ni nueva minoración. Tracción según eta del motor. Se conserva el corte IU a 5 m verticales y el fuste inactivo. Perfil escalonado, barras, matrices, envolventes múltiples, aprovechamiento parcial y longitud necesaria en el intervalo. Sensibilidad uniforme opcional; sin mediciones. Excel ampliado y Word/PDF con perfil unitario. Validación técnica, informes configurables, fichas y auditoría independiente pendientes. No se modifican las ecuaciones resistentes.
+
+## Análisis multiprocedimiento v0.7.0
+
+Entrada única de adherencias límite IU, IR e IRS en MPa, Fr común y escenario principal Mixto/IU/IR/IRS. Comparaciones por diámetro, tramo, acción y armadura. Los escenarios incompletos se notifican sin sustituir datos ausentes. Los primeros 5 m verticales usan IU. Presiones opcionales por procedimiento ejecutado; migración de JSON esquema 1 sin inventar valores y esquema 2 para nuevos proyectos. Revisar presiones antiguas. Exportación CSV y JSON por procedimiento, Excel por escenario y Word/PDF con comparativas por diámetro. Las condiciones estructurales son comunes; sin mediciones, ni cambios en motor axial. Pendiente validación normativa independiente y ejecución integral de Streamlit.

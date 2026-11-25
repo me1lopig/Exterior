@@ -2,7 +2,9 @@
 import json
 from math import isfinite
 
-SCHEMA=1
+from modelos.inyecciones import COLS, LEGACY
+
+SCHEMA=2
 def _check(v, depth=0):
     if depth>12: raise ValueError('JSON demasiado anidado.')
     if v is None or isinstance(v,(bool,str)): 
@@ -24,19 +26,20 @@ def _check(v, depth=0):
     raise ValueError('Tipo JSON no válido.')
 
 def serializar(widgets,estratos,version):
-    p=dict(esquema=SCHEMA,version=version,widgets=widgets,estratos=estratos)
+    esquema=1 if estratos and all(set(f)==LEGACY for f in estratos) else SCHEMA
+    p=dict(esquema=esquema,version=version,widgets=widgets,estratos=estratos)
     return json.dumps(p,ensure_ascii=False,indent=2,allow_nan=False)
 
 def cargar(data):
     if len(data)>2_000_000: raise ValueError('Máximo 2 MB para archivo de proyecto.')
     p=json.loads(data)
-    if not isinstance(p,dict) or p.get('esquema')!=SCHEMA:
-        raise ValueError('Formato no compatible: seleccione Proyecto JSON de v0.5.0 o posterior (esquema 1), no el informe de resultados.')
+    if not isinstance(p,dict) or p.get('esquema') not in (1,SCHEMA):
+        raise ValueError('Formato no compatible: seleccione Proyecto JSON de v0.5.0 o posterior (esquemas 1 o 2), no el informe de resultados.')
     w=p.get('widgets'); e=p.get('estratos')
     if not isinstance(w,dict) or not isinstance(e,list) or not 1<=len(e)<=1000:
         raise ValueError('Faltan entradas o estratos.')
     _check(w); _check(e)
-    cols={'nombre','espesor_m','inyeccion','adlim_kPa','fr','activo'}
+    cols=LEGACY if p['esquema']==1 else set(COLS)
     if any(not isinstance(f,dict) or set(f)!=cols for f in e):
         raise ValueError('Columnas de estratos incompatibles.')
     return dict(widgets=w,estratos=e)

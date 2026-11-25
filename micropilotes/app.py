@@ -1,4 +1,4 @@
-"""Geo_App Micropilotes · interfaz parametrica v0.6.1."""
+"""Geo_App Micropilotes · interfaz parametrica v0.7.0."""
 from math import cos, radians
 from dataclasses import asdict
 import json
@@ -21,7 +21,12 @@ from visualizacion.vista_geotecnica import tabla_calculada
 from resultados.parametricos import (unitarios, matriz_unitaria, matriz_fuste, matriz_parcial, longitudes, aprovechamiento, sensibilidad)
 from visualizacion.parametricas import (perfil_unitario, barras_unitarias, multiples, barras_acero, inversa, mapa, grafica_sensibilidad)
 
-VERSION='0.6.1'
+from modelos.inyecciones import TIPOS, MODOS, COLS, migrar, preparar
+from modelos.adherencias import coeficiente_comun
+from resultados.inyecciones import calcular_escenario, filas_comparativas, combinar
+from visualizacion.inyecciones import curvas_inyeccion, barras_inyeccion
+
+VERSION='0.7.0'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
 # Proyecto versionado: las entradas cargadas se usan como valores iniciales; no se confía en resultados externos.
 from servicios.proyecto import cargar as cargar_proyecto, serializar as serializar_proyecto
@@ -74,7 +79,7 @@ proy,geom,geot,comp,tract,est,compare,export=st.tabs([
 with proy:
     st.subheader('Identificación del proyecto')
     with st.expander('Abrir o iniciar proyecto'):
-        archivo_proyecto=st.file_uploader('Proyecto JSON (esquema 1)',type=['json'],key='mp_archivo_proyecto')
+        archivo_proyecto=st.file_uploader('Proyecto JSON (esquemas 1 y 2)',type=['json'],key='mp_archivo_proyecto')
         c1,c2=st.columns(2)
         if c1.button('Abrir proyecto',disabled=archivo_proyecto is None):
             try:
@@ -201,102 +206,83 @@ with geom:
         if arm_error: st.warning('Revise la sección personalizada. No se publican límites mientras exista un error.')
 with geot:
     st.divider()
-    st.subheader('2 · Modelo geotécnico · Datos de entrada')
-    st.caption('Espesores verticales, desde la superficie. Introduzca adherencias límite sin minorar. Datos iniciales sintéticos.')
-    cols=['nombre','espesor_m','inyeccion','adlim_kPa','fr','activo']
-    ejemplo=pd.DataFrame([['UG-01',5.,'IU',80.,1.65,True],['UG-02',10.,'IRS',150.,1.65,True]],columns=cols)
+    st.subheader('2 · Modelo geotécnico · Adherencias por procedimiento')
+    st.caption('Adherencias límite SIN minorar en MPa (1 MPa = 1.000 kPa). Espesores verticales. Datos iniciales sintéticos.')
+    ejemplo=pd.DataFrame([['UG-01',5.,.080,.110,.150,'IU',True],['UG-02',10.,.100,.125,.150,'IRS',True]],columns=COLS)
+    df=ejemplo.copy(); fr_inicial=1.65
     with st.expander('Importación de datos · CSV'):
         archivo=st.file_uploader('Importar estratos CSV (opcional)',type=['csv'],key=f'csv_{st.session_state.mp_generacion}')
-        legado=[]
-        if archivo:
-            try:
-                df=pd.read_csv(archivo)
-                if 'inyeccion' not in df.columns:
-                    tipo_ant=ui(st.selectbox,'selectbox','Inyección del CSV antiguo (revise cada fila)',['IU','IR','IRS'])
-                    df['inyeccion']=tipo_ant
-                if 'espesor_m' not in df.columns and {'inicio_m','fin_m'}.issubset(df.columns):
-                    df=pd.DataFrame(espesores_desde_cotas(df.to_dict('records')))
-                if 'adlim_kPa' not in df.columns and {'iu_kPa','seleccion_kPa'}.issubset(df.columns):
-                    df['adlim_kPa']=df['seleccion_kPa'].where(df['inyeccion']!='IU',df['iu_kPa'])
-                if 'fr' not in df.columns:
-                    fr_ant=ui(st.selectbox,'selectbox','Fr para CSV antiguo (tabla 3.2)',[1.65,1.45])
-                    df['fr']=fr_ant
-                if not set(cols).issubset(df.columns): raise ValueError('Columnas requeridas: '+', '.join(cols))
-                if not df.activo.isin([True,False,0,1]).all(): raise ValueError('activo debe ser true/false.')
-                df.activo=df.activo.astype(bool)
-                legado=df.to_dict('records')
-                df=df[cols].copy()
-            except Exception as e:
-                st.error(str(e)); st.stop()
-        else:
-            df=pd.DataFrame(cargado['estratos'],columns=cols) if cargado else ejemplo
-        st.download_button('Descargar plantilla CSV',ejemplo.to_csv(index=False).encode(),'estratos_ejemplo.csv','text/csv')
-    tabla=st.data_editor(df,num_rows='dynamic',hide_index=True,key=f'estratos_reducidos_{st.session_state.mp_generacion}',column_config={
+        try:
+            origen=None
+            if archivo:
+                raw=pd.read_csv(archivo)
+                if 'inyeccion' not in raw.columns:
+                    raw['inyeccion']=ui(st.selectbox,'selectbox','Inyección de referencia del CSV',['IU','IR','IRS'])
+                if 'espesor_m' not in raw.columns and {'inicio_m','fin_m'}.issubset(raw.columns):
+                    raw=pd.DataFrame(espesores_desde_cotas(raw.to_dict('records')))
+                if 'activo' not in raw.columns or not raw.activo.isin([True,False,0,1]).all(): raise ValueError('Fuste activo debe ser true/false.')
+                raw.activo=raw.activo.astype(bool)
+                origen=raw.to_dict('records')
+            elif cargado:
+                origen=cargado['estratos']
+            if origen is not None:
+                if all('fr' in f for f in origen): fr_inicial=coeficiente_comun(origen)
+                df=pd.DataFrame(migrar(origen,cargado.get('widgets',{}) if cargado and not archivo else {}),columns=COLS)
+                if any('adlim_kPa' in f for f in origen):
+                    st.caption('Formato antiguo migrado: valores conocidos convertidos a MPa; restantes celdas vacías. Revise presiones antes de reutilizarlas.')
+        except (ValueError,TypeError,KeyError,OverflowError) as exc:
+            st.error('Importación: '+str(exc));st.stop()
+        st.download_button('Descargar plantilla CSV',ejemplo.to_csv(index=False).encode('utf-8-sig'),'estratos_inyecciones.csv','text/csv')
+    tabla=st.data_editor(df,num_rows='dynamic',hide_index=True,key=f'estratos_multi_{st.session_state.mp_generacion}',column_config={
         'nombre':st.column_config.TextColumn('Unidad',required=True),
-        'espesor_m':st.column_config.NumberColumn('Espesor (m)',min_value=0.000001,required=True,format='%.2f'),
-        'inyeccion':st.column_config.SelectboxColumn('Tipo inyección',options=['IU','IR','IRS'],required=True,default='IU'),
-        'adlim_kPa':st.column_config.NumberColumn('Adherencia límite (kPa)',min_value=0.,format='%.2f'),
-        'fr':st.column_config.SelectboxColumn('Coeficiente Fr',options=[1.45,1.65],required=True,default=1.65,
-            help='Tabla 3.2: 1,45 hasta 6 meses; 1,65 para más de 6 meses. Igual para todos los tramos.'),
-        'activo':st.column_config.CheckboxColumn('Fuste activo',default=True),
+        'espesor_m':st.column_config.NumberColumn('Espesor (m)',min_value=.000001,required=True,format='%.2f'),
+        **{m+'_MPa':st.column_config.NumberColumn(m+' (MPa)',min_value=0.,format='%.4f') for m in TIPOS},
+        'inyeccion':st.column_config.SelectboxColumn('Inyección mixta',options=list(TIPOS),required=True,default='IU'),
+        'activo':st.column_config.CheckboxColumn('Fuste activo',default=True)
     })
-    st.caption('Fr: 1,45 (hasta 6 meses inclusive) o 1,65 (más de 6 meses). Adherencia admisible = adherencia límite / Fr. Fuste inactivo: resistencia nula.')
-    # Controles auxiliares se construyen despues de conocer el intervalo de calculo.
-
-    prof_activa=lmax*cos(radians(a))
-    iu_extra={}
-    presiones=None
-    modelo_error=None
-    filas_calculo=[]
-    fr=None
+    c1,c2=st.columns(2)
+    fr=ui(c1.selectbox,'selectbox','Fr común (tabla 3.2)',[1.45,1.65],index=[1.45,1.65].index(fr_inicial),key='fr_comun',
+        format_func=lambda x:f'{x:.2f} · '+('hasta 6 meses' if x==1.45 else 'más de 6 meses'))
+    principal=ui(c2.selectbox,'selectbox','Procedimiento principal',list(MODOS),key='inyeccion_principal',
+        help='Mixto utiliza la columna Inyección mixta; IU, IR o IRS aplica un procedimiento común.')
+    adicionales=ui(st.multiselect,'multiselect','Otros procedimientos para comparar',list(MODOS),default=list(TIPOS),key='inyecciones_comparar')
+    solicitados=list(dict.fromkeys([principal]+adicionales))
+    st.caption('IU resistente en primeros 5 m verticales; se exige únicamente el valor de adherencia realmente utilizado. Celdas vacías no equivalen a cero.')
+    prof_activa=lmax*cos(radians(a)); presiones=None; modelo_error=None; filas_calculo=[]
+    preparados={}; errores_inyeccion={}
     try:
         filas_prev=intervalos_desde_espesores(tabla.to_dict('records'))
         zrecon=filas_prev[-1]['fin_m']
         c1,c2=st.columns(2)
         c1.metric('Profundidad total reconocida',f'{zrecon:.2f} m')
         c2.metric('Profundidad máxima de cálculo',f'{prof_activa:.2f} m')
-        if prof_activa>zrecon+1e-8:
-            raise ValueError(f'La profundidad máxima de cálculo ({prof_activa:.2f} m) supera el perfil reconocido ({zrecon:.2f} m). No se extrapola.')
-        def dato_legado(i,f,k):
-            if i>=len(legado): return None
-            old=legado[i]
-            if any(old.get(c)!=f.get(c) for c in ('nombre','espesor_m','inyeccion','adlim_kPa')):
-                return None
-            v=old.get(k)
-            return float(v) if v is not None and not pd.isna(v) else None
-        especiales=[(i,f) for i,f in enumerate(filas_prev) if necesita_iu(f,prof_activa)]
-        if especiales:
-            st.info('En los primeros 5 m verticales se aplica IU incluso si el tipo ejecutado es IR o IRS. Introduzca solo los valores IU adicionales necesarios.')
-            for i,f in especiales:
-                iu_extra[i]=ui(st.number_input,'number_input',f"Adherencia límite IU (kPa) · fila {i+1}: {f['nombre']}",
-                    min_value=0.,value=dato_legado(i,f,'iu_kPa'),key=f'iu_{i}_{f["nombre"]}_{f["inyeccion"]}_{f["inicio_m"]}_{f["fin_m"]}')
+        if prof_activa>zrecon+1e-8: raise ValueError('La profundidad máxima supera el perfil reconocido. No se extrapola.')
         with st.expander('Control avanzado de aplicabilidad: presiones (opcional)'):
-            st.caption('No intervienen en la ecuación por fuste. Son condiciones de aplicación de la figura 3.3 (apartado 4.4.2). Sin datos, la verificación numérica queda pendiente ; no se considera verificada.')
-            verificar=ui(st.checkbox,'checkbox','Comprobar presiones numéricamente',value=any('pi_kPa' in x and 'plim_kPa' in x for x in legado))
+            st.caption('Control separado por procedimiento ejecutado y estrato. Si no se activa, aplicabilidad pendiente; no se declara verificada.')
+            verificar=ui(st.checkbox,'checkbox','Comprobar presiones por procedimiento',value=False,key='presiones_multi')
             if verificar:
                 presiones={}
                 for i,f in enumerate(filas_prev):
                     if f['activo'] and f['inicio_m']<prof_activa:
-                        c1,c2=st.columns(2)
-                        pi=ui(c1.number_input,'number_input',f"p_i (kPa) · fila {i+1}",min_value=0.,value=dato_legado(i,f,'pi_kPa'),key=f'pi_{i}_{f["nombre"]}_{f["inyeccion"]}')
-                        pl=ui(c2.number_input,'number_input',f"P_lím (kPa) · fila {i+1}",min_value=0.,value=dato_legado(i,f,'plim_kPa'),key=f'pl_{i}_{f["nombre"]}_{f["inyeccion"]}')
-                        presiones[i]=(pi,pl)
-        estratos,filas_calculo,fr=preparar_estratos(tabla.to_dict('records'),prof_activa,iu_extra,presiones)
-        meses=FR_DURACION[fr]
-        st.divider()
-        st.subheader('3 · Modelo geotécnico · Valores calculados')
-        st.caption('Solo tramos atravesados a la longitud axial máxima. Tabla de solo lectura.')
+                        tipos=list(dict.fromkeys(f['inyeccion'] if n=='Mixto' else n for n in solicitados))
+                        for tipo in tipos:
+                            c1,c2=st.columns(2)
+                            pi=ui(c1.number_input,'number_input',f'p_i (kPa) · fila {i+1} · {tipo}',min_value=0.,value=None,key=f'pi_multi_{i}_{tipo}')
+                            pl=ui(c2.number_input,'number_input',f'P_lím (kPa) · fila {i+1} · {tipo}',min_value=0.,value=None,key=f'pl_multi_{i}_{tipo}')
+                            presiones[i,tipo]=(pi,pl)
+        for n in solicitados:
+            try: preparados[n]=preparar(tabla.to_dict('records'),prof_activa,fr,n,presiones)
+            except (ValueError,TypeError,KeyError,OverflowError) as exc: errores_inyeccion[n]=str(exc)
+        for n,msg in errores_inyeccion.items(): st.warning(n+' · no evaluado: '+msg)
+        if principal not in preparados: raise ValueError('Revise los datos del procedimiento principal o seleccione uno evaluable.')
+        estratos,filas_calculo=preparados[principal]; meses=FR_DURACION[fr]
+        st.divider();st.subheader('3 · Valores calculados · '+principal)
         vista=pd.DataFrame(tabla_calculada(filas_calculo,resumen_aplicado(filas_calculo,prof_activa),a))
-        st.dataframe(vista,hide_index=True,use_container_width=True,column_config={
-            'nombre':'Unidad','inicio_m':st.column_config.NumberColumn('Inicio vertical (m)',format='%.2f'),
-            'fin_efectivo_m':st.column_config.NumberColumn('Fin vertical efectivo (m)',format='%.2f'),
-            'longitud_axial_m':st.column_config.NumberColumn('Longitud axial (m)',format='%.2f'),
-            'admisible_kPa':st.column_config.NumberColumn('Adherencia admisible (kPa)',format='%.2f'),
-            'criterio':'Observación'})
-        st.caption(f"Longitud axial total atravesada: {vista.longitud_axial_m.sum():.2f} m.")
+        vista['inyeccion_efectiva']=[t['inyeccion'] if t['activo'] else 'Inactivo' for t in resumen_aplicado(filas_calculo,prof_activa)]
+        st.dataframe(vista.style.format(precision=2,na_rep='—'),hide_index=True,use_container_width=True)
+        st.caption(f"Longitud axial atravesada: {vista.longitud_axial_m.sum():.2f} m.")
     except (ValueError,TypeError,KeyError,OverflowError) as exc:
-        modelo_error=str(exc)
-        st.info('Revise el modelo geotécnico: '+modelo_error)
+        modelo_error=str(exc);st.info('Revise el modelo geotécnico: '+modelo_error)
 
 # Calculo sobre entradas actuales en cada rerun; no se conserva un resultado obsoleto.
 cfg={'displaylogo':False,'toImageButtonOptions':{'format':'svg','filename':'micropilotes'}}
@@ -404,8 +390,57 @@ def mostrar_unitarios(modo,clave):
 
 unidades=pd.DataFrame()
 escenarios=pd.DataFrame()
+metodos_resultados={}
 if not error:
     unidades=unitarios(filas_calculo,casos)
+    metodos_resultados[principal]=dict(barrido=tabla_df,unitarios=unidades,armaduras=alternativas,detalle=filas_calculo,casos=casos)
+    for n,(es,de) in preparados.items():
+        if n==principal: continue
+        try:
+            metodos_resultados[n]=calcular_escenario(es,de,geometria,lmin,lmax,paso,a,meses,alterna,punta_teorica,alternativas)
+        except (ValueError,TypeError,KeyError,OverflowError) as exc:
+            errores_inyeccion[n]=str(exc)
+
+def mostrar_inyecciones(modo,clave,con_armadura=False):
+    if not metodos_resultados: return
+    diam=st.selectbox('Diámetro nominal (mm)',sorted(geometria),index=sorted(geometria).index(dmm),key=clave+'_d')
+    nombres=list(metodos_resultados)
+    elegidos=st.multiselect('Procedimientos representados',nombres,default=nombres,key=clave+'_i')
+    datos={n:metodos_resultados[n] for n in elegidos}
+    if not datos: return
+    campo='Rc_fuste_kN' if modo=='c' else 'Rt_fuste_kN'
+    q='qc_kN_m' if modo=='c' else 'qt_kN_m'
+    ed=nc if modo=='c' else nt
+    st.plotly_chart(curvas_inyeccion(datos,diam,modo,ed=ed),use_container_width=True,config=cfg,key=clave+'_curvas')
+    b=combinar(datos,'barrido'); b=b[b.D_mm.sub(diam).abs()<1e-7]
+    tabla_prof(b.pivot(index='L_m',columns='procedimiento',values=campo),True)
+    st.plotly_chart(barras_inyeccion(datos,diam,modo),use_container_width=True,config=cfg,key=clave+'_barras')
+    u=combinar(datos,'unitarios');u=u[u.D_mm.sub(diam).abs()<1e-7]
+    tabla_prof(u.pivot(index=['tramo','unidad','z_inicio_m','z_fin_m'],columns='procedimiento',values=q).reset_index())
+    st.caption('kN/ml locales por tramo; el valor IU se aplica en los primeros 5 m verticales. Sin medias ni punta.')
+    if con_armadura:
+        aa=[x['alternativa'] for x in alternativas if x['D_mm']==diam and x.get('limite_'+modo+'_kN') is not None]
+        if aa:
+            opcion=st.selectbox('Armadura compatible',aa,key=clave+'_arm')
+            st.plotly_chart(curvas_inyeccion(datos,diam,modo,opcion,ed),use_container_width=True,config=cfg,key=clave+'_env')
+            filas=[]
+            for n,r in datos.items():
+                ar=[x for x in r['armaduras'] if x['alternativa']==opcion]
+                p=matriz_parcial(r['barrido'],ar,modo)
+                z=p.rename(columns={opcion:n})
+                filas.append(z)
+            mat=pd.concat(filas,axis=1)
+            tabla_prof(mat,True)
+            if ed is not None:
+                ap=aprovechamiento(mat,ed)
+                st.plotly_chart(mapa(ap),use_container_width=True,config=cfg,key=clave+'_ap')
+                tabla_prof(ap,True)
+                ll=[]
+                for n,r in datos.items():
+                    df=longitudes(r['barrido'],[x for x in r['armaduras'] if x['alternativa']==opcion],modo,ed)
+                    df.insert(0,'procedimiento',n);ll.append(df)
+                tabla_prof(pd.concat(ll,ignore_index=True))
+            st.caption('Comparación parcial con las mismas hipótesis estructurales; no equivale a conformidad global.')
 
 def fig_armadura(fila,L,capacidades,modo):
     campo='limite_c_kN' if modo=='c' else 'limite_t_kN'
@@ -466,6 +501,9 @@ for tab,modo,carga in [(comp,'c',nc),(tract,'t',nt)]:
         if error:
             st.info('Revise las entradas: '+error)
             continue
+        st.caption('Procedimiento principal: '+principal)
+        with st.expander('Comparativa IU / IR / IRS / mixto'):
+            mostrar_inyecciones(modo,'met_'+modo)
         campo='Rc_fuste_kN' if modo=='c' else 'Rt_fuste_kN'
         st.metric('Resistencia por fuste a L máxima · D principal',f"{casos[dmm]['fuste_compresion' if modo=='c' else 'fuste_traccion']:.2f} kN")
         st.plotly_chart(fig_capacidad(tabla_df,modo,carga),use_container_width=True,config=cfg,key='cap_'+modo)
@@ -522,6 +560,12 @@ with compare:
     st.subheader('Comparación de soluciones')
     if error: st.info(error)
     else:
+        st.caption('Procedimiento principal: '+principal)
+        with st.expander('Comparación multiprocedimiento',expanded=True):
+            for n,msg in errores_inyeccion.items(): st.warning(n+' · no evaluado: '+msg)
+            tabla_prof(filas_comparativas(metodos_resultados))
+            modo_m=st.selectbox('Modo resistente',['Compresión','Tracción'],key='met_cmp_modo')
+            mostrar_inyecciones('c' if modo_m=='Compresión' else 't','met_cmp',True)
         st.dataframe(tabla_df.pivot(index='L_m',columns='D_mm',values=['Rc_fuste_kN','Rt_fuste_kN']).style.format(precision=2),use_container_width=True)
         if nc is not None or nt is not None:
             soluciones=[]
@@ -571,6 +615,19 @@ with export:
         if estruct:
             entrada['armaduras']=dict(tubos=[propiedades(t) for t in tubos],calidad=calidad,fy_MPa=fy,material=material,uso=uso,terreno=terreno,vida=vida,corrosion_mm=re,union=union,ejecucion=ejec,coaccion=coaccion,CR=cr,H_m=H,Dr_mm=Dr,empalme_mm=emp,uc_kN=uc,ut_kN=ut,compuesto=completo,fck_MPa=fck,relleno=relleno,referencia=sr,error_entrada=arm_error)
         salida=dict(version=VERSION,entrada=entrada,barrido=json.loads(tabla_df.to_json(orient='records')),detalle_Lmax={str(k):v for k,v in casos.items()},armaduras=json.loads(pd.DataFrame(alternativas).to_json(orient='records')),estado='prototipo; punta máxima hipotética no verificada; capacidades parciales')
+        entrada['procedimiento_principal']=principal
+        entrada['adherencias_MPa']=json.loads(tabla.to_json(orient='records'))
+        entrada['procedimientos_solicitados']=solicitados
+        salida['inyecciones_no_evaluadas']=errores_inyeccion
+        salida['resultados_inyeccion']={n:dict(barrido=json.loads(r['barrido'].to_json(orient='records')),
+            unitarios=json.loads(r['unitarios'].to_json(orient='records')),
+            armaduras=json.loads(pd.DataFrame(r['armaduras']).to_json(orient='records')),
+            estratos=r['detalle'],detalle_Lmax={str(k):v for k,v in r['casos'].items()}) for n,r in metodos_resultados.items()}
+        # Dataframes normalizan NaN/None en entradas no utilizadas para JSON estricto.
+        for r in salida['resultados_inyeccion'].values():
+            r['estratos']=json.loads(pd.DataFrame(r['estratos']).to_json(orient='records'))
+        st.download_button('Comparativa de inyecciones · CSV (fuste)',combinar(metodos_resultados,'barrido').to_csv(index=False).encode('utf-8-sig'),'inyecciones_fuste.csv','text/csv')
+        st.download_button('Comparativa de inyecciones · CSV (kN/ml)',combinar(metodos_resultados,'unitarios').to_csv(index=False).encode('utf-8-sig'),'inyecciones_unitarias.csv','text/csv')
         salida['unitarios']=json.loads(unidades.to_json(orient='records'))
         salida['sensibilidad']=json.loads(escenarios.to_json(orient='records')) if not escenarios.empty else []
         st.download_button('Resistencias unitarias CSV (kN/ml)',unidades.to_csv(index=False).encode('utf-8-sig'),'resistencias_unitarias.csv','text/csv')

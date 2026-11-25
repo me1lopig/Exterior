@@ -34,7 +34,7 @@ def tablas(s):
     d=[]
     for diam,r in s['detalle_Lmax'].items():
         d.extend([dict(D_mm=float(diam),**t) for t in r['tramos']])
-    conf={k:v for k,v in e.items() if k not in ('estratos','armaduras')}
+    conf={k:v for k,v in e.items() if k not in ('estratos','armaduras','adherencias_MPa')}
     ge=pd.DataFrame(e['estratos'])
     cc=['D_mm','L_m','z_m','Rc_fuste_kN','punta_max_hipotetica_kN','Rc_max_hipotetica_kN']
     tt=['D_mm','L_m','z_m','Rt_fuste_kN']
@@ -65,6 +65,23 @@ def tablas(s):
                 base['Aprovechamiento_'+n]=aprovechamiento(p,ed).reset_index()
                 base['Longitudes_'+n]=longitudes(b,s['armaduras'],m,ed)
     if s.get('sensibilidad'): base['Sensibilidad']=pd.DataFrame(s['sensibilidad'])
+    if e.get('adherencias_MPa'): base['Adherencias_MPa']=pd.DataFrame(e['adherencias_MPa'])
+    if s.get('inyecciones_no_evaluadas'):
+        base['Inyecciones_pendientes']=pd.DataFrame([{'procedimiento':n,'motivo':v} for n,v in s['inyecciones_no_evaluadas'].items()])
+    for n,r in s.get('resultados_inyeccion',{}).items():
+        b2=pd.DataFrame(r['barrido']);u=pd.DataFrame(r['unitarios']);ar2=r['armaduras']
+        base[n+'_Fuste']=b2
+        base[n+'_Unitarios']=u
+        base[n+'_Estratos']=pd.DataFrame(r['estratos'])
+        if ar2: base[n+'_Armaduras']=pd.DataFrame(ar2)
+        for m,suf in [('c','C'),('t','T')]:
+            if ar2:
+                mat=matriz_parcial(b2,ar2,m)
+                base[n+'_Env_'+suf]=mat.reset_index()
+                ed=e.get('Nc_Ed_kN' if m=='c' else 'Nt_Ed_kN')
+                if ed is not None:
+                    base[n+'_Aprov_'+suf]=aprovechamiento(mat,ed).reset_index()
+                    base[n+'_Long_'+suf]=longitudes(b2,ar2,m,ed)
     return base
 
 def valor(v):
@@ -155,10 +172,25 @@ def figura_unitaria(s,modo):
     ax.invert_yaxis();ax.grid(alpha=.2);ax.legend(fontsize=8,ncol=2);f.tight_layout()
     out=BytesIO();f.savefig(out,format='png');out.seek(0);return out
 
+def figura_inyecciones(s,modo,diam):
+    campo='Rc_fuste_kN' if modo=='Compresión' else 'Rt_fuste_kN'
+    f=Figure(figsize=(8.3,4.1),dpi=160);ax=f.subplots()
+    colores={'IU':'#64748b','IR':'#2563eb','IRS':'#0d9488','Mixto':'#7c3aed'}
+    for n,r in s['resultados_inyeccion'].items():
+        b=pd.DataFrame(r['barrido']);g=b[b.D_mm.sub(diam).abs()<1e-7]
+        ax.plot(g.L_m,g[campo],label=n,color=colores[n],lw=2,linestyle={'IU':':','IR':'--','IRS':'-','Mixto':'-.'}[n])
+    ax.set(title=f'{modo} · Ø {diam:g} mm · comparación de inyección',xlabel='Longitud axial (m)',ylabel='Resistencia por fuste (kN)')
+    ax.grid(alpha=.2);ax.legend(fontsize=8);f.tight_layout()
+    out=BytesIO();f.savefig(out,format='png');out.seek(0);return out
+
 def figuras_documento(s):
     out=[('Perfil geotécnico',perfil(s)),('Compresión',figura(s,'Compresión')),('Tracción',figura(s,'Tracción'))]
     if s.get('unitarios'):
         out.extend([(m+' · resistencia unitaria',figura_unitaria(s,m)) for m in ('Compresión','Tracción')])
+    if s.get('resultados_inyeccion'):
+        for d in sorted({float(x['D_mm']) for x in s['barrido']}):
+            for m in ('Compresión','Tracción'):
+                out.append((f'{m} · inyecciones · Ø {d:g} mm',figura_inyecciones(s,m,d)))
     return out
 
 def resumen(s):
@@ -171,12 +203,25 @@ def resumen(s):
         u=pd.DataFrame(s['unitarios'])
         # Formato largo evita tablas demasiado anchas en Word/PDF.
         out.append(('Resistencia unitaria por tramo (kN/ml)',u[['unidad','z_inicio_m','z_fin_m','inyeccion_efectiva','D_mm','qc_kN_m','qt_kN_m']]))
+    if s['entrada'].get('adherencias_MPa'):
+        out.append(('Adherencias límite de entrada (MPa)',pd.DataFrame(s['entrada']['adherencias_MPa'])))
+    if s.get('resultados_inyeccion'):
+        bb=[];uu=[]
+        for n,r in s['resultados_inyeccion'].items():
+            g=pd.DataFrame(r['barrido']).groupby('D_mm',as_index=False).tail(1).copy()
+            g.insert(0,'procedimiento',n);bb.append(g)
+            u=pd.DataFrame(r['unitarios']);u.insert(0,'procedimiento',n);uu.append(u)
+        out.append(('Comparación por procedimiento a longitud máxima',pd.concat(bb,ignore_index=True)[['procedimiento','D_mm','L_m','Rc_fuste_kN','Rt_fuste_kN']]))
+        out.append(('Resistencias unitarias por procedimiento (kN/ml)',pd.concat(uu,ignore_index=True)[['procedimiento','z_inicio_m','z_fin_m','inyeccion_efectiva','D_mm','qc_kN_m','qt_kN_m']]))
+    if s.get('inyecciones_no_evaluadas'):
+        out.append(('Procedimientos no evaluados',pd.DataFrame([{'procedimiento':n,'motivo':v} for n,v in s['inyecciones_no_evaluadas'].items()])))
     return out
 
 def introduccion(s):
     e=s['entrada']
     return [f"Proyecto: {e['proyecto']} | Autor: {e.get('autor','')} | Revisión: {e.get('revision','')}",
         f"Versión: {s['version']} | Longitudes {e['L_min_m']:.2f}–{e['L_max_m']:.2f} m | Paso {e['paso_m']:.2f} m | Inclinación {e['angulo_grados']:.2f}° | Fr {e['Fr']}",
+        'Procedimiento principal: '+str(e.get('procedimiento_principal','Según modelo geotécnico'))+'. Las comparaciones emplean las mismas hipótesis estructurales.',
         'Compresión: sumatorio de pi D Li rf,lim / Fr. Tracción por fuste: eta por la resistencia de compresión. IU en los primeros 5 m verticales.',
         'Acero: área residual geométrica; fyd,c = min(fy/1,10; 400 MPa); Nc,acero = Aa fyd,c R/(1,20 Fe); Nt,acero = Aa fy/(1,10 x 1,10). Aa incluye el factor de unión correspondiente.',
         'El Excel y CSV contienen el barrido completo. Esta memoria recoge las capacidades a longitud máxima y las figuras del intervalo.']
