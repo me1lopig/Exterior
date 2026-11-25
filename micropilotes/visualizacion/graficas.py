@@ -20,7 +20,9 @@ def _estilo(fig, titulo, altura=470):
     fig.update_yaxes(showgrid=True,gridcolor='#e2e8f0',zeroline=False)
     return fig
 
-def perfil_adherencias(filas, r, longitud, angulo):
+def perfil_adherencias(filas, r, longitud, angulo, *, series=None,
+                       titulo_derecha='Adherencias aplicadas', unidad='Adherencia (kPa)',
+                       titulo='Perfil geotécnico reconocido y adherencias efectivas', entrada=False):
     """Profundidades verticales compartidas; micropilote de grosor simbolico."""
     zmax=filas[-1]['fin_m']
     xfin=longitud*sin(radians(angulo))
@@ -28,7 +30,7 @@ def perfil_adherencias(filas, r, longitud, angulo):
     xmin,xmax=-margen,xfin+margen
     fig=make_subplots(rows=1,cols=2,shared_yaxes=True,
                       column_widths=[.52,.48],horizontal_spacing=.12,
-                      subplot_titles=['Perfil longitudinal','Adherencias aplicadas'])
+                      subplot_titles=['Perfil longitudinal',titulo_derecha])
     paleta=['#e6ded0','#d3baa2','#f0e3b9','#c8c7b9','#d4e2e4']
     for i,f in enumerate(filas):
         za,zb=f['inicio_m'],f['fin_m']
@@ -37,19 +39,28 @@ def perfil_adherencias(filas, r, longitud, angulo):
                       fill='toself',fillcolor=c,line=dict(color='#948a7b',width=.8),
                       name=escape(str(f['nombre'])),showlegend=False,
                       hovertemplate=escape(str(f['nombre']))+'<br>'+f'{za:.2f} a {zb:.2f} m'+'<extra></extra>'),row=1,col=1)
-        fig.add_annotation(x=xmax,y=(za+zb)/2,text=escape(str(f['nombre']))+' · '+str(f['inyeccion']),
+        etiqueta=escape(str(f['nombre']))
+        if series is None: etiqueta+=' · '+str(f['inyeccion'])
+        if not f['activo']: etiqueta+=' · Fuste inactivo'
+        fig.add_annotation(x=xmax,y=(za+zb)/2,text=etiqueta,
                            xanchor='right',showarrow=False,font=dict(size=10,color='#334155'),
                            bgcolor='rgba(255,255,255,.7)',row=1,col=1)
     fig.add_trace(go.Scatter(x=[0,xfin],y=[0,r['profundidad']],mode='lines+markers',
                   line=dict(color='#334155',width=7),marker=dict(size=6),name='Eje micropilote',
                   hovertemplate='x=%{x:.2f} m<br>z=%{y:.2f} m<extra></extra>'),row=1,col=1)
-    for campo,nombre,color in [('r_lim','Adherencia limite',AZUL),('r_calculo','Adherencia de calculo',VERDE)]:
-        xs,ys=[],[]
-        for t in r['tramos']:
-            xs.extend([t[campo],t[campo]])
-            ys.extend([t['z_inicio'],t['z_fin']])
-        fig.add_trace(go.Scatter(x=xs,y=ys,mode='lines',line=dict(color=color,width=3),name=nombre,
-                      hovertemplate='%{x:.1f} kPa · z=%{y:.2f} m<extra></extra>'),row=1,col=2)
+    if series is None:
+        series=[]
+        for campo,nombre,color in [('r_lim','Adherencia límite',AZUL),('r_calculo','Adherencia de cálculo',VERDE)]:
+            xs,ys=[],[]
+            for t in r['tramos']:
+                xs.extend([t[campo],t[campo]])
+                ys.extend([t['z_inicio'],t['z_fin']])
+            series.append(dict(nombre=nombre,x=xs,y=ys,color=color,dash='solid'))
+    u='kN/ml' if 'kN/ml' in unidad else 'kPa'
+    for s in series:
+        fig.add_trace(go.Scatter(x=s['x'],y=s['y'],mode='lines',connectgaps=False,
+                      line=dict(color=s['color'],dash=s['dash'],width=2.8),name=s['nombre'],
+                      hovertemplate='%{x:.2f} '+u+' · z=%{y:.2f} m<extra>%{fullData.name}</extra>'),row=1,col=2)
     zpunta=r['profundidad']
     if zmax-zpunta>1e-8:
         for col in (1,2):
@@ -67,10 +78,10 @@ def perfil_adherencias(filas, r, longitud, angulo):
     if zmax>=5:
         fig.add_hline(y=5,line=dict(color=NARANJA,dash='dash',width=1.5),row=1,col=1)
         fig.add_hline(y=5,line=dict(color=NARANJA,dash='dash',width=1.5),
-                      annotation_text='Limite IU: 5 m',annotation_position='top right',row=1,col=2)
-    _estilo(fig,'Perfil geotécnico reconocido y adherencias efectivas',540)
+                      annotation_text='Referencia 5 m (sin aplicar)' if entrada else 'Límite IU: 5 m',annotation_position='top right',row=1,col=2)
+    _estilo(fig,titulo,540)
     fig.update_xaxes(title_text='Desplazamiento horizontal (m)',range=[xmin,xmax],row=1,col=1)
-    fig.update_xaxes(title_text='Adherencia (kPa)',rangemode='tozero',row=1,col=2)
+    fig.update_xaxes(title_text=unidad,rangemode='tozero',row=1,col=2)
     fig.update_yaxes(title_text='Profundidad vertical (m)',range=[zmax,0],row=1,col=1)
     fig.update_yaxes(range=[zmax,0],row=1,col=2)
     return fig

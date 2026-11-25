@@ -2,7 +2,7 @@
 
 **Diseño paramétrico axial de micropilotes mediante correlaciones empíricas**
 
-![Versión](https://img.shields.io/badge/versión-0.7.1-183B56)
+![Versión](https://img.shields.io/badge/versión-0.7.2-183B56)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Interfaz-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![Estado](https://img.shields.io/badge/Estado-Prototipo-orange)
@@ -29,7 +29,7 @@ Herramienta de predimensionamiento geotécnico para estudiar micropilotes aislad
 
 ## Funcionalidades
 
-| Área | Prestaciones de la v0.7.1 |
+| Área | Prestaciones de la v0.7.2 |
 |---|---|
 | Geotecnia | Espesores verticales, adherencias límite directas, inyección IU/IR/IRS por tramo, Fr y fuste activo |
 | Barrido paramétrico | Longitud axial mínima, máxima e incremento; inclinación y múltiples diámetros |
@@ -292,7 +292,7 @@ No se incorporan al barrido peso propio favorable ni rozamiento negativo. Tampoc
 ---
 
 **Geo_App · Ingeniería geotécnica y herramientas de cálculo**  
-Versión documentada: **v0.7.1** · Noviembre de 2026.
+Versión documentada: **v0.7.2** · Noviembre de 2026.
 
 ## Resultados profesionales v0.6.0
 
@@ -301,3 +301,7 @@ Resistencia unitaria local por tramo efectivo (kN/ml), q = π D × adherencia ad
 ## Análisis multiprocedimiento v0.7.0
 
 Entrada única de adherencias límite IU, IR e IRS en MPa, Fr común y escenario principal Mixto/IU/IR/IRS. Comparaciones por diámetro, tramo, acción y armadura. Los escenarios incompletos se notifican sin sustituir datos ausentes. Los primeros 5 m verticales usan IU. Presiones opcionales por procedimiento ejecutado; migración de JSON esquema 1 sin inventar valores y esquema 2 para nuevos proyectos. Revisar presiones antiguas. Exportación CSV y JSON por procedimiento, Excel por escenario y Word/PDF con comparativas por diámetro. Las condiciones estructurales son comunes; sin mediciones, ni cambios en motor axial. Pendiente validación normativa independiente y ejecución integral de Streamlit.
+
+### Perfil geotécnico configurable (v0.7.2)
+
+En Geotecnia, apartado 4, se puede elegir adherencias de cálculo o límite por procedimiento, las dos del principal, adherencias límite originales sin aplicar criterios, o resistencia unitaria por diámetro y solicitación. Los datos originales abarcan el perfil reconocido y conservan huecos; los resultados se limitan a la punta y proceden del motor. El perfil izquierdo mantiene la estratigrafía y el eje del micropilote. SVG desde la barra de Plotly. Los informes Word/PDF conservan sus figuras previas.

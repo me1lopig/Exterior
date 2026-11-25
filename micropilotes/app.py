@@ -1,4 +1,4 @@
-"""Geo_App Micropilotes · interfaz parametrica v0.7.1."""
+"""Geo_App Micropilotes · interfaz parametrica v0.7.2."""
 from math import cos, radians
 from dataclasses import asdict
 import json
@@ -26,8 +26,9 @@ from modelos.inyecciones import TIPOS, MODOS, COLS, migrar, preparar
 from modelos.adherencias import coeficiente_comun
 from resultados.inyecciones import calcular_escenario, filas_comparativas, combinar
 from visualizacion.inyecciones import curvas_inyeccion, barras_inyeccion
+from visualizacion.perfiles import series_entrada, series_efectivas
 
-VERSION='0.7.1'
+VERSION='0.7.2'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
 # Proyecto versionado: las entradas cargadas se usan como valores iniciales; no se confía en resultados externos.
 from servicios.proyecto import cargar as cargar_proyecto, serializar as serializar_proyecto
@@ -479,8 +480,58 @@ with geot:
     else:
         st.divider()
         st.subheader('4 · Representación gráfica')
-        st.plotly_chart(perfil_adherencias(filas_calculo,casos[dmm],lmax,a),use_container_width=True,config=cfg,key='perfil_041')
-        st.caption('Perfil completo reconocido; zona gris por debajo de la punta. Grosor del micropilote simbólico; adherencias efectivas solo hasta la longitud máxima.')
+        modalidad=st.selectbox('Magnitud a representar',[
+            'Adherencias de cálculo · comparativa',
+            'Adherencias límite · comparativa',
+            'Procedimiento principal · límite y cálculo',
+            'Adherencias de entrada · sin aplicar criterios',
+            'Resistencias unitarias por fuste (kN/ml)'
+        ],key='perfil_modalidad')
+        r_perfil=casos[dmm]
+        if modalidad=='Procedimiento principal · límite y cálculo':
+            fig_perfil=perfil_adherencias(filas_calculo,r_perfil,lmax,a,
+                titulo=f'Perfil geotécnico · procedimiento principal: {principal}')
+            nota='Adherencias efectivas del procedimiento principal, hasta la punta.'
+        else:
+            entrada_perfil=modalidad=='Adherencias de entrada · sin aplicar criterios'
+            disponibles=list(TIPOS) if entrada_perfil else [n for n in (*TIPOS,'Mixto') if n in metodos_resultados]
+            defecto=[n for n in disponibles if n!='Mixto'] or disponibles
+            seleccion=st.multiselect('Procedimientos de inyección',disponibles,default=defecto,
+                key='perfil_metodos_entrada' if entrada_perfil else 'perfil_metodos_efectivos')
+            if entrada_perfil:
+                ss=series_entrada(filas_calculo,seleccion)
+                for n in seleccion:
+                    if not any(s['nombre']==n for s in ss): st.info(n+' · sin valores de entrada.')
+                titulo='Adherencias límite originales · perfil reconocido'
+                subtitulo='Valores de entrada (sin minorar)'
+                unidad_perfil='Adherencia límite (kPa)'
+                nota='Valores originales en todo el perfil reconocido: sin Fr, sin restricción IU superficial y sin anular el fuste inactivo. Huecos = datos ausentes; no son resistencias de cálculo.'
+            elif modalidad=='Resistencias unitarias por fuste (kN/ml)':
+                c1,c2=st.columns(2)
+                dp_perfil=c1.selectbox('Diámetro nominal (mm)',sorted(geometria),index=sorted(geometria).index(dmm),key='perfil_diam')
+                sol_perfil=c2.selectbox('Solicitación',['Compresión','Tracción'],key='perfil_solicitacion')
+                campo='qc_kN_m' if sol_perfil=='Compresión' else 'qt_kN_m'
+                ss=series_efectivas(metodos_resultados,seleccion,dp_perfil,campo)
+                r_perfil=casos[dp_perfil]
+                titulo=f'Resistencia unitaria por fuste · Ø {dp_perfil:g} mm · {sol_perfil}'
+                subtitulo='Resistencias por procedimiento'
+                unidad_perfil='Resistencia unitaria (kN/ml)'
+                nota='Resistencia local por metro axial, sin medias ni límite de armadura. IU superficial y fuste inactivo ya considerados por el motor.'
+            else:
+                limite=modalidad=='Adherencias límite · comparativa'
+                campo='r_lim' if limite else 'r_calculo'
+                ss=series_efectivas(metodos_resultados,seleccion,dmm,campo)
+                subtitulo='Adherencias límite efectivas' if limite else 'Adherencias de cálculo efectivas'
+                titulo='Perfil geotécnico · '+subtitulo
+                unidad_perfil='Adherencia límite (kPa)' if limite else 'Adherencia de cálculo (kPa)'
+                nota='Resultados de escenarios evaluados; IU en los primeros 5 m verticales. '+('Sin minorar por Fr.' if limite else 'Adherencias ya minoradas por Fr.')
+            if not entrada_perfil:
+                for n,msg in errores_inyeccion.items(): st.caption(n+' · no evaluado: '+msg)
+            if not ss: st.info('Seleccione al menos un procedimiento con datos disponibles.')
+            fig_perfil=perfil_adherencias(filas_calculo,r_perfil,lmax,a,series=ss,
+                titulo_derecha=subtitulo,unidad=unidad_perfil,titulo=titulo,entrada=entrada_perfil)
+        st.plotly_chart(fig_perfil,use_container_width=True,config=cfg,key='perfil_041')
+        st.caption('Perfil completo reconocido; zona gris por debajo de la punta. Grosor del micropilote simbólico. '+nota)
         if presiones is None: st.caption('Control numérico de presiones no realizado (condiciones de aplicación: guía 4.4.2).')
         with st.expander('5 · Resistencias unitarias por tramo (kN/ml)'):
             modo_geo=st.selectbox('Modo',['Compresión','Tracción'],key='unit_geo_modo')

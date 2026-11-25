@@ -1,5 +1,9 @@
 # Historial
 
+## 0.7.2 — 2026-11-25
+- Perfil geotécnico configurable: adherencias límite y de cálculo por procedimiento, escenario principal, valores de entrada y resistencias unitarias por diámetro y solicitación.
+- Diferenciación entre datos originales y efectivos, sin rellenar huecos ni recalcular resistencias. Pruebas específicas añadidas.
+
 ## 0.7.1 — 2026-11-25
 - Una única sección transversal a escala en Estructural, con corona de acero perdida en naranja, área nominal, residual y merma absoluta y porcentual. Sin cambios resistentes.
 - Pruebas de figura con pérdida positiva, nula e incompatible; comprobación aislada con Plotly, pendiente ejecución integral en Streamlit.
