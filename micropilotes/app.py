@@ -1,4 +1,4 @@
-"""Geo_App Micropilotes · interfaz parametrica v0.5.0."""
+"""Geo_App Micropilotes · interfaz parametrica v0.6.0."""
 from math import cos, radians
 from dataclasses import asdict
 import json
@@ -18,7 +18,10 @@ from modelos.adherencias import FR_DURACION, necesita_iu, preparar_estratos, res
 from visualizacion.graficas import perfil_adherencias, contribucion, seccion_transversal, comparacion_parcial
 from visualizacion.vista_geotecnica import tabla_calculada
 
-VERSION='0.5.0'
+from resultados.parametricos import (unitarios, matriz_unitaria, matriz_fuste, matriz_parcial, longitudes, aprovechamiento, sensibilidad)
+from visualizacion.parametricas import (perfil_unitario, barras_unitarias, multiples, barras_acero, inversa, mapa, grafica_sensibilidad)
+
+VERSION='0.6.0'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
 # Proyecto versionado: las entradas cargadas se usan como valores iniciales; no se confía en resultados externos.
 from servicios.proyecto import cargar as cargar_proyecto, serializar as serializar_proyecto
@@ -379,6 +382,31 @@ try:
 except (ValueError,TypeError,KeyError,OverflowError) as exc:
     error=str(exc)
 
+# Salidas derivadas de un único motor; no se modifican adherencias ni factores.
+def tabla_prof(df,indice=False):
+    st.dataframe(df.style.format(precision=2,na_rep='—'),hide_index=not indice,use_container_width=True)
+
+def elegir_alternativas(clave):
+    nombres=[v['alternativa'] for v in alternativas]
+    seleccion=st.multiselect('Alternativas a representar',nombres,default=nombres[:min(4,len(nombres))],key=clave)
+    return [v for v in alternativas if v['alternativa'] in seleccion]
+
+def mostrar_unitarios(modo,clave):
+    if unidades.empty: return
+    diametros=sorted(unidades.D_mm.unique())
+    ds=st.multiselect('Diámetros (mm)',diametros,default=diametros[:min(3,len(diametros))],key=clave+'_d')
+    if not ds: return
+    g=unidades[unidades.D_mm.isin(ds)]
+    st.plotly_chart(perfil_unitario(g,modo),use_container_width=True,config=cfg,key=clave+'_perfil')
+    st.plotly_chart(barras_unitarias(g,modo),use_container_width=True,config=cfg,key=clave+'_barras')
+    tabla_prof(matriz_unitaria(g,modo))
+    st.caption('kN/ml de eje axial: π D × adherencia admisible efectiva; sin medias, punta ni límite de acero.')
+
+unidades=pd.DataFrame()
+escenarios=pd.DataFrame()
+if not error:
+    unidades=unitarios(filas_calculo,casos)
+
 def fig_armadura(fila,L,capacidades,modo):
     campo='limite_c_kN' if modo=='c' else 'limite_t_kN'
     limite=fila[campo]
@@ -418,6 +446,19 @@ with geot:
         st.plotly_chart(perfil_adherencias(filas_calculo,casos[dmm],lmax,a),use_container_width=True,config=cfg,key='perfil_041')
         st.caption('Perfil completo reconocido; zona gris por debajo de la punta. Grosor del micropilote simbólico; adherencias efectivas solo hasta la longitud máxima.')
         if presiones is None: st.caption('Control numérico de presiones no realizado (condiciones de aplicación: guía 4.4.2).')
+        with st.expander('5 · Resistencias unitarias por tramo (kN/ml)'):
+            modo_geo=st.selectbox('Modo',['Compresión','Tracción'],key='unit_geo_modo')
+            mostrar_unitarios('c' if modo_geo=='Compresión' else 't','unit_geo')
+        with st.expander('6 · Sensibilidad de adherencias (opcional)'):
+            activa_sens=ui(st.checkbox,'checkbox','Evaluar escenarios uniformes de adherencia',value=False)
+            if activa_sens:
+                pct=ui(st.number_input,'number_input','Variación de adherencia (%)',min_value=0.,max_value=100.,value=20.,step=5.)
+                escenarios=sensibilidad(tabla_df,pct)
+                modo_sens=st.selectbox('Modo de sensibilidad',['Compresión','Tracción'],key='sens_modo')
+                ds=st.selectbox('Diámetro para sensibilidad (mm)',sorted(geometria),key='sens_d')
+                st.plotly_chart(grafica_sensibilidad(escenarios,ds,'c' if modo_sens=='Compresión' else 't'),use_container_width=True,config=cfg)
+                tabla_prof(escenarios[escenarios.D_mm.sub(ds).abs()<1e-7])
+                st.caption('Variación uniforme de adherencias; escenarios deterministas, no probabilidades. Sin punta ni acero; no verifica la aplicabilidad de valores modificados.')
 
 for tab,modo,carga in [(comp,'c',nc),(tract,'t',nt)]:
     with tab:
@@ -439,11 +480,24 @@ for tab,modo,carga in [(comp,'c',nc),(tract,'t',nt)]:
         st.dataframe(tabla_resultado,hide_index=True,use_container_width=True,column_config={k:st.column_config.NumberColumn(k,format='%.2f') for k in tabla_resultado.select_dtypes(include='number').columns})
         if carga is not None:
             st.caption('Comparación solo por fuste; no conformidad global ni inclusión de punta hipotética.')
-        mostrar_armadura(modo,'arm_'+modo)
+        with st.expander('Matriz de resistencias por fuste (kN)',expanded=True):
+            tabla_prof(matriz_fuste(tabla_df,modo),True)
+        with st.expander('Resistencia unitaria por tramo (kN/ml)'):
+            mostrar_unitarios(modo,'unit_'+modo)
+        with st.expander('Resistencia limitada por armadura'):
+            mostrar_armadura(modo,'arm_'+modo)
+            if alternativas:
+                aa=elegir_alternativas('alt_'+modo)
+                if aa: tabla_prof(matriz_parcial(tabla_df,aa,modo),True)
         elegido=st.selectbox('Longitud axial para detalle (m)',sorted(tabla_df.L_m.unique()),index=len(tabla_df.L_m.unique())-1,key='detalle_'+modo)
-        detalle=calcular(d,elegido,a,estratos,meses,alterna)
+        diam_det=st.selectbox('Diámetro nominal para detalle (mm)',sorted(geometria),index=sorted(geometria).index(dmm),key='diam_det_'+modo)
+        detalle=calcular(diam_det/1000,elegido,a,estratos,meses,alterna)
         st.plotly_chart(contribucion(detalle),use_container_width=True,config=cfg,key='tramos_'+modo)
         detalle_df=pd.DataFrame(detalle['tramos'])
+        detalle_df['qc_kN_m']=detalle_df.compresion/detalle_df.longitud_axial
+        detalle_df['qt_kN_m']=detalle_df.traccion/detalle_df.longitud_axial
+        detalle_df['Rc_acumulada_kN']=detalle_df.compresion.cumsum()
+        detalle_df['Rt_acumulada_kN']=detalle_df.traccion.cumsum()
         st.dataframe(detalle_df,hide_index=True,column_config={k:st.column_config.NumberColumn(k,format='%.2f') for k in detalle_df.select_dtypes(include='number').columns})
 with est:
     st.subheader('Armaduras · capacidades de sección')
@@ -452,10 +506,17 @@ with est:
     elif not alternativas: st.info('Seleccione secciones y revise los datos.')
     else:
         st.dataframe(pd.DataFrame(alternativas).style.format(precision=2,na_rep='—'),hide_index=True,use_container_width=True)
+        aa=elegir_alternativas('alt_est')
+        if aa:
+            st.plotly_chart(barras_acero(aa),use_container_width=True,config=cfg,key='barras_acero')
         if curvas_arm:
             j=st.selectbox('Sección transversal',range(len(curvas_arm)),format_func=lambda i:curvas_arm[i][0]['alternativa'])
             fila,tubo,_,_,_=curvas_arm[j]
-            st.plotly_chart(seccion_transversal(fila['D_mm'],fila['Dp_mm'],tubo.de_mm,tubo.t_mm,re,relleno),use_container_width=True,config=cfg,key='sec_042')
+            iz,de=st.columns(2)
+            iz.caption('Sección original')
+            iz.plotly_chart(seccion_transversal(fila['D_mm'],fila['Dp_mm'],tubo.de_mm,tubo.t_mm,0,relleno),use_container_width=True,config=cfg,key='sec_original')
+            de.caption('Sección residual')
+            de.plotly_chart(seccion_transversal(fila['D_mm'],fila['Dp_mm'],tubo.de_mm,tubo.t_mm,re,relleno),use_container_width=True,config=cfg,key='sec_042')
         st.warning('Capacidades parciales. La carga comercial no se utiliza como Rd. Geometría nominal; verificar uniones, tolerancias, corrosión y coacción real por longitud.')
 with compare:
     st.subheader('Comparación de soluciones')
@@ -474,8 +535,30 @@ with compare:
             st.markdown('**Alternativas terreno–armadura · resultados a L máxima**')
             cols=['alternativa','calidad','carga_catalogo_kN','limite_c_kN','limite_t_kN','L_cruce_c_m','L_cruce_t_m','Rc_parcial_Lmax_kN','Rt_parcial_Lmax_kN','estado']
             st.dataframe(pd.DataFrame(alternativas).reindex(columns=cols).style.format(precision=2,na_rep='—'),hide_index=True)
-            mostrar_armadura('c','comparar_c')
-            mostrar_armadura('t','comparar_t')
+            modo_cmp=st.selectbox('Modo de comparación',['Compresión','Tracción'],key='cmp_modo')
+            m='c' if modo_cmp=='Compresión' else 't'; ed=nc if m=='c' else nt
+            aa=elegir_alternativas('cmp_alt')
+            if aa:
+                env,apr,lng=st.tabs(['Envolventes','Aprovechamientos','Longitudes'])
+                p=matriz_parcial(tabla_df,aa,m)
+                with env:
+                    st.plotly_chart(multiples(tabla_df,aa,m,ed),use_container_width=True,config=cfg,key='env_multiple')
+                    tabla_prof(p,True)
+                    st.caption('Capacidades parciales; guion = no evaluada. No incluye punta hipotética.')
+                with apr:
+                    if ed is None: st.info('Introduzca una acción de cálculo opcional.')
+                    else:
+                        ap=aprovechamiento(p,ed)
+                        st.plotly_chart(mapa(ap),use_container_width=True,config=cfg,key='mapa_ap')
+                        tabla_prof(ap,True)
+                        st.caption('Porcentaje Ed/R parcial. Guion = no evaluada o capacidad nula; una capacidad nula no satisface una acción positiva.')
+                with lng:
+                    st.plotly_chart(inversa(tabla_df,aa,m),use_container_width=True,config=cfg,key='inv_cmp')
+                    if ed is not None: tabla_prof(longitudes(tabla_df,aa,m,ed))
+                    st.caption('Sin extrapolación; límite inferior del estudio y armadura respetados. Tramos planos no invertibles.')
+        with st.expander('Resistencias unitarias por tramo · comparativa'):
+            modo_u=st.selectbox('Modo unitario',['Compresión','Tracción'],key='cmp_unit_modo')
+            mostrar_unitarios('c' if modo_u=='Compresión' else 't','cmp_unit')
 with proy:
     try:
         st.download_button('Guardar proyecto JSON',serializar_proyecto(registrados,json.loads(tabla.to_json(orient='records')),VERSION),'micropilotes_proyecto.json','application/json')
@@ -488,6 +571,9 @@ with export:
         if estruct:
             entrada['armaduras']=dict(tubos=[propiedades(t) for t in tubos],calidad=calidad,fy_MPa=fy,material=material,uso=uso,terreno=terreno,vida=vida,corrosion_mm=re,union=union,ejecucion=ejec,coaccion=coaccion,CR=cr,H_m=H,Dr_mm=Dr,empalme_mm=emp,uc_kN=uc,ut_kN=ut,compuesto=completo,fck_MPa=fck,relleno=relleno,referencia=sr,error_entrada=arm_error)
         salida=dict(version=VERSION,entrada=entrada,barrido=json.loads(tabla_df.to_json(orient='records')),detalle_Lmax={str(k):v for k,v in casos.items()},armaduras=json.loads(pd.DataFrame(alternativas).to_json(orient='records')),estado='prototipo; punta máxima hipotética no verificada; capacidades parciales')
+        salida['unitarios']=json.loads(unidades.to_json(orient='records'))
+        salida['sensibilidad']=json.loads(escenarios.to_json(orient='records')) if not escenarios.empty else []
+        st.download_button('Resistencias unitarias CSV (kN/ml)',unidades.to_csv(index=False).encode('utf-8-sig'),'resistencias_unitarias.csv','text/csv')
         if alternativas:
             st.download_button('Comparación de armaduras CSV',pd.DataFrame(alternativas).to_csv(index=False).encode('utf-8-sig'),'armaduras.csv','text/csv')
         st.download_button('Proyecto y resultados JSON',json.dumps(salida,ensure_ascii=False,indent=2,allow_nan=False),'micropilotes_resultado.json','application/json')

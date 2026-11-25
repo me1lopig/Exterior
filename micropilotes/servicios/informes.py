@@ -15,6 +15,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from matplotlib.figure import Figure
 
+from resultados.parametricos import matriz_fuste, matriz_unitaria, matriz_parcial, aprovechamiento, longitudes
+
 LIMITACIONES=[
     'Predimensionamiento axial de micropilote aislado. No equivale a comprobación global ELU/ELS.',
     'Punta +15 % solo hipótesis máxima no verificada; no interviene en envolventes.',
@@ -45,11 +47,25 @@ def tablas(s):
     warnings=list(LIMITACIONES)
     if not e.get('control_presiones'): warnings.append('Control numérico de presiones no realizado.')
     if ar.get('error_entrada'): warnings.append(str(ar['error_entrada']))
-    return {'Proyecto':pd.DataFrame(plano(conf)),'Geotecnia':ge,'Coeficientes':pd.DataFrame(co),
+    base={'Proyecto':pd.DataFrame(plano(conf)),'Geotecnia':ge,'Coeficientes':pd.DataFrame(co),
             'Armaduras':pd.DataFrame(ar.get('tubos',[])),
             'Compresion':b.reindex(columns=cc),'Traccion':b.reindex(columns=tt),
             'Comparativas':a,'Detalle_Lmax':pd.DataFrame(d),
             'Advertencias':pd.DataFrame({'Advertencia':warnings})}
+    # Mantener hojas previas y añadir matrices desde los mismos resultados.
+    for m,n in [('c','C'),('t','T')]:
+        base['Matriz_Fuste_'+n]=matriz_fuste(b,m).reset_index()
+        if s.get('unitarios'):
+            base['Unitarios_'+n]=matriz_unitaria(pd.DataFrame(s['unitarios']),m)
+        if s.get('armaduras'):
+            p=matriz_parcial(b,s['armaduras'],m)
+            base['Envolventes_'+n]=p.reset_index()
+            ed=e.get('Nc_Ed_kN' if m=='c' else 'Nt_Ed_kN')
+            if ed is not None:
+                base['Aprovechamiento_'+n]=aprovechamiento(p,ed).reset_index()
+                base['Longitudes_'+n]=longitudes(b,s['armaduras'],m,ed)
+    if s.get('sensibilidad'): base['Sensibilidad']=pd.DataFrame(s['sensibilidad'])
+    return base
 
 def valor(v):
     if v is None: return None
@@ -65,7 +81,8 @@ def texto(v):
 
 def excel(s):
     wb=Workbook(); wb.remove(wb.active)
-    for nombre,df in tablas(s).items():
+    conjunto=tablas(s)
+    for nombre,df in conjunto.items():
         ws=wb.create_sheet(nombre)
         if len(df.columns)==0:
             ws.append(['Sin datos']);continue
@@ -83,7 +100,7 @@ def excel(s):
             ws.column_dimensions[get_column_letter(i)].width=min(65,max(14,max(sample)+2))
     ws=wb.create_sheet('Graficas')
     for pos,modo,col in [('A1','Compresion','Rc_fuste_kN'),('A19','Traccion','Rt_fuste_kN')]:
-        df=tablas(s)[modo]; src=wb[modo]; chart=ScatterChart()
+        df=conjunto[modo]; src=wb[modo]; chart=ScatterChart()
         chart.title='Fuste · '+modo;chart.x_axis.title='Longitud axial (m)';chart.y_axis.title='Resistencia (kN)'
         chart.width=23;chart.height=10;chart.scatterStyle='line'
         for diam,group in df.groupby('D_mm',sort=False):
@@ -126,12 +143,34 @@ def perfil(s):
     b.legend(fontsize=8);a.set_ylim(e['estratos'][-1]['fin_m'],0);f.tight_layout()
     out=BytesIO();f.savefig(out,format='png');out.seek(0);return out
 
+def figura_unitaria(s,modo):
+    df=pd.DataFrame(s['unitarios']);campo='qc_kN_m' if modo=='Compresión' else 'qt_kN_m'
+    f=Figure(figsize=(8.3,4.1),dpi=170);ax=f.subplots()
+    for d,g in df.groupby('D_mm'):
+        x=[];y=[]
+        for t in g.itertuples():
+            x.extend([getattr(t,campo)]*2);y.extend([t.z_inicio_m,t.z_fin_m])
+        ax.plot(x,y,lw=2,label=f'Ø {d:g} mm')
+    ax.set(xlabel='Resistencia unitaria (kN/ml)',ylabel='Profundidad vertical (m)',title=modo+' · fuste por metro axial')
+    ax.invert_yaxis();ax.grid(alpha=.2);ax.legend(fontsize=8,ncol=2);f.tight_layout()
+    out=BytesIO();f.savefig(out,format='png');out.seek(0);return out
+
+def figuras_documento(s):
+    out=[('Perfil geotécnico',perfil(s)),('Compresión',figura(s,'Compresión')),('Tracción',figura(s,'Tracción'))]
+    if s.get('unitarios'):
+        out.extend([(m+' · resistencia unitaria',figura_unitaria(s,m)) for m in ('Compresión','Tracción')])
+    return out
+
 def resumen(s):
     b=pd.DataFrame(s['barrido']);a=pd.DataFrame(s.get('armaduras',[]))
     ge=pd.DataFrame(s['entrada']['estratos'])
     out=[('Modelo geotécnico',ge.reindex(columns=['nombre','espesor_m','inyeccion','adlim_kPa','fr','activo'])),
          ('Capacidades a longitud máxima',b.groupby('D_mm',as_index=False).tail(1).reindex(columns=['D_mm','L_m','Rc_fuste_kN','Rt_fuste_kN'])),
          ('Armaduras y envolventes parciales',a.reindex(columns=['alternativa','limite_c_kN','limite_t_kN','Rc_parcial_Lmax_kN','Rt_parcial_Lmax_kN','estado']))]
+    if s.get('unitarios'):
+        u=pd.DataFrame(s['unitarios'])
+        # Formato largo evita tablas demasiado anchas en Word/PDF.
+        out.append(('Resistencia unitaria por tramo (kN/ml)',u[['unidad','z_inicio_m','z_fin_m','inyeccion_efectiva','D_mm','qc_kN_m','qt_kN_m']]))
     return out
 
 def introduccion(s):
@@ -154,7 +193,7 @@ def word(s):
         for c,v in zip(t.rows[0].cells,df.columns):c.text=str(v)
         for row in df.itertuples(index=False,name=None):
             for c,v in zip(t.add_row().cells,row):c.text=texto(v)
-    for title,buf in [('Perfil geotécnico',perfil(s)),('Compresión',figura(s,'Compresión')),('Tracción',figura(s,'Tracción'))]:
+    for title,buf in figuras_documento(s):
         doc.add_page_break();doc.add_heading(title,1);doc.add_picture(buf,width=Inches(6.2))
     doc.add_heading('Limitaciones y referencias',1)
     for v in tablas(s)['Advertencias']['Advertencia']:doc.add_paragraph(v)
@@ -173,7 +212,7 @@ def pdf(s):
         t=LongTable(rows,repeatRows=1,colWidths=[(size[0]-72)/len(df.columns)]*len(df.columns))
         t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#DCE8F0')),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#F3F6F8')]),('GRID',(0,0),(-1,-1),.25,colors.lightgrey),('VALIGN',(0,0),(-1,-1),'TOP')]))
         story.append(t)
-    for title,buf in [('Perfil geotécnico',perfil(s)),('Compresión',figura(s,'Compresión')),('Tracción',figura(s,'Tracción'))]:
+    for title,buf in figuras_documento(s):
         story.extend([PageBreak(),p(title,'Heading1'),Image(buf,width=670,height=370 if title=='Perfil geotécnico' else 331)])
     story.append(p('Limitaciones y referencias','Heading1'))
     for v in tablas(s)['Advertencias']['Advertencia']:story.append(p(v))

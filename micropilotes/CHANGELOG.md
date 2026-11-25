@@ -1,5 +1,11 @@
 # Historial
 
+## 0.6.0 — 2026-11-25
+- Resistencias unitarias por tramo efectivo y diámetro, perfiles y barras.
+- Matrices de fuste y armadura, envolventes simultáneas, aprovechamientos y longitudes necesarias.
+- Sensibilidad uniforme opcional, sección original/residual y detalle por diámetro.
+- Exportaciones ampliadas y pruebas específicas; pendiente ejecución integral y validación independiente.
+
 ## 0.5.0 — 2026-11-24
 - Selector de armaduras estable y tabla compacta.
 - Separación de tracción y pandeo; corrección de prueba de catálogo.
