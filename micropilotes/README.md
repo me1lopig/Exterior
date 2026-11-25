@@ -2,7 +2,7 @@
 
 **Diseño paramétrico axial de micropilotes mediante correlaciones empíricas**
 
-![Versión](https://img.shields.io/badge/versión-0.6.0-183B56)
+![Versión](https://img.shields.io/badge/versión-0.6.1-183B56)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Interfaz-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![Estado](https://img.shields.io/badge/Estado-Prototipo-orange)
@@ -29,7 +29,7 @@ Herramienta de predimensionamiento geotécnico para estudiar micropilotes aislad
 
 ## Funcionalidades
 
-| Área | Prestaciones de la v0.6.0 |
+| Área | Prestaciones de la v0.6.1 |
 |---|---|
 | Geotecnia | Espesores verticales, adherencias límite directas, inyección IU/IR/IRS por tramo, Fr y fuste activo |
 | Barrido paramétrico | Longitud axial mínima, máxima e incremento; inclinación y múltiples diámetros |
@@ -45,8 +45,8 @@ Herramienta de predimensionamiento geotécnico para estudiar micropilotes aislad
 
 ```mermaid
 flowchart TD
-    P[Proyecto] --> G[Configuración y modelo geotécnico]
-    P --> A[Geometría y armaduras]
+    P[Proyecto] --> A[Geometría y armaduras]
+    A --> G[Configuración y modelo geotécnico]
     G --> B[Barrido de longitudes]
     A --> B
     B --> C[Compresión por fuste]
@@ -63,15 +63,15 @@ flowchart TD
 | Pestaña | Contenido |
 |---|---|
 | 01 · Proyecto | Identificación, autor, revisión, nuevo proyecto, guardar y abrir JSON |
-| 02 · Geotecnia | Configuración de longitudes, estratos, valores calculados, perfil y adherencias |
-| 03 · Geometría | Diámetros nominales, perforación, selección múltiple de tubos, calidad y factores |
+| 02 · Geometría | Diámetros nominales, perforación, selección múltiple de tubos, calidad y factores |
+| 03 · Geotecnia | Configuración de longitudes, estratos, valores calculados, perfil y adherencias |
 | 04 · Compresión | Tablas, curvas de fuste, punta máxima hipotética opcional y límites de armadura disponibles |
 | 05 · Tracción | Tablas, curvas de arranque y límites de armadura disponibles |
 | 06 · Estructural | Capacidades parciales, geometría residual y sección transversal |
 | 07 · Comparativas | Alternativas, cruces, envolventes y longitudes por fuste cuando hay acciones |
 | 08 · Informes | Exportación de resultados y generación de documentos bajo demanda |
 
-La configuración se encuentra al principio de Geotecnia. Las tablas de entrada y de valores derivados están separadas. Los cambios de entradas provocan un nuevo cálculo; los informes generados se invalidan cuando cambia su contenido de origen.
+El flujo de entrada es secuencial: Proyecto → Geometría → Geotecnia. La configuración de longitudes se encuentra al principio de Geotecnia. Las tablas de entrada y de valores derivados están separadas. Los cambios de entradas provocan un nuevo cálculo; los informes generados se invalidan cuando cambia su contenido de origen.
 
 ## Modelo geotécnico
 
@@ -292,7 +292,7 @@ No se incorporan al barrido peso propio favorable ni rozamiento negativo. Tampoc
 ---
 
 **Geo_App · Ingeniería geotécnica y herramientas de cálculo**  
-Versión documentada: **v0.6.0** · Noviembre de 2026.
+Versión documentada: **v0.6.1** · Noviembre de 2026.
 
 ## Resultados profesionales v0.6.0
 

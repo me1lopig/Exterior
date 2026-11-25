@@ -1,5 +1,8 @@
 # Historial
 
+## 0.6.1 — 2026-11-25
+- Geometría pasa a la pestaña 02 y Geotecnia a la 03 para ordenar secuencialmente la entrada. Actualización de navegación y documentación, sin cambios en cálculos ni claves de proyecto.
+
 ## 0.6.0 — 2026-11-25
 - Resistencias unitarias por tramo efectivo y diámetro, perfiles y barras.
 - Matrices de fuste y armadura, envolventes simultáneas, aprovechamientos y longitudes necesarias.

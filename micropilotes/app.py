@@ -1,4 +1,4 @@
-"""Geo_App Micropilotes · interfaz parametrica v0.6.0."""
+"""Geo_App Micropilotes · interfaz parametrica v0.6.1."""
 from math import cos, radians
 from dataclasses import asdict
 import json
@@ -21,7 +21,7 @@ from visualizacion.vista_geotecnica import tabla_calculada
 from resultados.parametricos import (unitarios, matriz_unitaria, matriz_fuste, matriz_parcial, longitudes, aprovechamiento, sensibilidad)
 from visualizacion.parametricas import (perfil_unitario, barras_unitarias, multiples, barras_acero, inversa, mapa, grafica_sensibilidad)
 
-VERSION='0.6.0'
+VERSION='0.6.1'
 st.set_page_config(page_title='Geo_App | Micropilotes',layout='wide')
 # Proyecto versionado: las entradas cargadas se usan como valores iniciales; no se confía en resultados externos.
 from servicios.proyecto import cargar as cargar_proyecto, serializar as serializar_proyecto
@@ -68,8 +68,8 @@ def ui(fn,kind,label,*args,**kwargs):
 st.title('Geo_App · Micropilotes')
 st.caption('Diseño paramétrico axial | v'+VERSION+' | Guía DGC 2005')
 st.caption('Prototipo técnico · capacidades parciales de cálculo, no conformidad global. Datos iniciales sintéticos.')
-proy,geot,geom,comp,tract,est,compare,export=st.tabs([
-    '01 Proyecto','02 Geotecnia','03 Geometría','04 Compresión',
+proy,geom,geot,comp,tract,est,compare,export=st.tabs([
+    '01 Proyecto','02 Geometría','03 Geotecnia','04 Compresión',
     '05 Tracción','06 Estructural','07 Comparativas','08 Informes'])
 with proy:
     st.subheader('Identificación del proyecto')
@@ -93,7 +93,7 @@ with proy:
     autor=ui(st.text_input,'text_input','Autor (opcional)')
     revision=ui(st.text_input,'text_input','Revisión (opcional)','00')
     st.markdown('[Guía DGC 2005 — documento de referencia](https://cdn.transportes.gob.es/portal-web-transportes/carreteras/normativa_tecnica/08.1_guias_tecnicas/0710200.pdf)')
-    st.info('Flujo: configurar longitudes y definir el perfil en Geotecnia, seleccionar geometría y consultar resultados en las pestañas 04–08.')
+    st.info('Flujo: identificar el proyecto (01), definir diámetros y armaduras en Geometría (02), configurar longitudes y perfil en Geotecnia (03) y consultar resultados en las pestañas 04–08.')
 with geot:
     st.subheader('1 · Configuración del cálculo')
     c1,c2,c3=st.columns(3)
